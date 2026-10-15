@@ -98,4 +98,6 @@ RUN_BLENDER_TESTS=1 python3.12 -m unittest discover -s tests -p test_blender_rou
 
 Set `BLENDER=/absolute/path/to/blender` if needed. Render integration and human approval are separate checks described in the [validation plan](docs/validation-plan.md).
 
+The [engineering verification record](docs/verification.md) describes the local tests and render checks performed for this milestone.
+
 The [original technical proposal](docs/technical-prototype.md) contains the staged experiments and their unmeasured targets. The next decision is whether the deterministic authored-set sequence passes visual and replay review. Real-asset preparation, opaque/glass world comparisons, the browser editor, assistance, and user pilots follow their respective gates.

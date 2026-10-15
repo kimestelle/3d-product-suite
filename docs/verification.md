@@ -14,7 +14,9 @@ The unit checks cover absolute-time scrubbing, component-local axes/pivots, scre
 
 The full review job uses 270 × 480, 8 samples per pixel, 24 fps, and all 360 frames. This is a noisy engineering draft; it is not the final 1080 × 1920 reel or an appearance approval.
 
-An actual cancellation stopped this job after 72 complete frames. Resume retained those frames and started a second recorded attempt. A separately rerendered frame 1 had identical decoded RGB pixels on this same machine (raw-pixel MD5 `306e84e8241ff78c827504df37af8d0c`). The PNG file hashes differ because the encoder includes metadata; no cross-hardware bit-identity claim is made.
+The job succeeded with all 360 verified frame hashes, an MP4, a reopenable Blender scene, three draft stills, and a full-sequence contact sheet. FFprobe independently confirmed 270 × 480, 24/1 fps, 360 decoded frames, and exactly 15.000000 seconds. Reopening the successful job left it unchanged after rechecking its source snapshots and artifact hashes.
+
+An actual cancellation stopped this job after 72 complete frames. Resume retained those frames. A further restart exercised the final recovery implementation; the manifest records two cancelled attempts and one successful attempt. A separately rerendered frame 1 had identical decoded RGB pixels on this same machine (raw-pixel MD5 `306e84e8241ff78c827504df37af8d0c`). The PNG file hashes differ because the encoder includes metadata; no cross-hardware bit-identity claim is made.
 
 Three separate portrait review stills use 1080 × 1920 and 128 samples per pixel. They use the same scene and camera samples at frames 60, 180, and 300.
 
