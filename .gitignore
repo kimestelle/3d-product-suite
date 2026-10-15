@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+build/
+renders/
+output/
+work/
+*.blend
+*.blend1
+.DS_Store

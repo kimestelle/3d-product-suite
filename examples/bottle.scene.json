@@ -1,0 +1,344 @@
+{
+  "schemaVersion": 1,
+  "sceneId": "mora-bottle-neutral-v1",
+  "coordinates": {
+    "units": "meters",
+    "handedness": "right",
+    "up": "Y"
+  },
+  "render": {
+    "blenderVersion": "4.3.2",
+    "ffmpegVersion": "7.1.5",
+    "engine": "CYCLES",
+    "seed": 17,
+    "fps": 24,
+    "width": 1080,
+    "height": 1920,
+    "samples": 32
+  },
+  "product": {
+    "revisionId": "mora-opaque-fixture-v1",
+    "provenance": {
+      "source": "Synthetic rigid bottle; not manufacturer CAD or a validated real mechanism.",
+      "reuseBasis": "Original fictional fixture created for this prototype; no commercial product assets.",
+      "owner": "3d-product-suite project",
+      "allowedExternalDestinations": []
+    },
+    "dimensionsM": [
+      0.062,
+      0.137,
+      0.0386
+    ],
+    "components": [
+      {
+        "id": "bottle-body",
+        "shape": "box",
+        "sizeM": [
+          0.062,
+          0.104,
+          0.038
+        ],
+        "assembly": {
+          "translationM": [
+            0,
+            0.052,
+            0
+          ],
+          "rotationXyzw": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        "material": {
+          "baseColor": [
+            0.13,
+            0.24,
+            0.18,
+            1
+          ],
+          "roughness": 0.26,
+          "metallic": 0
+        },
+        "bevelM": 0.008
+      },
+      {
+        "id": "neck",
+        "shape": "cylinder",
+        "sizeM": [
+          0.027,
+          0.02,
+          0.027
+        ],
+        "assembly": {
+          "translationM": [
+            0,
+            0.11,
+            0
+          ],
+          "rotationXyzw": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        "material": {
+          "baseColor": [
+            0.13,
+            0.24,
+            0.18,
+            1
+          ],
+          "roughness": 0.24,
+          "metallic": 0
+        },
+        "bevelM": 0.001
+      },
+      {
+        "id": "cap",
+        "shape": "cylinder",
+        "sizeM": [
+          0.036,
+          0.025,
+          0.036
+        ],
+        "assembly": {
+          "translationM": [
+            0,
+            0.1245,
+            0
+          ],
+          "rotationXyzw": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        "material": {
+          "baseColor": [
+            0.78,
+            0.64,
+            0.36,
+            1
+          ],
+          "roughness": 0.25,
+          "metallic": 0.7
+        },
+        "bevelM": 0.0015
+      },
+      {
+        "id": "label",
+        "shape": "box",
+        "sizeM": [
+          0.046,
+          0.056,
+          0.0004
+        ],
+        "assembly": {
+          "translationM": [
+            0,
+            0.053,
+            0.0194
+          ],
+          "rotationXyzw": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        "material": {
+          "baseColor": [
+            0.91,
+            0.88,
+            0.79,
+            1
+          ],
+          "roughness": 0.48,
+          "metallic": 0
+        },
+        "bevelM": 0.0001
+      }
+    ],
+    "label": {
+      "componentId": "label",
+      "text": "MORA",
+      "subtitle": "BOTANICAL / 50 mL"
+    }
+  },
+  "environment": {
+    "revisionId": "neutral-studio-v1",
+    "kind": "authored",
+    "worldColor": [
+      0.18,
+      0.2,
+      0.18
+    ],
+    "plinth": {
+      "id": "plinth",
+      "sizeM": [
+        0.25,
+        0.07,
+        0.2
+      ],
+      "translationM": [
+        0,
+        -0.035,
+        0
+      ]
+    },
+    "provenance": {
+      "source": "Original authored studio and explicit contact plinth.",
+      "reuseBasis": "Original fictional fixture created for this prototype; no commercial product assets.",
+      "owner": "3d-product-suite project",
+      "allowedExternalDestinations": []
+    }
+  },
+  "placement": {
+    "translationM": [
+      0,
+      0,
+      0
+    ],
+    "restsOn": "plinth"
+  },
+  "actions": [
+    {
+      "actionId": "cap-lift-v1",
+      "componentId": "cap",
+      "relativeTo": "bottle-body",
+      "type": "lift",
+      "axisSpace": "component-local",
+      "axis": [
+        0,
+        1,
+        0
+      ],
+      "pivotM": [
+        0,
+        0,
+        0
+      ],
+      "distanceM": 0.055,
+      "approval": "confirmed",
+      "evidenceIds": [
+        "fixture-spec-v1"
+      ],
+      "startSeconds": 5.4,
+      "durationSeconds": 3
+    }
+  ],
+  "evidence": [
+    {
+      "id": "fixture-spec-v1",
+      "description": "Synthetic lift-off fixture: cap translates 55 mm in local +Y; no thread or real product mechanism is inferred."
+    }
+  ],
+  "shots": [
+    {
+      "id": "reveal",
+      "name": "Reveal",
+      "startFrame": 1,
+      "endFrame": 120,
+      "camera": {
+        "from": {
+          "positionM": [
+            0.17,
+            0.15,
+            0.35
+          ],
+          "targetM": [
+            0,
+            0.073,
+            0
+          ],
+          "focalLengthMm": 50
+        },
+        "to": {
+          "positionM": [
+            0.12,
+            0.15,
+            0.34
+          ],
+          "targetM": [
+            0,
+            0.073,
+            0
+          ],
+          "focalLengthMm": 50
+        }
+      }
+    },
+    {
+      "id": "opening",
+      "name": "Cap opening",
+      "startFrame": 121,
+      "endFrame": 240,
+      "camera": {
+        "from": {
+          "positionM": [
+            0.1,
+            0.145,
+            0.34
+          ],
+          "targetM": [
+            0,
+            0.098,
+            0
+          ],
+          "focalLengthMm": 50
+        },
+        "to": {
+          "positionM": [
+            0.075,
+            0.15,
+            0.34
+          ],
+          "targetM": [
+            0,
+            0.098,
+            0
+          ],
+          "focalLengthMm": 50
+        }
+      }
+    },
+    {
+      "id": "hero",
+      "name": "Final product frame",
+      "startFrame": 241,
+      "endFrame": 360,
+      "camera": {
+        "from": {
+          "positionM": [
+            -0.08,
+            0.15,
+            0.37
+          ],
+          "targetM": [
+            0,
+            0.095,
+            0
+          ],
+          "focalLengthMm": 50
+        },
+        "to": {
+          "positionM": [
+            -0.06,
+            0.145,
+            0.35
+          ],
+          "targetM": [
+            0,
+            0.095,
+            0
+          ],
+          "focalLengthMm": 50
+        }
+      }
+    }
+  ]
+}
