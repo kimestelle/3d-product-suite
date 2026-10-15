@@ -53,6 +53,8 @@ Each job records `queued`, `running`, `failed`, `cancelled`, or `succeeded` stat
 
 Cancellation requests stop the worker's current subprocess and preserve valid frames. `Ctrl+C` also stops the foreground worker; an abruptly killed process can leave a `running` record until resume reconciles it. Explicit `resume` starts a new attempt, clears the cancellation request, validates snapshots and existing PNG contents, and rerenders missing or corrupt frames. Only one worker can run a job at a time. This worker uses Linux file locking; other operating systems are not supported in this milestone.
 
+A render or encoder process retains the worker lock if its parent is hard-killed. Wait for that process to finish before resuming. Previously recorded frames with changed hashes are rendered again, and an edited saved Blender scene is rebuilt from the source before export can succeed.
+
 Encoding begins only after the complete frame sequence passes structural PNG checks at the requested resolution. A complete job contains:
 
 | Artifact | Purpose |

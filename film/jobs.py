@@ -72,10 +72,10 @@ def _lock(output, filename, *, blocking=True):
             fcntl.flock(handle, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
         except BlockingIOError as error:
             raise RuntimeError("Another worker is already running this job") from error
-        try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+        # Close our descriptor on exit rather than explicitly unlocking. A
+        # render child inherits the same open-file description, so it retains
+        # the worker lock if this process is killed before reaping the child.
+        yield handle
 
 
 def _save_job(output, job):
@@ -127,7 +127,7 @@ def create_job(scene_path, output_dir, *, width=None, height=None, samples=None)
                "createdAt": timestamp, "updatedAt": timestamp,
                "sceneDigest": digest, "sourceScene": "scene.json", "samples": "samples.json",
                "rendererScript": "renderer.py", "rendererDigest": renderer_digest,
-               "renderProfile": profile, "completedRanges": [], "attempts": [],
+               "renderProfile": profile, "completedRanges": [], "frameDigests": {}, "attempts": [],
                "errors": [], "tools": {}, "artifacts": {}, "cancellationRequested": False}
         with (output / "renderer.py").open("wb") as handle:
             handle.write(renderer_source)
@@ -236,6 +236,28 @@ def _frames(output, profile):
             if validate_png(output / "frames" / f"{number:06d}.png", profile["width"], profile["height"])]
 
 
+def _verified_frames(output, job):
+    """Reject structurally valid frames whose recorded pixels were replaced."""
+    frames = _frames(output, job["renderProfile"])
+    recorded = job.get("frameDigests", {})
+    if recorded:
+        return [frame for frame in frames if str(frame) not in recorded
+                or _sha256(output / "frames" / f"{frame:06d}.png") == recorded[str(frame)]]
+    # Older successful manifests have a sequence digest but no per-frame hashes.
+    # If their sequence changed, render the sequence again to restore its source.
+    if job.get("frameSequenceDigest"):
+        if (len(frames) != job["renderProfile"]["frameCount"]
+                or _frame_digest(output, len(frames)) != job["frameSequenceDigest"]):
+            return []
+    return frames
+
+
+def _record_frame_digests(output, job, frames):
+    recorded = job.setdefault("frameDigests", {})
+    for frame in frames:
+        recorded[str(frame)] = _sha256(output / "frames" / f"{frame:06d}.png")
+
+
 def _ranges(numbers):
     ranges = []
     for number in numbers:
@@ -267,6 +289,17 @@ def _blend_valid(path):
             return handle.read(7) == b"BLENDER" and path.stat().st_size >= 12
     except OSError:
         return False
+
+
+def _blend_needs_rebuild(output, job):
+    path = output / "scene.blend"
+    if not _blend_valid(path):
+        return True
+    recorded = job.get("artifacts", {}).get("scene.blend")
+    if recorded:
+        return (path.stat().st_size != recorded.get("bytes")
+                or _sha256(path) != recorded.get("sha256"))
+    return False
 
 
 def _outputs_valid(output, job, complete):
@@ -312,13 +345,14 @@ def _check_tool(command, tool, expected):
             "reported": result.stdout.splitlines()[0]}
 
 
-def _run_process(command, output, log_name):
+def _run_process(command, output, log_name, *, worker_fd=None):
     _check_cancel(output)
     with (output / log_name).open("ab") as log:
         log.write(("\nCOMMAND " + repr([str(part) for part in command]) + "\n").encode("utf-8"))
         log.flush()
         process = subprocess.Popen([str(part) for part in command], stdout=log,
-                                   stderr=subprocess.STDOUT, cwd=output)
+                                   stderr=subprocess.STDOUT, cwd=output,
+                                   pass_fds=(worker_fd,) if worker_fd is not None else ())
         try:
             while process.poll() is None:
                 _check_cancel(output)
@@ -347,19 +381,20 @@ def _render_command(blender, output, profile, frames):
     return command
 
 
-def _encode(output, job, scene, ffmpeg):
+def _encode(output, job, scene, ffmpeg, *, worker_fd=None):
     profile = job["renderProfile"]
     count = profile["frameCount"]
     # Recheck the whole sequence immediately before assembly, including batches
     # that were completed in a previous process or attempt.
-    if len(_frames(output, profile)) != count:
-        raise RuntimeError("Frame sequence is incomplete or corrupt; refusing to encode")
+    if len(_verified_frames(output, job)) != count:
+        raise RuntimeError("Frame sequence is incomplete, changed or corrupt; refusing to encode")
+    source_sequence_digest = _frame_digest(output, count)
     common = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y"]
     temporary = output / ".film.partial.mp4"
     _run_process(common + ["-framerate", str(profile["fps"]), "-start_number", "1",
                           "-i", str(output / "frames" / "%06d.png"), "-frames:v", str(count),
                           "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-                          str(temporary)], output, "ffmpeg.log")
+                          str(temporary)], output, "ffmpeg.log", worker_fd=worker_fd)
     if not temporary.exists() or temporary.stat().st_size == 0:
         raise RuntimeError("FFmpeg returned without a film")
     os.replace(temporary, output / "film.mp4")
@@ -370,7 +405,7 @@ def _encode(output, job, scene, ffmpeg):
         _check_cancel(output)
         temporary = output / f".still-{index:02d}.partial.png"
         _run_process(common + ["-i", str(output / "frames" / f"{number:06d}.png"),
-                              "-frames:v", "1", "-update", "1", str(temporary)], output, "ffmpeg.log")
+                              "-frames:v", "1", "-update", "1", str(temporary)], output, "ffmpeg.log", worker_fd=worker_fd)
         if not validate_png(temporary, profile["width"], profile["height"]):
             raise RuntimeError(f"FFmpeg returned an invalid still for frame {number}")
         os.replace(temporary, output / f"still-{index:02d}.png")
@@ -379,12 +414,16 @@ def _encode(output, job, scene, ffmpeg):
     _run_process(common + ["-framerate", str(profile["fps"]), "-start_number", "1",
                           "-i", str(output / "frames" / "%06d.png"),
                           "-vf", f"scale=128:-1,tile=12x{rows}:nb_frames={count}",
-                          "-frames:v", "1", "-update", "1", str(temporary)], output, "ffmpeg.log")
+                          "-frames:v", "1", "-update", "1", str(temporary)], output, "ffmpeg.log", worker_fd=worker_fd)
     if not validate_png(temporary):
         raise RuntimeError("FFmpeg returned an invalid contact sheet")
     os.replace(temporary, output / "contact-sheet.png")
     _check_cancel(output)
-    job["frameSequenceDigest"] = _frame_digest(output, count)
+    final_sequence_digest = _frame_digest(output, count)
+    if final_sequence_digest != source_sequence_digest:
+        raise RuntimeError("Frame sequence changed during export; refusing to mark succeeded")
+    job["frameSequenceDigest"] = final_sequence_digest
+    _record_frame_digests(output, job, range(1, count + 1))
     job["artifacts"] = {name: {"bytes": (output / name).stat().st_size,
                                      "sha256": _sha256(output / name)}
                         for name in ("film.mp4", "scene.blend", "still-01.png", "still-02.png",
@@ -400,7 +439,7 @@ def run_job(output_dir, *, blender="blender", ffmpeg="ffmpeg"):
     output = Path(output_dir).resolve()
     if not output.is_dir():
         raise ValueError(f"Job directory does not exist: {output}")
-    with _lock(output, ".worker.lock", blocking=False):
+    with _lock(output, ".worker.lock", blocking=False) as worker_lock:
         with _lock(output, ".manifest.lock"):
             job = _read_job(output)
             # Clear a previous cancellation before validation. A cancellation
@@ -410,7 +449,7 @@ def run_job(output_dir, *, blender="blender", ffmpeg="ffmpeg"):
         try:
             scene = _verify_snapshots(output, job)
             profile = job["renderProfile"]
-            completed = _frames(output, profile)
+            completed = _verified_frames(output, job)
             job["completedRanges"] = _ranges(completed)
             if job["state"] == "succeeded" and _outputs_valid(output, job, completed):
                 return job
@@ -430,22 +469,27 @@ def run_job(output_dir, *, blender="blender", ffmpeg="ffmpeg"):
                 attempt["tools"][tool] = job["tools"][tool]
                 _save_job(output, job)
             (output / "frames").mkdir(exist_ok=True)
+            rebuild_blend = _blend_needs_rebuild(output, job)
             missing = [frame for frame in range(1, profile["frameCount"] + 1) if frame not in set(completed)]
             for start in range(0, len(missing), BATCH_SIZE):
                 batch = missing[start:start + BATCH_SIZE]
-                _run_process(_render_command(blender, output, profile, batch), output, "blender.log")
+                _run_process(_render_command(blender, output, profile, batch), output, "blender.log",
+                             worker_fd=worker_lock.fileno())
+                rebuild_blend = False
                 invalid = [frame for frame in batch if not validate_png(
                     output / "frames" / f"{frame:06d}.png", profile["width"], profile["height"])]
                 if invalid:
                     raise RuntimeError(f"Renderer did not produce valid frames: {invalid}")
+                _record_frame_digests(output, job, batch)
                 completed = sorted(completed + batch)
                 job["completedRanges"] = _ranges(completed)
                 _save_job(output, job)
-            if not _blend_valid(output / "scene.blend"):
-                _run_process(_render_command(blender, output, profile, []), output, "blender.log")
+            if rebuild_blend or not _blend_valid(output / "scene.blend"):
+                _run_process(_render_command(blender, output, profile, []), output, "blender.log",
+                             worker_fd=worker_lock.fileno())
             if not _blend_valid(output / "scene.blend"):
                 raise RuntimeError("Renderer did not produce a reopenable scene.blend")
-            _encode(output, job, scene, ffmpeg)
+            _encode(output, job, scene, ffmpeg, worker_fd=worker_lock.fileno())
             job["state"] = attempt["state"] = "succeeded"
             attempt["endedAt"] = _now()
             _save_job(output, job)
@@ -454,7 +498,9 @@ def run_job(output_dir, *, blender="blender", ffmpeg="ffmpeg"):
             job["state"] = "cancelled"
             if attempt:
                 attempt.update(state="cancelled", endedAt=_now())
-            job["completedRanges"] = _ranges(_frames(output, job["renderProfile"]))
+            completed = _verified_frames(output, job)
+            _record_frame_digests(output, job, completed)
+            job["completedRanges"] = _ranges(completed)
             _save_job(output, job)
             return job
         except BaseException as error:
@@ -464,7 +510,9 @@ def run_job(output_dir, *, blender="blender", ffmpeg="ffmpeg"):
                 attempt.update(state="failed", endedAt=_now(), error=message)
             job["errors"].append({"time": _now(), "attempt": attempt["attempt"] if attempt else None,
                                   "message": message})
-            job["completedRanges"] = _ranges(_frames(output, job["renderProfile"]))
+            completed = _verified_frames(output, job)
+            _record_frame_digests(output, job, completed)
+            job["completedRanges"] = _ranges(completed)
             _save_job(output, job)
             raise
 

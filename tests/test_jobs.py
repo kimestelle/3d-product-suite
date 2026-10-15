@@ -1,8 +1,11 @@
 """Worker failure/recovery tests use real small PNGs and mocked subprocesses."""
 import json
+import os
 from pathlib import Path
 import struct
 import subprocess
+import sys
+import time
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -47,7 +50,7 @@ class JobTests(unittest.TestCase):
     def manifest(self):
         return json.loads((self.output / "job.json").read_text())
 
-    def process(self, command, output, log_name):
+    def process(self, command, output, log_name, **kwargs):
         self.commands.append(command)
         if "--python" in command:
             (output / "scene.blend").write_bytes(b"BLENDER-v403" + b"fixture")
@@ -136,7 +139,7 @@ class JobTests(unittest.TestCase):
     def test_partial_batch_failure_preserves_verified_frames_and_retry_history(self):
         self.init()
         failed = False
-        def fail_second_batch(command, output, log_name):
+        def fail_second_batch(command, output, log_name, **kwargs):
             nonlocal failed
             if "--frames" in command and command[command.index("--frames") + 1].startswith("13,") and not failed:
                 failed = True
@@ -168,7 +171,7 @@ class JobTests(unittest.TestCase):
 
     def test_all_frames_revalidated_before_video_encoding(self):
         self.init()
-        def corrupt_previously_rendered_frame(command, output, log_name):
+        def corrupt_previously_rendered_frame(command, output, log_name, **kwargs):
             self.process(command, output, log_name)
             if "--frames" in command and command[command.index("--frames") + 1].startswith("25,"):
                 (output / "frames" / "000001.png").write_bytes(b"corrupt between batches")
@@ -195,6 +198,109 @@ class JobTests(unittest.TestCase):
         third = self.run_worker()
         self.assertEqual(len(third["attempts"]), 3)
         self.assertTrue(any("-c:v" in command for command in self.commands))
+
+    def test_modified_blend_with_valid_header_is_rebuilt_before_success(self):
+        self.init()
+        self.run_worker()
+        blend = self.output / "scene.blend"
+        original = blend.read_bytes()
+        blend.write_bytes(original[:-1] + bytes([original[-1] ^ 1]))
+        self.assertTrue(jobs._blend_valid(blend))
+        self.commands.clear()
+        final = self.run_worker()
+        builders = [command for command in self.commands if "--python" in command]
+        self.assertEqual(len(builders), 1)
+        self.assertNotIn("--frames", builders[0])
+        self.assertEqual(blend.read_bytes(), original)
+        self.assertEqual(final["artifacts"]["scene.blend"]["sha256"], jobs._sha256(blend))
+
+    def test_modified_valid_frame_is_rendered_again_from_approved_source(self):
+        self.init()
+        first = self.run_worker()
+        frame = self.output / "frames" / "000001.png"
+        frame.write_bytes(png_bytes(value=90))
+        self.commands.clear()
+        final = self.run_worker()
+        renders = [command for command in self.commands if "--frames" in command]
+        self.assertEqual(len(renders), 1)
+        self.assertEqual(renders[0][renders[0].index("--frames") + 1], "1")
+        self.assertEqual(frame.read_bytes(), png_bytes())
+        self.assertEqual(final["frameSequenceDigest"], first["frameSequenceDigest"])
+        self.assertEqual(len(final["frameDigests"]), 30)
+
+    def test_legacy_success_with_changed_sequence_renders_all_frames_again(self):
+        self.init()
+        first = self.run_worker()
+        first.pop("frameDigests")
+        jobs._atomic_json(self.output / "job.json", first)
+        (self.output / "frames" / "000001.png").write_bytes(png_bytes(value=90))
+        self.commands.clear()
+        self.run_worker()
+        renders = [command for command in self.commands if "--frames" in command]
+        requested = [int(frame) for command in renders for frame in command[command.index("--frames") + 1].split(",")]
+        self.assertEqual(requested, list(range(1, 31)))
+
+    def test_changed_frame_during_ffmpeg_export_cannot_be_marked_successful(self):
+        self.init()
+        def edit_during_encoding(command, output, log_name, **kwargs):
+            self.process(command, output, log_name, **kwargs)
+            if "-c:v" in command:
+                (output / "frames" / "000001.png").write_bytes(png_bytes(value=99))
+        with self.assertRaisesRegex(RuntimeError, "Frame sequence changed during export"):
+            self.run_worker(edit_during_encoding)
+        self.assertEqual(self.manifest()["state"], "failed")
+        self.assertEqual(self.manifest()["completedRanges"], [[2, 30]])
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux flock inheritance")
+    def test_render_child_retains_worker_lock_after_parent_is_killed(self):
+        self.init()
+        ready = self.root / "child.pid"
+        child_code = "import os,sys,time; from pathlib import Path; Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(30)"
+        parent_code = """
+from pathlib import Path
+import sys
+from film import jobs
+output, ready, child_code = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+with jobs._lock(output, '.worker.lock', blocking=False) as handle:
+    jobs._run_process([sys.executable, '-c', child_code, ready], output, 'child.log', worker_fd=handle.fileno())
+"""
+        parent = subprocess.Popen([sys.executable, "-c", parent_code, str(self.output), str(ready), child_code],
+                                  cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        child_pid = None
+        try:
+            deadline = time.monotonic() + 5
+            while not ready.exists() and parent.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.01)
+            if not ready.exists():
+                parent.kill()
+                _, errors = parent.communicate(timeout=5)
+                self.fail(f"Render child did not become ready: {errors!r}")
+            child_pid = int(ready.read_text())
+            parent.kill()
+            parent.wait(timeout=5)
+            with self.assertRaisesRegex(RuntimeError, "Another worker"):
+                with jobs._lock(self.output, ".worker.lock", blocking=False):
+                    pass
+            os.kill(child_pid, 15)
+            deadline = time.monotonic() + 5
+            acquired = False
+            while time.monotonic() < deadline:
+                try:
+                    with jobs._lock(self.output, ".worker.lock", blocking=False):
+                        acquired = True
+                    break
+                except RuntimeError:
+                    time.sleep(0.01)
+            self.assertTrue(acquired, "Child exit did not release the inherited worker lock")
+        finally:
+            if parent.poll() is None:
+                parent.kill()
+            parent.communicate(timeout=5)
+            if child_pid is not None:
+                try:
+                    os.kill(child_pid, 9)
+                except ProcessLookupError:
+                    pass
 
     def test_cancelled_job_can_resume_and_succeeded_job_ignores_cancel(self):
         self.init()
