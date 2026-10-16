@@ -85,6 +85,19 @@ def validate_asset_record(asset, *, kind=None):
     return asset
 
 
+def validate_product_asset_record(asset):
+    """Product geometry is already normalized to centered Y-up metres."""
+    _require(isinstance(asset, dict), "Product asset record is required")
+    sha = asset.get("sha256")
+    _require(isinstance(sha, str) and _SHA.fullmatch(sha), "Product asset sha256 must be 64 lowercase hexadecimal characters")
+    _require(asset.get("format") == "glb", "Product mesh assets must be self-contained GLB files")
+    _require(asset.get("path") == f"assets/{sha}.glb", "Product asset path must be assets/<sha256>.glb")
+    _require(asset.get("sourceUp") == "Y", "Product GLB assets must use normalized sourceUp Y")
+    _require(not any(key in asset for key in ("scaleToMeters", "translationM", "rotationXyzw")),
+             "Product asset transforms must be baked into normalized geometry; use the component assembly pose")
+    return asset
+
+
 def _read_asset(path):
     path = Path(path)
     try:
@@ -397,14 +410,26 @@ def list_worlds(library_root):
 def verify_scene_assets(scene, source_dir):
     """Validate the bytes referenced by a scene without changing its document."""
     environment = scene["environment"]
-    if environment["kind"] == "authored":
-        return []
-    asset = validate_asset_record(environment.get("asset"), kind=environment["kind"])
-    path = safe_asset_path(source_dir, asset["path"])
-    payload = _read_asset(path)
-    _require(hashlib.sha256(payload).hexdigest() == asset["sha256"], "World asset hash does not match the immutable scene revision")
-    metadata = _validate_content(payload, asset["format"])
-    return [{"path": asset["path"], "sha256": asset["sha256"], "format": asset["format"], "bytes": len(payload), **metadata}]
+    references = []
+    if environment["kind"] != "authored":
+        references.append((validate_asset_record(environment.get("asset"), kind=environment["kind"]), None))
+    for component in scene.get("product", {}).get("components", []):
+        if component.get("shape") == "mesh":
+            references.append((validate_product_asset_record(component.get("asset")), component))
+    records = {}
+    for asset, component in references:
+        path = safe_asset_path(source_dir, asset["path"])
+        payload = _read_asset(path)
+        _require(hashlib.sha256(payload).hexdigest() == asset["sha256"], "Asset hash does not match the immutable scene revision")
+        if component is None:
+            metadata = _validate_content(payload, asset["format"])
+        else:
+            from .products import inspect_product_glb, validate_product_dimensions
+            metadata = inspect_product_glb(payload)
+            validate_product_dimensions(metadata, component["sizeM"])
+        records[asset["path"]] = {"path": asset["path"], "sha256": asset["sha256"], "format": asset["format"],
+                                   "bytes": len(payload), **metadata}
+    return list(records.values())
 
 
 def bundle_assets(scene, source_dir, destination_dir):

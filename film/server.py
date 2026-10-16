@@ -18,6 +18,7 @@ from .stills import create_still_job, run_still_job
 from .store import ConflictError, ProjectStore, ROOT, identifier, now
 from .worlds import MAX_ASSET_BYTES, import_world, list_worlds
 from .github_worlds import GitHubWorlds
+from .products import create_product_scene
 
 ARTIFACTS = {"still.png", "film.mp4", "scene.blend", "contact-sheet.png", "still-01.png", "still-02.png", "still-03.png"}
 ASSET_NAME = re.compile(r"[0-9a-f]{64}\.(?:glb|spz|ply)\Z")
@@ -286,6 +287,26 @@ def make_handler(app):
                 if not selected.exists():
                     return self._json({"error": "Build the editor first: cd web && npm ci && npm run build"}, 503)
                 return self._file(selected)
+            if self.command == "POST" and path == "/api/products/import":
+                payload = self._body(binary=True)
+                query = parse_qs(parsed.query)
+                one = lambda name, default="": query.get(name, [default])[0]
+                if Path(self.headers.get("X-Asset-Filename", "")).suffix.lower() != ".glb":
+                    raise ValueError("Upload a self-contained product GLB in meters, centered at its bounding-box origin")
+                temporary = app.store.root / f"product-import-{uuid.uuid4().hex}"
+                temporary.mkdir()
+                try:
+                    source = temporary / "source.glb"
+                    source.write_bytes(payload)
+                    provenance = {"source": one("source", "Product GLB supplied through the local editor"),
+                                  "owner": one("owner"), "reuseBasis": one("reuseBasis"),
+                                  "allowedExternalDestinations": []}
+                    scene = create_product_scene(source, temporary / "prepared", name=one("name", "Imported product"),
+                                                 provenance=provenance)
+                    return self._json(app.store.create(one("name", "Imported product"), scene,
+                                                       source_dir=temporary / "prepared"), 201)
+                finally:
+                    shutil.rmtree(temporary)
             if self.command == "POST" and path == "/api/worlds/import":
                 payload = self._body(binary=True)
                 query = parse_qs(parsed.query)

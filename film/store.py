@@ -9,6 +9,7 @@ import uuid
 
 from .jobs import _atomic_json
 from .scene import load_scene, scene_digest, validate_scene
+from .worlds import bundle_assets, verify_scene_assets
 
 ROOT = Path(__file__).resolve().parents[1]
 IDENTIFIER = re.compile(r"[a-z0-9-]{1,64}\Z")
@@ -53,13 +54,16 @@ class ProjectStore:
             index = json.loads((directory / "index.json").read_text())
             selected = identifier(revision or index["revisionId"])
             saved = json.loads((directory / "revisions" / f"{selected}.json").read_text())
+            validate_scene(saved["scene"])
+            verify_scene_assets(saved["scene"], self.root)
             return {**index, "scene": saved["scene"], "headRevisionId": index["revisionId"], "revisionId": selected}
 
-    def create(self, name="MORA / Campaign 01", scene=None):
+    def create(self, name="MORA / Campaign 01", scene=None, *, source_dir=None):
         scene = load_scene(ROOT / "examples" / "bottle.scene.json") if scene is None else validate_scene(scene)
         if not isinstance(name, str) or not name.strip() or len(name) > 120:
             raise ValueError("Project name must contain 1–120 characters")
         with self.lock:
+            bundle_assets(scene, self.root if source_dir is None else source_dir, self.root)
             project_id = uuid.uuid4().hex
             directory = self._directory(project_id)
             (directory / "revisions").mkdir(parents=True)
@@ -70,7 +74,7 @@ class ProjectStore:
                          "updatedAt": timestamp, "revisionId": revision, "approvedRevisionId": None})
             return self.get(project_id)
 
-    def save(self, project_id, scene, expected_revision, name=None):
+    def save(self, project_id, scene, expected_revision, name=None, *, source_dir=None):
         validate_scene(scene)
         with self.lock:
             current = self.get(project_id)
@@ -78,6 +82,7 @@ class ProjectStore:
                 raise ConflictError("This project changed in another session. Reopen it before saving.")
             if name is not None and (not isinstance(name, str) or not name.strip() or len(name) > 120):
                 raise ValueError("Project name must contain 1–120 characters")
+            bundle_assets(scene, self.root if source_dir is None else source_dir, self.root)
             directory = self._directory(project_id)
             revision = scene_digest(scene)
             path = directory / "revisions" / f"{revision}.json"
@@ -106,6 +111,7 @@ class ProjectStore:
         digest = scene_digest(scene)
         path = self.root / f"{digest}.scene.json"
         with self.lock:
+            verify_scene_assets(scene, self.root)
             if not path.exists():
                 _atomic_json(path, scene)
             elif load_scene(path) != scene:

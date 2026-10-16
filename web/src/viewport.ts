@@ -36,6 +36,7 @@ export class StudioViewport {
   private frameQueue: Promise<void> = Promise.resolve();
   private renderQueue: Promise<void> = Promise.resolve();
   private frameRequest = 0;
+  private assetAbort: AbortController | null = null;
 
   constructor(canvas: HTMLCanvasElement, options: ViewportOptions = {}) {
     this.canvas = canvas;
@@ -167,15 +168,26 @@ export class StudioViewport {
     return geometry;
   }
 
-  private makeProduct(source: any): void {
+  private async makeProduct(source: any, version: number, signal: AbortSignal): Promise<void> {
     for (const specification of source.product.components) {
+      if (version !== this.loadVersion || this.disposed) return;
       const group = new THREE.Group();
       group.name = specification.id;
       group.userData.componentId = specification.id;
-      const mesh = new THREE.Mesh(this.geometry(specification.shape, specification.sizeM, specification.bevelM), this.surface(specification.material));
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      group.add(mesh);
+      if (specification.shape === 'mesh') {
+        const imported = await this.loadVerifiedGlb(specification.asset, signal);
+        if (version !== this.loadVersion || this.disposed) { this.disposeObject(imported); return; }
+        this.prepareImportedMesh(imported);
+        if (specification.materialOverride === true) this.overrideMaterial(imported, specification.material);
+        // Mesh coordinates are already centered and measured in meters. Keep
+        // every imported node transform and never resize geometry to sizeM.
+        group.add(imported);
+      } else {
+        const mesh = new THREE.Mesh(this.geometry(specification.shape, specification.sizeM, specification.bevelM), this.surface(specification.material));
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        group.add(mesh);
+      }
       group.position.fromArray(specification.assembly.translationM);
       group.position.add(new THREE.Vector3().fromArray(source.placement.translationM));
       group.quaternion.fromArray(specification.assembly.rotationXyzw);
@@ -187,6 +199,89 @@ export class StudioViewport {
       const component = source.product.components.find((item: any) => item.id === label.componentId);
       this.addLabel(this.components.get(label.componentId)!, label, component.sizeM);
     }
+  }
+
+  private prepareImportedMesh(root: THREE.Object3D): void {
+    const excluded: THREE.Object3D[] = [];
+    let meshes = 0;
+    root.traverse(object => {
+      if (object instanceof THREE.Camera || object instanceof THREE.Light) excluded.push(object);
+      if (object instanceof THREE.Mesh) { object.castShadow = true; object.receiveShadow = true; meshes++; }
+    });
+    root.updateMatrixWorld(true);
+    for (const object of excluded) {
+      // A glTF camera/light node can also parent real product geometry. Remove
+      // its authored illumination/camera while retaining those child transforms.
+      const parent = object.parent;
+      if (parent) for (const child of [...object.children]) parent.attach(child);
+      object.removeFromParent();
+      this.disposeObject(object);
+    }
+    if (!meshes) { this.disposeObject(root); throw new Error('The GLB contains no visible mesh geometry.'); }
+  }
+
+  private overrideMaterial(root: THREE.Object3D, specification: any): void {
+    const replacement = this.surface(specification);
+    const materials = new Set<THREE.Material>();
+    const textures = new Set<THREE.Texture>();
+    root.traverse(object => {
+      if (!(object instanceof THREE.Mesh)) return;
+      for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+        materials.add(material);
+        for (const value of Object.values(material)) if (value instanceof THREE.Texture) textures.add(value);
+      }
+      object.material = replacement;
+    });
+    textures.forEach(texture => texture.dispose());
+    const images = new Set(Array.from(textures, texture => texture.image));
+    images.forEach(image => { if (typeof ImageBitmap !== 'undefined' && image instanceof ImageBitmap) image.close(); });
+    materials.forEach(material => material.dispose());
+  }
+
+  private async loadVerifiedGlb(asset: any, signal: AbortSignal, url?: string): Promise<THREE.Group> {
+    const path = asset?.path;
+    if (asset?.format !== 'glb' || asset?.sourceUp !== 'Y' || !/^[a-f0-9]{64}$/.test(asset?.sha256 || '')
+        || typeof path !== 'string' || /[\\:\0]/.test(path) || path.startsWith('/')
+        || path.split('/').some((part: string) => !part || part === '.' || part === '..')
+        || path.split('/').at(-1) !== `${asset.sha256}.glb`) {
+      throw new Error('The mesh asset must declare a safe, content-addressed Y-up GLB.');
+    }
+    const response = await fetch(url || this.assetUrl(asset), { signal, credentials: 'same-origin' });
+    if (!response.ok) throw new Error(`Could not load mesh asset (${response.status}).`);
+    const limit = 128 * 1024 * 1024;
+    const declared = response.headers.get('Content-Length');
+    if (declared && (!/^\d+$/.test(declared) || Number(declared) > limit)) throw new Error('The mesh asset exceeds the 128 MiB limit.');
+    const bytes = await response.arrayBuffer();
+    if (bytes.byteLength < 20 || bytes.byteLength > limit) throw new Error('The mesh asset is empty, truncated, or exceeds 128 MiB.');
+    const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), value => value.toString(16).padStart(2, '0')).join('');
+    if (digest !== asset.sha256) throw new Error('The mesh asset SHA-256 does not match its immutable scene revision.');
+    const header = new DataView(bytes);
+    if (header.getUint32(0, true) !== 0x46546c67 || header.getUint32(4, true) !== 2
+        || header.getUint32(8, true) !== bytes.byteLength) throw new Error('Expected a complete GLB version 2 mesh asset.');
+    const jsonLength = header.getUint32(12, true);
+    if (header.getUint32(16, true) !== 0x4e4f534a || jsonLength % 4 || jsonLength > 16 * 1024 * 1024
+        || 20 + jsonLength > bytes.byteLength) throw new Error('The mesh GLB JSON chunk is invalid.');
+    const document = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(bytes, 20, jsonLength)));
+    if (document?.asset?.version !== '2.0') throw new Error('The mesh asset must declare glTF version 2.0.');
+    const embeddedOnly = (value: any, depth = 0): void => {
+      if (depth > 80) throw new Error('The mesh GLB JSON nesting exceeds the limit.');
+      if (Array.isArray(value)) { value.forEach(child => embeddedOnly(child, depth + 1)); return; }
+      if (value && typeof value === 'object') {
+        for (const [key, child] of Object.entries(value)) {
+          if (['script', 'scripts', 'javascript'].includes(key.toLowerCase())) throw new Error('Scripts are forbidden in mesh assets.');
+          if (['uri', 'url', 'href'].includes(key.toLowerCase())
+              && (typeof child !== 'string' || !/^data:(?:application\/(?:octet-stream|gltf-buffer)|image\/(?:png|jpeg|webp));base64,[a-z0-9+/]*={0,2}$/i.test(child))) {
+            throw new Error('Mesh GLBs must be self-contained; external asset references are forbidden.');
+          }
+          embeddedOnly(child, depth + 1);
+        }
+      } else if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('Mesh GLB values must be finite.');
+    };
+    embeddedOnly(document);
+    if (signal.aborted) throw new DOMException('Mesh loading was superseded.', 'AbortError');
+    // Parsing verified bytes, rather than loadAsync(url), prevents a second
+    // fetch or a change between hash verification and the rendered hierarchy.
+    return (await new GLTFLoader().parseAsync(bytes, '')).scene;
   }
 
   private addLabel(parent: THREE.Group, specification: any, size: number[]): void {
@@ -307,6 +402,9 @@ export class StudioViewport {
 
   async load(source: any, assetUrl?: string): Promise<void> {
     if (this.disposed) throw new Error('Viewport has been disposed.');
+    this.assetAbort?.abort();
+    const assetAbort = new AbortController();
+    this.assetAbort = assetAbort;
     const version = ++this.loadVersion;
     this.frameRequest++;
     this.loading = true;
@@ -322,22 +420,17 @@ export class StudioViewport {
         // and must finish loading before measuring/drawing its canvas texture.
         await document.fonts.load('500 32px "Studio Sans"');
         if (version !== this.loadVersion || this.disposed) return;
-        this.makeProduct(source);
+        await this.makeProduct(source, version, assetAbort.signal);
+        if (version !== this.loadVersion || this.disposed) return;
         this.makeStudio(source);
       }
       if (environment.kind === 'mesh') {
-        const url = assetUrl || this.assetUrl(environment.asset);
-        const gltf = await new GLTFLoader().loadAsync(url);
-        if (version !== this.loadVersion || this.disposed) { this.disposeObject(gltf.scene); return; }
+        const imported = await this.loadVerifiedGlb(environment.asset, assetAbort.signal, assetUrl);
+        if (version !== this.loadVersion || this.disposed) { this.disposeObject(imported); return; }
+        this.prepareImportedMesh(imported);
         const root = new THREE.Group();
         this.alignWorld(root, environment.asset);
-        root.add(gltf.scene);
-        const excluded: THREE.Object3D[] = [];
-        gltf.scene.traverse(object => {
-          if (object instanceof THREE.Camera || object instanceof THREE.Light) excluded.push(object);
-          if (object instanceof THREE.Mesh) { object.castShadow = true; object.receiveShadow = true; }
-        });
-        excluded.forEach(object => object.removeFromParent());
+        root.add(imported);
         this.content.add(root);
       } else if (environment.kind === 'splat') {
         const { SparkRenderer, SplatMesh } = await import('@sparkjsdev/spark');
@@ -492,6 +585,7 @@ export class StudioViewport {
     if (this.disposed) return;
     this.disposed = true;
     this.loadVersion++;
+    this.assetAbort?.abort();
     this.cancelRender();
     this.resizeObserver.disconnect();
     this.intersectionObserver?.disconnect();

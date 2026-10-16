@@ -1,10 +1,10 @@
 # 3d-product-suite
 
-A local editor and repeatable render pipeline for editable product films. The browser controls the fictional **MORA** bottle, confirmed cap movement, camera framing, labels/colors, and environment revisions. Shared Python scene evaluation drives both browser playback and Blender/Cycles.
+A local editor and repeatable render pipeline for editable product films. Import prepared product GLBs with their original geometry and materials, or explore the fictional **MORA** bottle fixture with its confirmed cap movement and label/color controls. Shared Python scene evaluation drives both browser playback and Blender/Cycles.
 
 The fixture produces a 15-second, 24 fps sequence: **360 frames**, with native final settings of **1080 × 1920**. A successful render exports an MP4, three stills, a contact sheet covering the sequence, and a reopenable `.blend` scene. Generated outputs are local and are not committed.
 
-World comparisons support an official World Labs visual mesh and a mesh reconstructed from that same world's Gaussian splats. Optional reference images guide generation; original Gallery, Botanical room and neutral Studio defaults work offline without images or API keys. Native Gaussian preview/plate rendering remains available as a diagnostic. Product CAD import, automatic mechanism inference and human usability/quality gates remain open; see the [validation plan](docs/validation-plan.md).
+World comparisons support an official World Labs visual mesh and a mesh reconstructed from that same world's Gaussian splats. Optional reference images guide generation; original Gallery, Botanical room and neutral Studio defaults work offline without images or API keys. Native Gaussian preview/plate rendering remains available as a diagnostic. Product GLB import is available; direct CAD import, automatic mechanism inference and human usability/quality gates remain open. See the [real product workflow and verified trial status](docs/real-product-trials.md) and [validation plan](docs/validation-plan.md).
 
 ## Open the browser editor
 
@@ -19,6 +19,8 @@ npm run build --prefix web
 ```
 
 Open `http://127.0.0.1:8787`. The editor starts paused. Select products, edit labels/colors, adjust cap timing, reframe the three shots, scrub/play, undo/redo, save/reopen, preserve an approved revision, and request a Cycles still or reel. Imported and reconstructed environments remain unreviewed until inspected. Browser shading is a draft; render a Cycles still for appearance decisions.
+
+In the Product panel, **Import a product GLB** creates a separate campaign with its source geometry, original materials and fitted camera shots. Supply a static self-contained GLB in Y-up meters, centered at its bounding-box origin, and record the owner, source and usage permission. CAD conversion happens before this handoff. Imported products do not inherit the fixture's fictional labels or cap action.
 
 The World panel offers offline defaults and optional public HTTPS image-reference generation through GitHub Actions. Keep `WORLDLABS_API_KEY` encrypted in the repository's **Myenv** GitHub Environment. The workflow generates one world and exports its official textured GLB plus Gaussian SPZ, reconstructs the SPZ into a second GLB, and uploads both final meshes with 15 controlled probe scenes. Standard documented cost is 5,080 API credits (about $4.06); the default preflight cap is 6,000. API credits are separate from Marble website credits. See [World Labs setup and recovery](docs/worldlabs-api.md).
 

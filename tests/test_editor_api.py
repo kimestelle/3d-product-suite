@@ -1,6 +1,7 @@
 """Exercise the real loopback HTTP boundary without launching render tools."""
 
 import copy
+import hashlib
 import http.client
 from http.server import ThreadingHTTPServer
 import json
@@ -13,6 +14,7 @@ from urllib.parse import urlencode
 
 from film import jobs, server
 from film.scene import scene_digest
+from tests.test_products import product_glb
 from tests.test_worlds import glb_bytes, glb_document
 
 
@@ -185,6 +187,73 @@ class EditorApiTests(unittest.TestCase):
             self.assertIn("error", error)
         self.assertEqual(self.request("GET", "/api/worlds")[1], previous)
         self.assertEqual(list(self.app.store.root.glob("import-*")), [])
+
+    def test_product_upload_creates_reopenable_project_and_preserves_original_hash_named_glb(self):
+        baseline = self.bootstrap()["project"]
+        provenance = {"source": "Approved product model revision 3", "owner": "Product owner",
+                      "reuseBasis": "Owner supplied model for this campaign"}
+        query = urlencode({"name": "Actual product campaign", **provenance})
+        payload = product_glb()
+        headers = {"X-Asset-Filename": "approved-product.glb", "Content-Type": "application/octet-stream"}
+        status, project, _ = self.request("POST", "/api/products/import?" + query, raw=payload, headers=headers)
+        self.assertEqual(status, 201)
+        self.assertNotEqual(project["id"], baseline["id"])
+        self.assertEqual(project["name"], "Actual product campaign")
+        self.assertIsNone(project["approvedRevisionId"])
+        scene = project["scene"]
+        self.assertEqual(project["revisionId"], scene_digest(scene))
+        self.assertEqual(scene["product"]["provenance"], {**provenance, "allowedExternalDestinations": []})
+        self.assertNotIn("label", scene["product"])
+        self.assertEqual(scene["actions"], [])
+        self.assertEqual(scene["evidence"], [])
+        component, = scene["product"]["components"]
+        self.assertEqual(component["shape"], "mesh")
+        self.assertFalse(component["materialOverride"])
+        for actual, expected in zip(component["sizeM"], [.06, .12, .04]):
+            self.assertAlmostEqual(actual, expected, places=7)
+        digest = hashlib.sha256(payload).hexdigest()
+        self.assertEqual(component["asset"], {"format": "glb", "sourceUp": "Y",
+                                             "path": f"assets/{digest}.glb", "sha256": digest})
+        status, served, response_headers = self.request("GET", f"/api/assets/{digest}.glb")
+        self.assertEqual(status, 200)
+        self.assertEqual(served, payload)
+        self.assertEqual(response_headers["Content-Type"], "model/gltf-binary")
+        self.assertIn("immutable", response_headers["Cache-Control"])
+        self.assertEqual(self.request("GET", f"/api/projects/{project['id']}")[1], project)
+        self.assertEqual(self.request("GET", f"/api/projects/{baseline['id']}")[1], baseline)
+        self.assertEqual(len(self.request("GET", "/api/projects")[1]), 2)
+        status, sampled, _ = self.request("POST", "/api/evaluate", {"scene": scene})
+        self.assertEqual(status, 200)
+        self.assertAlmostEqual(sampled["frames"][0]["components"]["product"]["translationM"][1], .06, places=7)
+        self.assertEqual(list(self.app.store.root.glob("product-import-*")), [])
+
+    def test_invalid_product_uploads_and_missing_provenance_create_no_projects_or_assets(self):
+        baseline = self.bootstrap()
+        original_assets = {path.name: path.read_bytes() for path in (self.app.store.root / "assets").iterdir()}
+        query = {"name": "Rejected product", "owner": "Model owner", "reuseBasis": "Original model",
+                 "source": "Approved product model"}
+        headers = {"X-Asset-Filename": "product.glb", "Content-Type": "application/octet-stream"}
+        valid = product_glb()
+        uncentered = product_glb(change=lambda document: document["nodes"][0].update(translation=[.5, 0, 0]))
+        external = product_glb(change=lambda document: document["buffers"][0].update(uri="https://attacker.invalid/product.bin"))
+        attempts = [
+            (b"not a product GLB", query, headers),
+            (uncentered, query, headers),
+            (external, query, headers),
+            (valid, {key: value for key, value in query.items() if key != "owner"}, headers),
+            (valid, {key: value for key, value in query.items() if key != "reuseBasis"}, headers),
+            (valid, {"name": "Missing provenance"}, headers),
+            (valid, query, {**headers, "X-Asset-Filename": "product.obj"}),
+        ]
+        for payload, selected_query, selected_headers in attempts:
+            with self.subTest(query=selected_query, filename=selected_headers["X-Asset-Filename"], payload_size=len(payload)):
+                status, error, _ = self.request("POST", "/api/products/import?" + urlencode(selected_query),
+                                                raw=payload, headers=selected_headers)
+                self.assertEqual(status, 400)
+                self.assertIn("error", error)
+                self.assertEqual(self.request("GET", "/api/projects")[1], baseline["projects"])
+                self.assertEqual({path.name: path.read_bytes() for path in (self.app.store.root / "assets").iterdir()}, original_assets)
+                self.assertEqual(list(self.app.store.root.glob("product-import-*")), [])
 
     def test_unknown_routes_traversal_and_nonallowlisted_job_files_cannot_read_local_files(self):
         secret = b"LOCAL FILE MUST NOT BE SERVED"

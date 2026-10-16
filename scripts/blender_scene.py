@@ -18,6 +18,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import re
 import struct
 import sys
 
@@ -217,27 +218,32 @@ def environment(source):
         area_light(name, Vector(position) + Vector(offset) * scale, target, power * scale * scale, diameter * scale, color)
 
 
-def verified_asset(source, samples_root):
+def verified_asset_record(asset, samples_root, role="World"):
     """Resolve immutable bundled assets without allowing external path reads."""
-    asset = source["environment"]["asset"]
-    relative = Path(asset["path"])
-    if relative.is_absolute() or ".." in relative.parts or "\\" in asset["path"] or ":" in asset["path"]:
-        raise ValueError("World asset path must be a safe relative path")
+    value = asset.get("path")
+    if not isinstance(value, str) or not value or any(part in {"", ".", ".."} for part in value.split("/")) or any(character in value for character in ("\\", ":", "\0")):
+        raise ValueError(f"{role} asset path must be a safe relative path")
+    relative = Path(value)
+    if relative.is_absolute():
+        raise ValueError(f"{role} asset path must be a safe relative path")
     path = (samples_root / relative).resolve()
     if not path.is_relative_to(samples_root) or not path.is_file():
-        raise ValueError("World asset is missing or outside the sampled scene bundle")
-    if path.stat().st_size > 128 * 1024 * 1024:
-        raise ValueError("World asset exceeds the 128 MiB limit")
+        raise ValueError(f"{role} asset is missing or outside the sampled scene bundle")
+    if not 0 < path.stat().st_size <= 128 * 1024 * 1024:
+        raise ValueError(f"{role} asset must be nonempty and no larger than 128 MiB")
     with path.open("rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
     if digest != asset["sha256"]:
-        raise ValueError("World asset SHA256 does not match the scene manifest")
+        raise ValueError(f"{role} asset SHA256 does not match the scene manifest")
     return path
 
 
-def import_visual_mesh(source, asset_path):
-    """Import visual GLB, then align the imported hierarchy exactly once."""
-    asset = source["environment"]["asset"]
+def verified_asset(source, samples_root):
+    return verified_asset_record(source["environment"]["asset"], samples_root)
+
+
+def visual_glb_document(asset, asset_path):
+    """Check the same local/self-contained boundary for products and worlds."""
     if asset["format"] != "glb" or asset["sourceUp"] != "Y":
         raise ValueError("Visual GLB must declare format=glb and sourceUp=Y, as required by glTF 2")
     # Direct renderer calls receive the same self-contained constraint as import.
@@ -246,9 +252,13 @@ def import_visual_mesh(source, asset_path):
         if len(header) != 20 or header[:4] != b"glTF" or struct.unpack_from("<I", header, 4)[0] != 2 or struct.unpack_from("<I", header, 8)[0] != asset_path.stat().st_size or header[16:20] != b"JSON":
             raise ValueError("Visual mesh must be a self-contained GLB 2 file")
         json_size = struct.unpack_from("<I", header, 12)[0]
-        if json_size > 16 * 1024 * 1024:
+        if json_size > 16 * 1024 * 1024 or json_size % 4 or 20 + json_size > asset_path.stat().st_size:
             raise ValueError("GLB JSON chunk exceeds the 16 MiB limit")
         document = json.loads(stream.read(json_size))
+        remainder = stream.read()
+        if remainder:
+            if len(remainder) < 8 or remainder[4:8] != b"BIN\0" or struct.unpack_from("<I", remainder)[0] != len(remainder) - 8 or (len(remainder) - 8) % 4:
+                raise ValueError("Visual GLB contains unsupported or truncated chunks")
 
     def embedded_only(value, depth=0):
         if depth > 80:
@@ -268,30 +278,77 @@ def import_visual_mesh(source, asset_path):
         elif isinstance(value, list):
             for child in value:
                 embedded_only(child, depth + 1)
+        elif type(value) is float and not math.isfinite(value):
+            raise ValueError("GLB JSON must contain finite numbers")
 
     embedded_only(document)
-    if not document.get("meshes"):
-        raise ValueError("Visual GLB must contain mesh geometry")
+    if not isinstance(document, dict) or document.get("asset", {}).get("version") != "2.0":
+        raise ValueError("Visual GLB must declare glTF 2.0")
+    if not isinstance(document.get("meshes"), list) or not document["meshes"]:
+        raise ValueError("Visual GLB must contain nonempty mesh geometry")
+    if any(re.search(r"(?:^|[ _.-])(collider|collision)(?:[ _.-]|$)", mesh.get("name", "").lower()) for mesh in document["meshes"]):
+        raise ValueError("Collision GLB cannot be imported as visual mesh geometry")
+    for container in (document, document.get("asset", {}), *document["meshes"]):
+        extras = container.get("extras", {})
+        if isinstance(extras, dict) and any(str(extras.get(key, "")).lower() in {"collision", "collider", "collision-mesh"} for key in ("role", "kind", "assetType", "type")):
+            raise ValueError("Collision-only GLB cannot be imported as visual mesh geometry")
+    accessors = document.get("accessors", [])
+    if not any(type(primitive.get("attributes", {}).get("POSITION")) is int
+               and 0 <= primitive["attributes"]["POSITION"] < len(accessors)
+               and accessors[primitive["attributes"]["POSITION"]].get("count", 0) > 0
+               for mesh in document["meshes"] for primitive in mesh.get("primitives", [])):
+        raise ValueError("Visual GLB must contain nonempty mesh geometry")
+    return document
+
+
+def imported_hierarchy(asset_path, prefix):
+    """Keep static visual hierarchy; imported cameras/lights never alter the rig."""
     existing = set(bpy.data.objects)
+    active_camera = bpy.context.scene.camera
     bpy.ops.import_scene.gltf(filepath=str(asset_path), import_pack_images=True)
     imported = set(bpy.data.objects) - existing
-    excluded = []
-    for obj in list(imported):
-        if obj.type in {"CAMERA", "LIGHT"}:
-            excluded.append(obj.name)
-            bpy.data.objects.remove(obj, do_unlink=True)
-            imported.remove(obj)
-    if not any(obj.type == "MESH" for obj in imported):
-        raise ValueError("Visual GLB import produced no mesh geometry")
-    anchor = bpy.data.objects.new("World / visual mesh alignment", None)
+    bpy.context.view_layer.update()
+    excluded = {obj for obj in imported if obj.type in {"CAMERA", "LIGHT"}}
+    # Cameras/lights may have visual descendants. Preserve their original world
+    # transforms when removing only the embedded render apparatus.
+    matrices = {obj: obj.matrix_world.copy() for obj in imported}
+    kept = imported - excluded
+    for obj in kept:
+        if obj.parent in excluded:
+            parent = obj.parent
+            while parent in excluded:
+                parent = parent.parent
+            obj.parent = parent
+            obj.matrix_world = matrices[obj]
+    excluded_names = sorted(obj.name for obj in excluded)
+    for obj in excluded:
+        bpy.data.objects.remove(obj, do_unlink=True)
+    bpy.context.scene.camera = active_camera
+    if not any(obj.type == "MESH" and obj.data.vertices and obj.data.polygons for obj in kept):
+        raise ValueError("Visual GLB import produced no nonempty mesh geometry")
+    for obj in kept:
+        obj.name = prefix + obj.name
+    return kept, excluded_names
+
+
+def parent_imported_hierarchy(imported, name):
+    anchor = bpy.data.objects.new(name, None)
     bpy.context.collection.objects.link(anchor)
     for obj in imported:
-        obj.name = "World / " + obj.name
         if obj.parent not in imported:
             matrix = obj.matrix_world.copy()
             obj.parent = anchor
             obj.matrix_parent_inverse = Matrix.Identity(4)
             obj.matrix_basis = matrix
+    return anchor
+
+
+def import_visual_mesh(source, asset_path):
+    """Import visual GLB, then align the imported hierarchy exactly once."""
+    asset = source["environment"]["asset"]
+    visual_glb_document(asset, asset_path)
+    imported, excluded = imported_hierarchy(asset_path, "World / ")
+    anchor = parent_imported_hierarchy(imported, "World / visual mesh alignment")
     # glTF importer already applies the canonical Y-up -> Blender Z-up change.
     # Applying COORDINATE_ROTATION again here would rotate the room on its side.
     anchor.location = blender_position(asset["translationM"])
@@ -301,6 +358,58 @@ def import_visual_mesh(source, asset_path):
     anchor["asset_sha256"] = asset["sha256"]
     anchor["source_up"] = "Y; converted once by Blender glTF importer"
     return {"importedObjects": len(imported), "excludedEmbeddedCamerasAndLights": excluded}
+
+
+def product_mesh(component, samples_root):
+    """A static metre-space GLB is one externally posed rigid component."""
+    asset = component["asset"]
+    path = verified_asset_record(asset, samples_root, "Product")
+    document = visual_glb_document(asset, path)
+    if document.get("animations") or document.get("skins") or any("skin" in node for node in document.get("nodes", [])):
+        raise ValueError("Rigid product GLB cannot contain animations or skins")
+    # Blender 4.3 imports every document node, including inactive/unreferenced
+    # ones. The normalized handoff must match the hierarchy measured upstream.
+    scenes, nodes = document.get("scenes", []), document.get("nodes", [])
+    if len(scenes) != 1 or document.get("scene", 0) != 0 or not isinstance(nodes, list) or not nodes:
+        raise ValueError("Rigid product GLB requires one fully reachable active scene with no unused nodes or meshes")
+    roots = scenes[0].get("nodes", [])
+    if not isinstance(roots, list) or not roots:
+        raise ValueError("Rigid product GLB requires one fully reachable active scene with no unused nodes or meshes")
+    stack = [(index, 0) for index in roots]
+    reached, meshes = set(), set()
+    while stack:
+        index, depth = stack.pop()
+        if type(index) is not int or not 0 <= index < len(nodes) or index in reached or depth > 80:
+            raise ValueError("Rigid product GLB hierarchy must be acyclic, singly parented and fully reachable")
+        reached.add(index)
+        node = nodes[index]
+        children = node.get("children", [])
+        if not isinstance(children, list):
+            raise ValueError("Rigid product GLB node children must be a list")
+        stack.extend((child, depth + 1) for child in children)
+        if "mesh" in node:
+            meshes.add(node["mesh"])
+    if len(reached) != len(nodes) or meshes != set(range(len(document["meshes"]))):
+        raise ValueError("Rigid product GLB requires one fully reachable active scene with no unused nodes or meshes")
+    imported, excluded = imported_hierarchy(path, f"Product / {component['id']} / ")
+    anchor = parent_imported_hierarchy(imported, component["id"])
+    meshes = [obj for obj in imported if obj.type == "MESH"]
+    override = component.get("materialOverride", False)
+    if override:
+        surface = specified_material(component["id"] + " / surface", component["material"])
+        for obj in meshes:
+            obj.data.materials.clear()
+            obj.data.materials.append(surface)
+            for polygon in obj.data.polygons:
+                polygon.material_index = 0
+    # No sizeM scaling or recentering: input geometry has approved local metre
+    # coordinates, and the external pose belongs only to this rigid anchor.
+    anchor["asset_sha256"] = asset["sha256"]
+    anchor["role"] = "Rigid product GLB component; centered local geometry in metres"
+    anchor["material_source"] = "declared override" if override else "original GLB materials"
+    return anchor, {"id": component["id"], "shape": "mesh", "asset": asset, "importedObjects": len(imported),
+                    "meshObjects": len(meshes), "materialSource": "declared override" if override else "original GLB materials",
+                    "excludedEmbeddedCamerasAndLights": excluded, "geometryPolicy": "Centered local metres; no rescaling or recentering"}
 
 
 def plate_compositor(source, frames, requested, samples_root, output_root, scene):
@@ -463,11 +572,16 @@ def main():
     bpy.ops.object.delete(use_global=False)
     scene = configure_scene(source, args.width, args.height, args.samples_per_pixel)
     objects = {}
+    product_components = []
     for component in source["product"]["components"]:
-        specification = component["material"]
-        surface = specified_material(component["id"] + " / surface", specification)
-        obj = primitive(component["id"], component["shape"], component["sizeM"], surface, component.get("bevelM", 0))
+        if component["shape"] == "mesh":
+            obj, details = product_mesh(component, args.samples.parent)
+        else:
+            surface = specified_material(component["id"] + " / surface", component["material"])
+            obj = primitive(component["id"], component["shape"], component["sizeM"], surface, component.get("bevelM", 0))
+            details = {"id": component["id"], "shape": component["shape"], "materialSource": "declared"}
         objects[component["id"]] = obj
+        product_components.append(details)
     label = source["product"].get("label")
     if label:
         component = next(item for item in source["product"]["components"] if item["id"] == label["componentId"])
@@ -494,8 +608,10 @@ def main():
             ])
     elif kind != "authored":
         raise ValueError(f"Unsupported environment kind: {kind}")
-    if any(component["material"].get("transmission", 0) > 0 for component in [*source["product"]["components"], *source["environment"].get("props", [])]):
-        limitations.append("Transmission/IOR is a solid primitive glass probe; no validated packaging wall thickness, contents or optical quality claim.")
+    if any(component.get("material", {}).get("transmission", 0) > 0 for component in [*source["product"]["components"], *source["environment"].get("props", [])]):
+        limitations.append("Transmission/IOR glass probe settings do not establish validated packaging wall thickness, contents or optical quality.")
+    if any(component["shape"] == "mesh" for component in source["product"]["components"]):
+        limitations.append("Product GLB geometry and source materials are preserved as supplied; real-product accuracy and material appearance require review.")
     if source["environment"].get("fixture"):
         limitations.append("Original synthetic QA world fixture, not World Labs output; generated-world quality and human review gates remain unmeasured.")
     scene["source_scene_id"] = source["sceneId"]
@@ -503,7 +619,7 @@ def main():
     scene["camera_gate"] = "36 mm vertical sensor; sampled position, target, focal length"
     scene["interpolation"] = "CONSTANT: all integer frame poses are sampled and keyed"
     render_config = {
-        "adapterVersion": 2,
+        "adapterVersion": 3,
         "blenderVersion": bpy.app.version_string,
         "engine": scene.render.engine,
         "device": scene.cycles.device,
@@ -517,6 +633,7 @@ def main():
         "look": scene.view_settings.look,
         "cameraGate": {"fit": "VERTICAL", "heightMm": 36},
         "typography": {"font": "Bfont Regular", "source": "Blender 4.3.2 builtin"},
+        "productComponents": product_components,
         "renderingPath": {"authored": "authored-cycles", "mesh": "visual-glb-cycles", "splat": "gaussian-plate-cycles-foreground"}[kind],
         "limitations": limitations,
         "environment": {"kind": kind, "revisionId": source["environment"]["revisionId"], "asset": source["environment"].get("asset"), "provenance": source["environment"]["provenance"], "fixture": source["environment"].get("fixture", False), "reviewStatus": source["environment"].get("reviewStatus"), "details": world_details},

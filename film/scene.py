@@ -5,7 +5,7 @@ import json
 import math
 from pathlib import Path
 
-from .worlds import validate_asset_record
+from .worlds import validate_asset_record, validate_product_asset_record
 
 
 def scene_digest(scene):
@@ -79,8 +79,14 @@ def validate_scene(scene):
         for c in p["components"]:
             _require(isinstance(c["id"], str) and c["id"] and c["id"] not in ids, "Component IDs must be nonempty and unique")
             ids.add(c["id"])
-            _require(c["shape"] in ("box", "cylinder"), "This milestone accepts synthetic box/cylinder fixtures only")
+            _require(c["shape"] in ("box", "cylinder", "mesh"), "Product components must be box, cylinder or normalized GLB mesh")
             _positive_size(c["sizeM"], "component size")
+            if c["shape"] == "mesh":
+                validate_product_asset_record(c.get("asset"))
+                _require(type(c.get("materialOverride", False)) is bool, "materialOverride must be boolean")
+                _require(c.get("bevelM", 0) == 0, "Mesh geometry is preserved; mesh bevelM must be zero")
+            else:
+                _require("asset" not in c and "materialOverride" not in c, "Primitive components must not hide mesh assets or overrides")
             if c["shape"] == "cylinder":
                 _require(abs(c["sizeM"][0] - c["sizeM"][2]) < 1e-9, "Cylinder X/Z diameters must match")
             _vector(c["assembly"]["translationM"], "assembly translation")
@@ -91,6 +97,8 @@ def validate_scene(scene):
             _number(c.get("bevelM", 0), "bevelM", minimum=0, maximum=min(c["sizeM"])/2)
         if "label" in p:
             _require(p["label"]["componentId"] in ids, "Label component does not exist")
+            _require(next(c for c in p["components"] if c["id"] == p["label"]["componentId"])["shape"] != "mesh",
+                     "Procedural label text must not replace imported product artwork")
             for key in ("text", "subtitle"):
                 _require(isinstance(p["label"][key], str), "Label text must be a string")
         env = scene["environment"]
