@@ -413,6 +413,16 @@ def verify_scene_assets(scene, source_dir):
     references = []
     if environment["kind"] != "authored":
         references.append((validate_asset_record(environment.get("asset"), kind=environment["kind"]), None))
+    if "comparison" in scene:
+        comparison = scene["comparison"]
+        _require(isinstance(comparison, dict) and type(comparison.get("schemaVersion")) is int
+                 and comparison["schemaVersion"] == 1, "Unsupported comparison schemaVersion")
+        alternative = comparison.get("alternative")
+        _require(environment["kind"] == "mesh" and isinstance(alternative, dict) and alternative.get("kind") == "mesh",
+                 "Comparison assets must both be visual mesh environments")
+        _require(not any(key in alternative for key in ("plinth", "props", "worldColor")),
+                 "Comparison alternative must omit shared plinth, props and worldColor")
+        references.append((validate_asset_record(alternative.get("asset"), kind="mesh"), None))
     for component in scene.get("product", {}).get("components", []):
         if component.get("shape") == "mesh":
             references.append((validate_product_asset_record(component.get("asset")), component))

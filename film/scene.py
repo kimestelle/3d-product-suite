@@ -186,6 +186,9 @@ def validate_scene(scene):
             _require(sum((x+u*y)**2 for x,y in zip(d0,dv)) > 1e-10, "Camera move crosses a vertical or zero viewing direction")
         for a in scene["actions"]:
             _require(a["startSeconds"] + a["durationSeconds"] <= (next_frame-2)/r["fps"], "Action must finish within the reel")
+        if "comparison" in scene:
+            from .comparison import validate_comparison
+            validate_comparison(scene)
         scene_digest(scene)  # rejects non-finite numbers even in additional metadata
     except (KeyError, TypeError, IndexError, OverflowError) as exc:
         raise ValueError(f"Malformed scene: {exc}") from exc

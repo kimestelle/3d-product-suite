@@ -3,11 +3,17 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import type { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
 
+export type WorldPointPick = {
+  sourcePoint: [number, number, number];
+  worldPoint: [number, number, number];
+};
+
 type ViewportOptions = {
   capture?: boolean;
   onSelect?: (id: string) => void;
   onError?: (message: string) => void;
   onReady?: () => void;
+  onWorldPoint?: (point: WorldPointPick) => void;
 };
 
 /** The browser only consumes poses sampled by film.scene; it evaluates no motion. */
@@ -37,6 +43,10 @@ export class StudioViewport {
   private renderQueue: Promise<void> = Promise.resolve();
   private frameRequest = 0;
   private assetAbort: AbortController | null = null;
+  private worldRoot: THREE.Group | null = null;
+  private worldLoadVersion = -1;
+  private worldReady = false;
+  private worldPickEnabled = false;
 
   constructor(canvas: HTMLCanvasElement, options: ViewportOptions = {}) {
     this.canvas = canvas;
@@ -81,12 +91,45 @@ export class StudioViewport {
     this.options.onError?.('The 3D graphics context was lost. Reopen this project to restore the preview.');
   };
 
-  private onPointerUp = (event: PointerEvent) => {
+  private onPointerUp = (event: PointerEvent) => { this.pickAtPointer(event); };
+
+  private pickAtPointer(event: PointerEvent): void {
     if (this.options.capture || this.disposed || event.button !== 0) return;
+    // Calibration never falls through to product selection, including while a
+    // replacement world is loading or when the pointer misses its geometry.
+    const world = this.worldRoot;
+    if (this.worldPickEnabled && (!world || this.loading || !this.worldReady
+        || this.worldLoadVersion !== this.loadVersion || world.parent !== this.content
+        || document.hidden || !this.visible || !this.objectVisible(world))) return;
     const bounds = this.canvas.getBoundingClientRect();
-    if (!bounds.width || !bounds.height) return;
+    if (!bounds.width || !bounds.height || event.clientX < bounds.left || event.clientY < bounds.top
+        || event.clientX > bounds.left + bounds.width || event.clientY > bounds.top + bounds.height) return;
     this.pointer.set((event.clientX - bounds.left) / bounds.width * 2 - 1, -(event.clientY - bounds.top) / bounds.height * 2 + 1);
+    this.camera.updateMatrixWorld(true);
     this.raycaster.setFromCamera(this.pointer, this.camera);
+    if (this.worldPickEnabled) {
+      // Only the imported world hierarchy participates. Explicit plinth/props,
+      // exact product geometry and selection helpers cannot become references.
+      world!.updateWorldMatrix(true, true);
+      const determinant = world!.matrixWorld.determinant();
+      if (!Number.isFinite(determinant) || determinant === 0) return;
+      const meshes: THREE.Mesh[] = [];
+      world!.traverseVisible(object => { if (object instanceof THREE.Mesh) meshes.push(object); });
+      for (const hit of this.raycaster.intersectObjects(meshes, false)) {
+        const mesh = hit.object as THREE.Mesh;
+        const surface = Array.isArray(mesh.material) ? mesh.material[hit.face?.materialIndex ?? 0] : mesh.material;
+        if (!surface?.visible || (surface.transparent && surface.opacity <= 0)) continue;
+        // Invert only the alignment root. The GLB scene's internal transforms
+        // remain part of the raw source point, rather than returning mesh-local
+        // coordinates or dividing world Y by scale without undoing rotation.
+        const source = world!.worldToLocal(hit.point.clone());
+        if (![source.x, source.y, source.z, hit.point.x, hit.point.y, hit.point.z].every(Number.isFinite)) return;
+        this.options.onWorldPoint?.({ sourcePoint: [source.x, source.y, source.z],
+          worldPoint: [hit.point.x, hit.point.y, hit.point.z] });
+        return;
+      }
+      return;
+    }
     const hits = this.raycaster.intersectObjects([...this.components.values()], true);
     for (const hit of hits) {
       let node: THREE.Object3D | null = hit.object;
@@ -96,7 +139,17 @@ export class StudioViewport {
         return;
       }
     }
-  };
+  }
+
+  private objectVisible(object: THREE.Object3D): boolean {
+    for (let node: THREE.Object3D | null = object; node; node = node.parent) if (!node.visible) return false;
+    return true;
+  }
+
+  setWorldPickEnabled(enabled: boolean): void {
+    this.worldPickEnabled = !!enabled && !this.disposed && !this.options.capture;
+    this.canvas.style.cursor = this.worldPickEnabled ? 'crosshair' : '';
+  }
 
   resize(): void {
     if (this.disposed) return;
@@ -432,6 +485,8 @@ export class StudioViewport {
         this.alignWorld(root, environment.asset);
         root.add(imported);
         this.content.add(root);
+        this.worldRoot = root;
+        this.worldLoadVersion = version;
       } else if (environment.kind === 'splat') {
         const { SparkRenderer, SplatMesh } = await import('@sparkjsdev/spark');
         if (version !== this.loadVersion || this.disposed) return;
@@ -455,10 +510,14 @@ export class StudioViewport {
       this.setSelection(this.selectedId);
       if (this.spark && (capture || (!document.hidden && this.visible))) await this.render(true);
       else this.invalidate();
-      if (version === this.loadVersion && !this.disposed) this.options.onReady?.();
+      if (version === this.loadVersion && !this.disposed) {
+        this.worldReady = !!this.worldRoot;
+        this.options.onReady?.();
+      }
     } catch (error: any) {
       if (version !== this.loadVersion || this.disposed) return;
       this.loading = false;
+      this.worldReady = false;
       this.options.onError?.(error?.message || String(error));
       throw error;
     }
@@ -568,6 +627,9 @@ export class StudioViewport {
   }
 
   private clearContent(): void {
+    this.worldRoot = null;
+    this.worldLoadVersion = -1;
+    this.worldReady = false;
     if (this.selection) {
       this.scene.remove(this.selection);
       this.selection.geometry.dispose();
@@ -581,9 +643,23 @@ export class StudioViewport {
     this.components.clear();
   }
 
+  clearScene(): void {
+    if (this.disposed) return;
+    this.loadVersion++;
+    this.frameRequest++;
+    this.assetAbort?.abort();
+    this.assetAbort = null;
+    this.loading = false;
+    this.cancelRender();
+    this.clearContent();
+    this.scene.background = null;
+    this.invalidate();
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.setWorldPickEnabled(false);
     this.loadVersion++;
     this.assetAbort?.abort();
     this.cancelRender();
@@ -603,6 +679,7 @@ export class StudioViewport {
 export function createViewport(host: HTMLElement, options: {
   onSelect?: (id: string | null) => void;
   onError?: (message: string) => void;
+  onWorldPoint?: (point: WorldPointPick) => void;
   capture?: boolean;
 } = {}) {
   const canvas = document.createElement('canvas');
@@ -650,6 +727,13 @@ export function createViewport(host: HTMLElement, options: {
       });
     },
     setSelected(id: string | null) { viewport.setSelection(id); },
+    setWorldPickEnabled(enabled: boolean) { viewport.setWorldPickEnabled(enabled); },
+    clearScene() {
+      version++;
+      latestSample = null;
+      captureFrames = [];
+      viewport.clearScene();
+    },
     resize() { fitCanvas(); viewport.resize(); },
     dispose() {
       version++;

@@ -19,6 +19,8 @@ from .store import ConflictError, ProjectStore, ROOT, identifier, now
 from .worlds import MAX_ASSET_BYTES, import_world, list_worlds
 from .github_worlds import GitHubWorlds
 from .products import create_product_scene
+from .comparison import calibrate_scene, comparison_payload, review_alignment
+from .comparison_jobs import ComparisonJobs
 
 ARTIFACTS = {"still.png", "film.mp4", "scene.blend", "contact-sheet.png", "still-01.png", "still-02.png", "still-03.png"}
 ASSET_NAME = re.compile(r"[0-9a-f]{64}\.(?:glb|spz|ply)\Z")
@@ -34,6 +36,7 @@ class RenderQueue:
         self.pending = queue.Queue()
         self.lock = threading.RLock()
         self.active = set()
+        self.prepared = set()
         self.thread = threading.Thread(target=self._worker, name="render-queue", daemon=True)
         self.thread.start()
 
@@ -52,7 +55,11 @@ class RenderQueue:
             state = request["pipelineState"]
         elif job_id in self.active and request.get("stage") == "capturing":
             state = "running"
-        elif state in ("running", "queued") and job_id not in self.active:
+        elif job_id in self.active and request.get("stage") == "queued":
+            # A resumed core manifest retains its previous terminal state until
+            # the worker starts. The accepted queue request owns this interval.
+            state = "queued"
+        elif state in ("running", "queued") and job_id not in self.active and job_id not in self.prepared:
             # A process can still hold the inherited lock. Explicit resume reconciles it.
             state = "interrupted"
         count = sum(end - start + 1 for start, end in job.get("completedRanges", []))
@@ -79,7 +86,7 @@ class RenderQueue:
                 continue
         return sorted(summaries, key=lambda item: item["createdAt"], reverse=True)
 
-    def create(self, data):
+    def create(self, data, *, enqueue=True):
         scene = validate_scene(data["scene"])
         kind = data.get("kind", "still")
         if kind not in ("still", "reel"):
@@ -91,17 +98,35 @@ class RenderQueue:
                    "height": data.get("height", 960 if kind == "still" else 480),
                    "samples": data.get("samples", 32 if kind == "still" else 8)}
         frame = data.get("frame", 1)
-        if kind == "still":
-            create_still_job(source, output, frame=frame, **profile)
-        else:
-            jobs.create_job(source, output, **profile)
-        jobs._atomic_json(output / "request.json", {"id": job_id, "kind": kind, "frame": frame if kind == "still" else None,
-                          "createdAt": now(), "pipelineState": "queued", "stage": "queued"})
-        self.enqueue(job_id)
+        try:
+            if kind == "still":
+                create_still_job(source, output, frame=frame, **profile)
+            else:
+                jobs.create_job(source, output, **profile)
+            jobs._atomic_json(output / "request.json", {"id": job_id, "kind": kind, "frame": frame if kind == "still" else None,
+                              "createdAt": now(), "pipelineState": "queued", "stage": "queued", "prepared": not enqueue})
+        except BaseException:
+            shutil.rmtree(output, ignore_errors=True)
+            raise
+        if not enqueue:
+            with self.lock:
+                self.prepared.add(job_id)
+        if enqueue:
+            self.enqueue(job_id)
         return self.summary(job_id)
+
+    def check_resume(self, job_id):
+        """Reject a resume while its current worker is still honoring cancellation."""
+        with self.lock:
+            if job_id in self.active:
+                request = self._request(job_id)
+                if request.get("pipelineState") == "cancelled" or (self.directory(job_id) / "cancel.requested").exists():
+                    raise ConflictError("Cancellation still stopping; resume when stopped")
 
     def enqueue(self, job_id, *, resume=False):
         with self.lock:
+            if resume:
+                self.check_resume(job_id)
             if job_id in self.active:
                 return
             output = self.directory(job_id)
@@ -110,19 +135,21 @@ class RenderQueue:
                 with jobs._lock(output, ".manifest.lock"):
                     (output / "cancel.requested").unlink(missing_ok=True)
                 request.pop("error", None)
-            request.update(pipelineState="queued", stage="queued")
+            request.update(pipelineState="queued", stage="queued", prepared=False)
             jobs._atomic_json(output / "request.json", request)
+            self.prepared.discard(job_id)
             self.active.add(job_id)
             self.pending.put(job_id)
 
     def cancel(self, job_id):
-        output = self.directory(job_id)
-        jobs.cancel_job(output)
-        request = self._request(job_id)
-        if jobs._read_job(output)["state"] != "succeeded":
-            request.update(pipelineState="cancelled")
-            jobs._atomic_json(output / "request.json", request)
-        return self.summary(job_id)
+        with self.lock:
+            output = self.directory(job_id)
+            jobs.cancel_job(output)
+            request = self._request(job_id)
+            if jobs._read_job(output)["state"] != "succeeded":
+                request.update(pipelineState="cancelled")
+                jobs._atomic_json(output / "request.json", request)
+            return self.summary(job_id)
 
     def _worker(self):
         while True:
@@ -175,6 +202,7 @@ class Application:
         self.port = port
         self.github = GitHubWorlds(self.store.root)
         self.renders = RenderQueue(self.store, base_url=f"http://127.0.0.1:{port}", blender=blender, ffmpeg=ffmpeg)
+        self.comparison_renders = ComparisonJobs(self.renders)
 
     def capabilities(self):
         import os
@@ -259,12 +287,18 @@ def make_handler(app):
                     return self._json(app.store.list())
                 if path == "/api/jobs":
                     return self._json(app.renders.list())
+                if path == "/api/comparison-renders":
+                    return self._json(app.comparison_renders.list())
                 if len(parts) == 3 and parts[:2] == ["api", "projects"]:
                     return self._json(app.store.get(parts[2]))
                 if len(parts) == 5 and parts[:2] == ["api", "projects"] and parts[3] == "revisions":
                     return self._json(app.store.get(parts[2], parts[4]))
                 if len(parts) == 3 and parts[:2] == ["api", "jobs"]:
                     return self._json(app.renders.summary(parts[2]))
+                if len(parts) == 3 and parts[:2] == ["api", "comparison-renders"]:
+                    return self._json(app.comparison_renders.summary(parts[2]))
+                if len(parts) == 5 and parts[:2] == ["api", "comparison-renders"] and parts[3] == "files":
+                    return self._file(app.comparison_renders.artifact(parts[2], parts[4]))
                 if len(parts) == 5 and parts[:2] == ["api", "jobs"] and parts[3] == "files":
                     if parts[4] not in ARTIFACTS or app.renders.summary(parts[2])["state"] != "succeeded":
                         raise ValueError("Artifact is not available from a successful job")
@@ -332,13 +366,28 @@ def make_handler(app):
                     return self._json(app.github.import_run(parts[3]))
                 if path == "/api/evaluate":
                     scene = validate_scene(body["scene"])
-                    return self._json({**sample_scene(scene), "digest": scene_digest(scene)})
+                    result = {**sample_scene(scene), "digest": scene_digest(scene)}
+                    payload = comparison_payload(scene) if "comparison" in scene else None
+                    if payload:
+                        result["comparison"] = payload
+                    return self._json(result)
+                if path == "/api/comparison/calibrate":
+                    return self._json({"scene": calibrate_scene(body["scene"], body["side"], body["calibration"])})
+                if path == "/api/comparison/review":
+                    return self._json({"scene": review_alignment(body["scene"])})
                 if path == "/api/projects":
                     return self._json(app.store.create(body.get("name", "New campaign"), body.get("scene")), 201)
                 if len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] == "approve":
                     return self._json(app.store.approve(parts[2], body.get("expectedRevisionId")))
                 if path == "/api/renders":
                     return self._json(app.renders.create(body), 202)
+                if path == "/api/comparison-renders":
+                    return self._json(app.comparison_renders.create(body), 202)
+                if len(parts) == 4 and parts[:2] == ["api", "comparison-renders"]:
+                    if parts[3] == "cancel":
+                        return self._json(app.comparison_renders.cancel(parts[2]))
+                    if parts[3] == "resume":
+                        return self._json(app.comparison_renders.resume(parts[2]), 202)
                 if len(parts) == 4 and parts[:2] == ["api", "jobs"]:
                     if parts[3] == "cancel":
                         return self._json(app.renders.cancel(parts[2]))

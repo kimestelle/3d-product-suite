@@ -2,7 +2,26 @@
 
 This record distinguishes engineering checks from visual approval, real-asset validation and observed user-study outcomes. Local fixture success does not pass those proposal gates.
 
-## 16 October 2026 — milestones 2–3
+## 16 October 2026 — current A/B engineering record
+
+The API and browser now support saved world calibration, locked A/B comparison and paired render exports. Both sides share the exact product, actions, sampled cameras, render settings, explicit plinth/props and ambient colour. Calibration records raw-GLB floor/measurement picks, metric scale and yaw adjustments. Saved placement review becomes draft when world alignment, contact geometry, product geometry/assembly, actions or time sampling change; camera framing and ambient edits are tracked separately by the shared scene digest.
+
+The official HQ visual mesh has now been downloaded through [recovery run 38864636256](https://github.com/kimestelle/3d-product-suite/actions/runs/38864636256) and is available alongside the mesh reconstructed from the same world's Gaussian SPZ. The earlier unavailability and recovery-in-progress statements below describe historical checkpoints.
+
+The actual Nessino A/B scene uses these two representations of world `f5a9a297-e44e-4c16-9f2b-0e069e444dd8`. It remains **draft and unreviewed**. Its initial placement fits a selected floor surface near the product origin to the shared plinth underside and retains a provider-scale hypothesis. No independent room dimension has established metric agreement between representations, and this world was generated without a reference image. These initial settings do not establish photographic fidelity, correct room scale or appearance approval.
+
+Current checks passed:
+
+- **220 Python tests**, including **six real-Blender integrations**; **43 Vitest tests**; **seven direct Node tests**; production browser build.
+- Real paired still `60218636e88f419ba4dc8ac7199e8595`: both sides succeeded at **frame 241, 360 × 640, 16 samples per pixel**.
+- The Playwright comparison smoke check passed **nine real-browser flows**, including paired export through the UI. Both children of pair `c3fea0ab797e447499a0a48ea1374823` succeeded at **180 × 320, four samples per pixel**.
+- Real paired reel `34082398783f4d68b030c4a0eaf856b7` succeeded for a deliberately shortened **six-frame** timeline spanning all three cameras, at **180 × 320, four samples per pixel**. FFprobe confirmed six frames at 24 fps in both MP4s. Both still/reel ZIPs passed member hashes, matching frame/profile/renderer checks and archive validation.
+
+These checks establish engineering behavior and available outputs. The six-frame reel is an encoder/integration smoke check; a full 360-frame generated-world pair was not rendered in this check. CG/brand approval, independent world calibration, reference-image comparison, final-resolution sequences and observed designer usability remain open.
+
+## 16 October 2026 — earlier milestones 2–3 checkpoint (historical)
+
+This dated checkpoint is preserved as recorded. Its provider-availability status, test counts and pending-recovery statements are superseded by the current record above.
 
 The local browser editor, immutable world library, explicit near-field props, mesh import, Gaussian diagnostics and experimental Gaussian-to-mesh workflow are implemented. The requested final generated-world comparison uses the official visual GLB and a mesh reconstructed from the same world's Gaussian SPZ, alongside the authored baseline. No paid World Labs generation or mesh export was invoked for the local checks below. The first protected GitHub experiment is tracked at [run 38862464590](https://github.com/kimestelle/3d-product-suite/actions/runs/38862464590). It generated world `f5a9a297-e44e-4c16-9f2b-0e069e444dd8` for 1,580 settled credits and accepted one HQ mesh export. The first export status read returned HTTP 404; durable IDs and receipts were preserved. The recovery implementation now reads the same world’s requested visual mesh when an export operation is unavailable, with no POST retry and unknown export settlement until confirmed.
 
