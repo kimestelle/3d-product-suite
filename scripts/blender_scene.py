@@ -13,13 +13,16 @@ opening the saved .blend at any integer frame reproduces the sampled result.
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import json
 import math
 from pathlib import Path
+import struct
 import sys
 
 import bpy
-from mathutils import Quaternion, Vector
+from mathutils import Matrix, Quaternion, Vector
 
 
 BLENDER_VERSION = (4, 3, 2)
@@ -40,14 +43,20 @@ def blender_rotation(value):
     return COORDINATE_ROTATION @ rotation @ COORDINATE_ROTATION.conjugated()
 
 
-def material(name, color, roughness=0.45, metallic=0.0):
+def material(name, color, roughness=0.45, metallic=0.0, transmission=0.0, ior=1.5):
     result = bpy.data.materials.new(name)
     result.use_nodes = True
     shader = result.node_tree.nodes.get("Principled BSDF")
     shader.inputs["Base Color"].default_value = tuple(color)
     shader.inputs["Roughness"].default_value = roughness
     shader.inputs["Metallic"].default_value = metallic
+    shader.inputs["Transmission Weight"].default_value = transmission
+    shader.inputs["IOR"].default_value = ior
     return result
+
+
+def specified_material(name, specification):
+    return material(name, specification["baseColor"], specification["roughness"], specification["metallic"], specification.get("transmission", 0), specification.get("ior", 1.5))
 
 
 def primitive(name, shape, size, surface, bevel=0.0):
@@ -144,6 +153,7 @@ def configure_scene(source, width, height, samples):
     # The same sampled scene and seed therefore use the same portable settings.
     scene.cycles.use_denoising = False
     scene.cycles.max_bounces = 8
+    scene.cycles.transmission_bounces = 8
     scene.render.resolution_x = width or settings["width"]
     scene.render.resolution_y = height or settings["height"]
     scene.render.resolution_percentage = 100
@@ -164,27 +174,36 @@ def configure_scene(source, width, height, samples):
 
 
 def environment(source):
+    """Build only explicit near-field geometry plus the common studio lights."""
     plinth = source["environment"]["plinth"]
     porcelain = material("Set / warm matte porcelain", (0.56, 0.54, 0.49, 1), 0.58)
     obj = primitive(plinth["id"], "box", plinth["sizeM"], porcelain, 0.004)
     obj.location = blender_position(plinth["translationM"])
-    # A curved studio sweep supplies contact shadows and hides the horizon even
-    # when a portrait camera sees slightly above the physical floor plane.
-    floor_height = plinth["translationM"][1] - plinth["sizeM"][1] / 2
-    radius = max(source["product"]["dimensionsM"]) * 3
-    sweep = [(-radius * 15, floor_height - 0.0001), (radius, floor_height - 0.0001)]
-    sweep.extend((radius + radius * math.sin(index * math.pi / 64), floor_height + radius * (1 - math.cos(index * math.pi / 64))) for index in range(1, 33))
-    sweep.append((radius * 2, floor_height + radius * 15))
-    vertices = [(x, y, z) for y, z in sweep for x in (-radius * 15, radius * 15)]
-    faces = [(2 * index, 2 * index + 1, 2 * index + 3, 2 * index + 2) for index in range(len(sweep) - 1)]
-    mesh = bpy.data.meshes.new("Set / curved sweep mesh")
-    mesh.from_pydata(vertices, [], faces)
-    mesh.update()
-    for polygon in mesh.polygons:
-        polygon.use_smooth = True
-    floor = bpy.data.objects.new("Set / curved studio sweep", mesh)
-    bpy.context.collection.objects.link(floor)
-    floor.data.materials.append(material("Set / warm gray background", (0.26, 0.28, 0.26, 1), 0.72))
+    for prop in source["environment"].get("props", []):
+        if bpy.data.objects.get(prop["id"]):
+            raise ValueError(f"Near-field prop ID collides with an existing object: {prop['id']}")
+        obj = primitive(prop["id"], prop["shape"], prop["sizeM"], specified_material(prop["id"] + " / surface", prop["material"]), prop.get("bevelM", 0))
+        obj.location = blender_position(prop["translationM"])
+        obj.rotation_mode = "QUATERNION"
+        obj.rotation_quaternion = blender_rotation(prop["rotationXyzw"])
+        obj["role"] = "Explicit near-field prop; independent of imported world alignment"
+    if source["environment"]["kind"] == "authored":
+        # The authored fallback sweep must never cover a mesh or splat plate.
+        floor_height = plinth["translationM"][1] - plinth["sizeM"][1] / 2
+        radius = max(source["product"]["dimensionsM"]) * 3
+        sweep = [(-radius * 15, floor_height - 0.0001), (radius, floor_height - 0.0001)]
+        sweep.extend((radius + radius * math.sin(index * math.pi / 64), floor_height + radius * (1 - math.cos(index * math.pi / 64))) for index in range(1, 33))
+        sweep.append((radius * 2, floor_height + radius * 15))
+        vertices = [(x, y, z) for y, z in sweep for x in (-radius * 15, radius * 15)]
+        faces = [(2 * index, 2 * index + 1, 2 * index + 3, 2 * index + 2) for index in range(len(sweep) - 1)]
+        mesh = bpy.data.meshes.new("Set / curved sweep mesh")
+        mesh.from_pydata(vertices, [], faces)
+        mesh.update()
+        for polygon in mesh.polygons:
+            polygon.use_smooth = True
+        floor = bpy.data.objects.new("Set / curved studio sweep", mesh)
+        bpy.context.collection.objects.link(floor)
+        floor.data.materials.append(material("Set / warm gray background", (0.26, 0.28, 0.26, 1), 0.72))
     # Scale illumination with the product, keeping intensity stable for metre units.
     size = max(source["product"]["dimensionsM"])
     scale = size / 0.12
@@ -196,6 +215,154 @@ def environment(source):
         ("Studio / edge strip", (0.06, 0.19, 0.30), 3.4, 0.16, (1.0, 0.98, 0.90)),
     ):
         area_light(name, Vector(position) + Vector(offset) * scale, target, power * scale * scale, diameter * scale, color)
+
+
+def verified_asset(source, samples_root):
+    """Resolve immutable bundled assets without allowing external path reads."""
+    asset = source["environment"]["asset"]
+    relative = Path(asset["path"])
+    if relative.is_absolute() or ".." in relative.parts or "\\" in asset["path"] or ":" in asset["path"]:
+        raise ValueError("World asset path must be a safe relative path")
+    path = (samples_root / relative).resolve()
+    if not path.is_relative_to(samples_root) or not path.is_file():
+        raise ValueError("World asset is missing or outside the sampled scene bundle")
+    if path.stat().st_size > 128 * 1024 * 1024:
+        raise ValueError("World asset exceeds the 128 MiB limit")
+    with path.open("rb") as stream:
+        digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    if digest != asset["sha256"]:
+        raise ValueError("World asset SHA256 does not match the scene manifest")
+    return path
+
+
+def import_visual_mesh(source, asset_path):
+    """Import visual GLB, then align the imported hierarchy exactly once."""
+    asset = source["environment"]["asset"]
+    if asset["format"] != "glb" or asset["sourceUp"] != "Y":
+        raise ValueError("Visual GLB must declare format=glb and sourceUp=Y, as required by glTF 2")
+    # Direct renderer calls receive the same self-contained constraint as import.
+    with asset_path.open("rb") as stream:
+        header = stream.read(20)
+        if len(header) != 20 or header[:4] != b"glTF" or struct.unpack_from("<I", header, 4)[0] != 2 or struct.unpack_from("<I", header, 8)[0] != asset_path.stat().st_size or header[16:20] != b"JSON":
+            raise ValueError("Visual mesh must be a self-contained GLB 2 file")
+        json_size = struct.unpack_from("<I", header, 12)[0]
+        if json_size > 16 * 1024 * 1024:
+            raise ValueError("GLB JSON chunk exceeds the 16 MiB limit")
+        document = json.loads(stream.read(json_size))
+
+    def embedded_only(value, depth=0):
+        if depth > 80:
+            raise ValueError("GLB JSON nesting is too deep")
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key.lower() in {"script", "scripts", "javascript"}:
+                    raise ValueError("GLB scripts are forbidden")
+                if key.lower() in {"uri", "url", "href"}:
+                    if not isinstance(child, str) or not child.startswith("data:"):
+                        raise ValueError("GLB visual assets cannot reference external URIs")
+                    header, separator, body = child.partition(",")
+                    if not separator or header[5:] not in {"application/octet-stream;base64", "application/gltf-buffer;base64", "image/png;base64", "image/jpeg;base64", "image/webp;base64"}:
+                        raise ValueError("GLB data URI type is unsupported")
+                    base64.b64decode(body, validate=True)
+                embedded_only(child, depth + 1)
+        elif isinstance(value, list):
+            for child in value:
+                embedded_only(child, depth + 1)
+
+    embedded_only(document)
+    if not document.get("meshes"):
+        raise ValueError("Visual GLB must contain mesh geometry")
+    existing = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=str(asset_path), import_pack_images=True)
+    imported = set(bpy.data.objects) - existing
+    excluded = []
+    for obj in list(imported):
+        if obj.type in {"CAMERA", "LIGHT"}:
+            excluded.append(obj.name)
+            bpy.data.objects.remove(obj, do_unlink=True)
+            imported.remove(obj)
+    if not any(obj.type == "MESH" for obj in imported):
+        raise ValueError("Visual GLB import produced no mesh geometry")
+    anchor = bpy.data.objects.new("World / visual mesh alignment", None)
+    bpy.context.collection.objects.link(anchor)
+    for obj in imported:
+        obj.name = "World / " + obj.name
+        if obj.parent not in imported:
+            matrix = obj.matrix_world.copy()
+            obj.parent = anchor
+            obj.matrix_parent_inverse = Matrix.Identity(4)
+            obj.matrix_basis = matrix
+    # glTF importer already applies the canonical Y-up -> Blender Z-up change.
+    # Applying COORDINATE_ROTATION again here would rotate the room on its side.
+    anchor.location = blender_position(asset["translationM"])
+    anchor.rotation_mode = "QUATERNION"
+    anchor.rotation_quaternion = blender_rotation(asset["rotationXyzw"])
+    anchor.scale = (asset["scaleToMeters"],) * 3
+    anchor["asset_sha256"] = asset["sha256"]
+    anchor["source_up"] = "Y; converted once by Blender glTF importer"
+    return {"importedObjects": len(imported), "excludedEmbeddedCamerasAndLights": excluded}
+
+
+def plate_compositor(source, frames, requested, samples_root, output_root, scene):
+    """Composite the captured Gaussian world behind transparent Cycles geometry."""
+    required = requested or [frames[0]["frame"]]
+    width, height = scene.render.resolution_x, scene.render.resolution_y
+    manifest_path = (samples_root / "plate" / "capture-manifest.json").resolve()
+    if not manifest_path.is_relative_to(samples_root) or not manifest_path.is_file():
+        raise ValueError("Gaussian plates require plate/capture-manifest.json to verify the sampled cameras and source asset")
+    if manifest_path.stat().st_size > 8 * 1024 * 1024:
+        raise ValueError("Gaussian capture manifest exceeds the size limit")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    digest = hashlib.sha256(json.dumps(source, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+    if manifest.get("sourceDigest") != digest or manifest.get("assetSha256") != source["environment"]["asset"]["sha256"]:
+        raise ValueError("Gaussian capture manifest does not match the sampled scene and world asset")
+    profile = manifest.get("profile", {})
+    if profile.get("width") != width or profile.get("height") != height:
+        raise ValueError("Gaussian capture manifest resolution does not match the render profile")
+    if profile.get("colorSpace") != "srgb" or profile.get("toneMapping") != "none" or profile.get("contents") != "gaussian-world-only":
+        raise ValueError("Gaussian plate capture must contain only the world, with sRGB output and no tone mapping")
+    for frame in required:
+        path = (samples_root / "plate" / f"{frame:06d}.png").resolve()
+        if not path.is_relative_to(samples_root) or not path.is_file():
+            raise ValueError(f"Missing camera-matched Gaussian plate for frame {frame}: plate/{frame:06d}.png")
+        with path.open("rb") as stream:
+            header = stream.read(24)
+        if len(header) != 24 or header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
+            raise ValueError(f"Invalid Gaussian plate PNG at frame {frame}")
+        if struct.unpack_from(">II", header, 16) != (width, height):
+            raise ValueError(f"Gaussian plate resolution must match {width}x{height} at frame {frame}")
+        with path.open("rb") as stream:
+            plate_hash = hashlib.file_digest(stream, "sha256").hexdigest()
+        if frame not in profile.get("frameNumbers", []) or manifest.get("frames", {}).get(str(frame)) != plate_hash:
+            raise ValueError(f"Gaussian plate frame {frame} is missing from or does not match its capture manifest")
+    scene.render.film_transparent = True
+    scene.cycles.film_transparent_glass = False
+    scene.use_nodes = True
+    tree = scene.node_tree
+    tree.nodes.clear()
+    layers = tree.nodes.new("CompositorNodeRLayers")
+    layers.label = "Exact product + explicit near-field geometry"
+    plate = tree.nodes.new("CompositorNodeImage")
+    plate.name = "Gaussian camera-matched plate"
+    plate.label = "sRGB / no capture tone mapping / no depth"
+    first_frame = frames[0]["frame"]
+    image = bpy.data.images.load(str(samples_root / "plate" / f"{min(required):06d}.png"), check_existing=False)
+    if tuple(image.size) != (width, height):
+        raise ValueError("Gaussian plate could not be decoded at the expected resolution")
+    image.colorspace_settings.name = "sRGB"
+    image.source = "SEQUENCE"
+    plate.image = image
+    plate.frame_start = first_frame
+    plate.frame_duration = scene.frame_end - first_frame + 1
+    plate.use_auto_refresh = True
+    image.filepath = bpy.path.relpath(str(samples_root / "plate" / f"{first_frame:06d}.png"), start=str(output_root))
+    composite = tree.nodes.new("CompositorNodeAlphaOver")
+    composite.inputs[0].default_value = 1
+    tree.links.new(plate.outputs["Image"], composite.inputs[1])
+    tree.links.new(layers.outputs["Image"], composite.inputs[2])
+    output = tree.nodes.new("CompositorNodeComposite")
+    tree.links.new(composite.outputs["Image"], output.inputs["Image"])
+    return {"directory": "plate", "sequenceRelativeToBlend": image.filepath, "validatedFrames": required, "captureManifestVerified": True, "sourceDigest": digest, "colorSpace": "sRGB plate decoded to linear; AgX applied once after compositing", "captureToneMapping": "none", "sequenceStartFrame": first_frame}
 
 
 def animate(source, frames, objects):
@@ -277,6 +444,7 @@ def main():
     args = arguments()
     if bpy.app.version != BLENDER_VERSION:
         raise RuntimeError(f"Blender 4.3.2 is required, found {bpy.app.version_string}")
+    args.samples = args.samples.resolve()
     payload = json.loads(args.samples.read_text(encoding="utf-8"))
     source, frames = payload["scene"], payload["frames"]
     if source["render"]["blenderVersion"] != "4.3.2" or source["render"]["engine"] != "CYCLES":
@@ -297,7 +465,7 @@ def main():
     objects = {}
     for component in source["product"]["components"]:
         specification = component["material"]
-        surface = material(component["id"] + " / surface", specification["baseColor"], specification["roughness"], specification["metallic"])
+        surface = specified_material(component["id"] + " / surface", specification)
         obj = primitive(component["id"], component["shape"], component["sizeM"], surface, component.get("bevelM", 0))
         objects[component["id"]] = obj
     label = source["product"].get("label")
@@ -306,12 +474,36 @@ def main():
         text_on_label(objects[label["componentId"]], label, component["sizeM"])
     environment(source)
     animate(source, frames, objects)
+    kind = source["environment"]["kind"]
+    world_details = {}
+    limitations = []
+    if kind in {"mesh", "splat"}:
+        asset_path = verified_asset(source, args.samples.parent)
+        if kind == "mesh":
+            world_details = import_visual_mesh(source, asset_path)
+            limitations.append("Imported visual mesh appearance may contain baked illumination; physical material and lighting separation is unverified.")
+        else:
+            if source["environment"]["asset"]["format"] not in {"ply", "spz"}:
+                raise ValueError("Gaussian plate environments require a PLY or SPZ source asset")
+            world_details = plate_compositor(source, frames, args.frames, args.samples.parent, args.output, scene)
+            limitations.extend([
+                "Gaussian world is a camera-matched color plate, not native Cycles splat geometry or shading.",
+                "No splat depth: the distant plate cannot occlude product or near-field geometry.",
+                "No world-plate glass transmission, refraction, reflection, indirect illumination or shadow equivalence; Cycles sees only explicit near-field geometry and the declared world color.",
+                "Keep plate/ with scene.blend: the captured frame sequence remains an external dependency of the saved native scene.",
+            ])
+    elif kind != "authored":
+        raise ValueError(f"Unsupported environment kind: {kind}")
+    if any(component["material"].get("transmission", 0) > 0 for component in [*source["product"]["components"], *source["environment"].get("props", [])]):
+        limitations.append("Transmission/IOR is a solid primitive glass probe; no validated packaging wall thickness, contents or optical quality claim.")
+    if source["environment"].get("fixture"):
+        limitations.append("Original synthetic QA world fixture, not World Labs output; generated-world quality and human review gates remain unmeasured.")
     scene["source_scene_id"] = source["sceneId"]
     scene["coordinate_conversion"] = "Canonical metres Y-up (x,y,z) -> Blender metres Z-up (x,-z,y)"
     scene["camera_gate"] = "36 mm vertical sensor; sampled position, target, focal length"
     scene["interpolation"] = "CONSTANT: all integer frame poses are sampled and keyed"
     render_config = {
-        "adapterVersion": 1,
+        "adapterVersion": 2,
         "blenderVersion": bpy.app.version_string,
         "engine": scene.render.engine,
         "device": scene.cycles.device,
@@ -325,6 +517,10 @@ def main():
         "look": scene.view_settings.look,
         "cameraGate": {"fit": "VERTICAL", "heightMm": 36},
         "typography": {"font": "Bfont Regular", "source": "Blender 4.3.2 builtin"},
+        "renderingPath": {"authored": "authored-cycles", "mesh": "visual-glb-cycles", "splat": "gaussian-plate-cycles-foreground"}[kind],
+        "limitations": limitations,
+        "environment": {"kind": kind, "revisionId": source["environment"]["revisionId"], "asset": source["environment"].get("asset"), "provenance": source["environment"]["provenance"], "fixture": source["environment"].get("fixture", False), "reviewStatus": source["environment"].get("reviewStatus"), "details": world_details},
+        "nearField": {"plinth": source["environment"]["plinth"], "props": source["environment"].get("props", [])},
         "coordinateConversion": {"from": "right-handed Y-up metres", "to": "right-handed Z-up metres", "position": "(x,-z,y)"},
         "lighting": [
             {"name": obj.name, "positionM": list(obj.location), "powerW": obj.data.energy, "diameterM": obj.data.size, "color": list(obj.data.color)}

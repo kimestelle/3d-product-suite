@@ -1,0 +1,246 @@
+{
+  "schemaVersion": 1,
+  "generatorVersion": 1,
+  "displayName": "Synthetic neutral architectural room",
+  "fixture": true,
+  "reviewStatus": "unreviewed",
+  "provenance": {
+    "source": "Original programmatically authored synthetic room; not a World Labs export or a captured real location.",
+    "owner": "3d-product-suite project",
+    "reuseBasis": "Original project QA geometry and material colors; no third-party assets, textures, models, or training data.",
+    "allowedExternalDestinations": []
+  },
+  "alignment": {
+    "sourceUp": "Y",
+    "scaleToMeters": 1,
+    "translationM": [
+      0,
+      0,
+      0
+    ],
+    "rotationXyzw": [
+      0,
+      0,
+      0,
+      1
+    ]
+  },
+  "geometrySha256": "18e21d4ea8732354d77318a56904bff4695fa4384599914b1cbe0085cfef1c35",
+  "boundsM": {
+    "min": [
+      -0.9,
+      -0.034999999999999996,
+      -0.88
+    ],
+    "max": [
+      0.9,
+      1.0750000000000002,
+      -0.05999999999999997
+    ],
+    "size": [
+      1.8,
+      1.11,
+      0.82
+    ]
+  },
+  "landmarksM": {
+    "floorTopY": -0.025,
+    "floorFrontZ": -0.13,
+    "backWallFrontZ": -0.5,
+    "productOrigin": [
+      0,
+      0,
+      0
+    ]
+  },
+  "geometry": {
+    "coordinates": {
+      "up": "Y",
+      "units": "meters",
+      "handedness": "right"
+    },
+    "materials": [
+      {
+        "name": "warm limestone",
+        "rgb": [
+          0.49,
+          0.46,
+          0.4
+        ],
+        "roughness": 0.88
+      },
+      {
+        "name": "chalk plaster",
+        "rgb": [
+          0.69,
+          0.66,
+          0.59
+        ],
+        "roughness": 0.91
+      },
+      {
+        "name": "inset ivory",
+        "rgb": [
+          0.78,
+          0.75,
+          0.67
+        ],
+        "roughness": 0.83
+      },
+      {
+        "name": "muted bronze",
+        "rgb": [
+          0.31,
+          0.26,
+          0.18
+        ],
+        "roughness": 0.72
+      }
+    ],
+    "boxes": [
+      {
+        "name": "floor behind contact stage",
+        "centerM": [
+          0,
+          -0.03,
+          -0.505
+        ],
+        "sizeM": [
+          1.8,
+          0.01,
+          0.75
+        ],
+        "material": 0
+      },
+      {
+        "name": "back wall",
+        "centerM": [
+          0,
+          0.525,
+          -0.52
+        ],
+        "sizeM": [
+          1.8,
+          1.1,
+          0.04
+        ],
+        "material": 1
+      },
+      {
+        "name": "left wall return",
+        "centerM": [
+          -0.88,
+          0.315,
+          -0.29
+        ],
+        "sizeM": [
+          0.04,
+          0.68,
+          0.46
+        ],
+        "material": 1
+      },
+      {
+        "name": "ivory inset",
+        "centerM": [
+          -0.305,
+          0.31,
+          -0.492
+        ],
+        "sizeM": [
+          0.47,
+          0.47,
+          0.016
+        ],
+        "material": 2
+      },
+      {
+        "name": "inset bottom reveal",
+        "centerM": [
+          -0.305,
+          0.07,
+          -0.488
+        ],
+        "sizeM": [
+          0.47,
+          0.01,
+          0.024
+        ],
+        "material": 3
+      },
+      {
+        "name": "bronze fin 1",
+        "centerM": [
+          0.16,
+          0.275,
+          -0.476
+        ],
+        "sizeM": [
+          0.012,
+          0.6,
+          0.048
+        ],
+        "material": 3
+      },
+      {
+        "name": "bronze fin 2",
+        "centerM": [
+          0.22,
+          0.275,
+          -0.476
+        ],
+        "sizeM": [
+          0.012,
+          0.6,
+          0.048
+        ],
+        "material": 3
+      },
+      {
+        "name": "bronze fin 3",
+        "centerM": [
+          0.28,
+          0.275,
+          -0.476
+        ],
+        "sizeM": [
+          0.012,
+          0.6,
+          0.048
+        ],
+        "material": 3
+      }
+    ]
+  },
+  "assets": [
+    {
+      "path": "neutral-room.glb",
+      "format": "glb",
+      "sha256": "bc2728e1d505f457230332e63845b6d8bec39893fafa2798d825c77edacb5c5c",
+      "bytes": 11128,
+      "sourceUp": "Y",
+      "meshes": 8,
+      "triangles": 96,
+      "vertices": 192
+    },
+    {
+      "path": "neutral-room.ply",
+      "format": "ply",
+      "sha256": "60187e43197d2a86831c5cff2bf1f4a675f3f7abf7ee694b35dc1b33307dfc5d",
+      "bytes": 682997,
+      "sourceUp": "Y",
+      "gaussians": 10034,
+      "shDegree": 0,
+      "spacingM": 0.03,
+      "quaternionOrder": "wxyz",
+      "scaleEncoding": "natural logarithm",
+      "opacityEncoding": "logit"
+    }
+  ],
+  "limitations": [
+    "Synthetic import, alignment, and render-path QA only; no generated-world quality or human review result.",
+    "The PLY samples the same box faces as the GLB; it is an approximate surface Gaussian field with degree-0 color, not trained 3DGS or a provider export.",
+    "Gaussian edges and color differ from lit PBR mesh edges; splats contain no learned shadows, view dependence, reflections, transmission, or near-field contact.",
+    "Product and exact contact plinth are deliberately absent. The floor starts behind the plinth and is not a contact or collision surface."
+  ]
+}

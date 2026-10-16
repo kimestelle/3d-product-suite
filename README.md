@@ -1,14 +1,40 @@
 # 3d-product-suite
 
-A local, deterministic starting point for editable product films. This repository implements the first **Phase 1 engineering milestone** of the [technical prototype](docs/technical-prototype.md): a fictional opaque **MORA** bottle, a manually specified cap lift, three authored camera shots, and a resumable Blender/Cycles render worker.
+A local editor and repeatable render pipeline for editable product films. The browser controls the fictional **MORA** bottle, confirmed cap movement, camera framing, labels/colors, and environment revisions. Shared Python scene evaluation drives both browser playback and Blender/Cycles.
 
 The fixture produces a 15-second, 24 fps sequence: **360 frames**, with native final settings of **1080 × 1920**. A successful render exports an MP4, three stills, a contact sheet covering the sequence, and a reopenable `.blend` scene. Generated outputs are local and are not committed.
 
-This is an experimental command-line prototype. It does not yet import CAD/GLB, generate worlds, offer a browser editor, infer mechanisms, or call a provider API. The sample is original synthetic geometry, not a prepared commercial asset or evidence of product fidelity. Human review and the later phase gates remain open; see the [validation plan](docs/validation-plan.md).
+World comparisons support an official World Labs visual mesh and a mesh reconstructed from that same world's Gaussian splats. Optional reference images guide generation; original Gallery, Botanical room and neutral Studio defaults work offline without images or API keys. Native Gaussian preview/plate rendering remains available as a diagnostic. Product CAD import, automatic mechanism inference and human usability/quality gates remain open; see the [validation plan](docs/validation-plan.md).
+
+## Open the browser editor
+
+Use Node 24.19.0 and the pinned local render tools below. The numerical dependencies are required for Gaussian-to-mesh reconstruction.
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r requirements-worlds.txt
+npm ci --prefix web
+npm run build --prefix web
+.venv/bin/python -m film serve --data-dir workspace-data
+```
+
+Open `http://127.0.0.1:8787`. The editor starts paused. Select products, edit labels/colors, adjust cap timing, reframe the three shots, scrub/play, undo/redo, save/reopen, preserve an approved revision, and request a Cycles still or reel. Imported and reconstructed environments remain unreviewed until inspected. Browser shading is a draft; render a Cycles still for appearance decisions.
+
+The World panel offers offline defaults and optional public HTTPS image-reference generation through GitHub Actions. Keep `WORLDLABS_API_KEY` encrypted in the repository's **Myenv** GitHub Environment. The workflow generates one world and exports its official textured GLB plus Gaussian SPZ, reconstructs the SPZ into a second GLB, and uploads both final meshes with 15 controlled probe scenes. Standard documented cost is 5,080 API credits (about $4.06); the default preflight cap is 6,000. API credits are separate from Marble website credits. See [World Labs setup and recovery](docs/worldlabs-api.md).
+
+The local GitHub generation controls use an authenticated `gh` CLI; they never retrieve the World Labs secret. Alternatively run the **World Labs same-world comparison** workflow directly in GitHub. Public image URLs are workflow inputs. Private image files use `scripts/worldlabs_experiment.py --image-path ...` with a locally configured server-side key; they are not committed or put in public workflow inputs.
+
+The workflow prepares the assets and fifteen unreviewed scenes: contact, lateral camera movement, foreground occlusion, glossy material, and glass probes across the authored set and both mesh conditions. It does not render or approve the results. Both alternatives share one generated world ID; their scale and ground alignment still require review before a calibrated comparison.
+
+Gaussian-to-mesh uses a bounded covariance-aware density isosurface with rough vertex colors. It loses view-dependent appearance and may lose thin geometry or produce holes. Both final alternatives render as meshes; fidelity is an experiment result, not an assumed property. The original SPZ and reconstruction report remain recoverable. Reconstruction records its source hash, voxel size, threshold, Gaussian filtering, color approximation and dependency versions.
+
+Offline **Studio** is the authored neutral set. **Gallery** and **Botanical room** are original visual-mesh defaults seeded into the local library; they exclude the product and its exact plinth. Their source assets and provenance are in [examples/worlds/defaults.json](examples/worlds/defaults.json), and `python scripts/create_default_environments.py` regenerates them without network access. The separate neutral-room GLB/PLY pair is a synthetic engineering fixture, not generated-world quality evidence.
+
+Native splat plate diagnostics additionally need Chromium: `cd web && npx playwright install chromium`. These plates approximate distant surroundings and do not reproduce native near-field occlusion, reflections, or glass transport. The mesh comparisons avoid that plate rendering path.
 
 ## Run from a source checkout
 
-Use **Python 3.12.14**, **Blender 4.3.2**, and **FFmpeg 7.1.5** on Linux. The Python code uses only the standard library; there are no pip dependencies. Blender must support Cycles CPU rendering, and FFmpeg must include the `libx264` encoder and PNG support. Install these tools separately; the worker rejects different Blender or FFmpeg versions.
+Use **Python 3.12.14**, **Blender 4.3.2**, and **FFmpeg 7.1.5** on Linux. The scene, local server, and render worker use the standard library; optional Gaussian reconstruction uses `requirements-worlds.txt`. Blender must support Cycles CPU rendering, and FFmpeg must include the `libx264` encoder and PNG support. Install these tools separately; the worker rejects different Blender or FFmpeg versions.
 
 ```bash
 git clone https://github.com/kimestelle/3d-product-suite.git
@@ -37,7 +63,14 @@ For a smaller smoke run, use `--width 144 --height 256 --samples 1`. Both profil
 python3.12 -m film render work/mora.scene.json --output output/mora-final
 ```
 
-CPU rendering may take substantial time. Resolution and sample overrides apply to the job profile without modifying the source scene. Use a separate output directory for each scene revision or render profile. Executables outside `PATH` can be supplied with `--blender /absolute/path/to/blender` and `--ffmpeg /absolute/path/to/ffmpeg` on `render` or `resume`.
+CPU rendering may take substantial time. Resolution and sample overrides apply to the job profile without modifying the source scene. The source's 32-sample profile can show noise because optional denoising is disabled; increase `--samples` when reviewing appearance. Use a separate output directory for each scene revision or render profile. Executables outside `PATH` can be supplied with `--blender /absolute/path/to/blender` and `--ffmpeg /absolute/path/to/ffmpeg` on `render` or `resume`.
+
+For a single appearance check, render one sampled frame:
+
+```bash
+python3.12 -m film still work/mora.scene.json --output output/mora-still \
+  --frame 180 --width 540 --height 960 --samples 128
+```
 
 ## Inspect, cancel, and recover
 
@@ -79,9 +112,9 @@ Motion is evaluated from absolute frame time, `t = (frame - 1) / fps`, with smoo
 
 Actions declare a normalized axis and pivot in the moving component's **original local frame**, an existing stationary `relativeTo` component, explicit timing, `approval: "confirmed"`, and evidence IDs present in the document. The fixture's 55 mm lift is manually authored and its evidence describes a synthetic mechanism. Screw actions couple axial travel per revolution with rotation; `directionSign` controls rotation direction. One action per component and stationary references are supported. Sequential disengagement/lift segments and moving parent hierarchies are not implemented.
 
-`restsOn` validates the named plinth relationship; placement remains explicit numeric data rather than a contact or physics solver. Box/cylinder primitives and the authored environment are the supported geometry path. Labels are declared text using Blender 4.3.2's bundled Bfont on a separate synthetic label component, not imported artwork. The adapter uses a 36 mm vertical camera gate, fixed authored studio lighting, AgX, and Cycles CPU with a fixed seed and denoising disabled.
+`restsOn` carries the product with its explicit plinth; placement is deterministic rather than a physics solver. Product geometry remains the synthetic box/cylinder fixture. Worlds accept immutable, self-contained visual GLB or Gaussian SPZ/PLY files with declared units/axes/alignment, hashes and provenance. Labels are declared text using Blender 4.3.2's bundled Bfont on a separate label component. The adapter uses a 36 mm vertical camera gate, fixed authored studio lighting, AgX, and Cycles CPU with a fixed seed and denoising disabled.
 
-Product and environment revisions require provenance fields for source, reuse basis, owner, and allowed external-processing destinations. The fixture declares an empty destination list. This implementation makes no uploads, provider requests, or paid generations; provenance metadata is a record, not a legal-permission verifier. Confirm rights and destinations before adding real assets or external processing.
+Product and environment revisions require provenance fields for source, reuse basis, owner, and allowed external-processing destinations. The fixture declares an empty destination list. Local edits/renders do not upload product geometry. Explicit World Labs generation sends the supplied environment prompt/reference to World Labs; provenance metadata records lineage and reuse basis.
 
 ## Development and next decisions
 
@@ -90,7 +123,7 @@ python3.12 -m unittest discover -s tests -v
 python3.12 -m compileall -q film scripts
 ```
 
-CI runs standard-library tests on Python 3.12.14 without installing Blender or FFmpeg. Mocked worker tests exercise orchestration and recovery; they do not establish rendered visual quality. The optional real-Blender test builds and reopens the scene, comparing all 360 sampled poses without rendering images:
+CI runs standard-library tests on Python 3.12.14 without installing Blender or FFmpeg, plus the editor's Node tests and production build. Mocked worker tests exercise orchestration and recovery; they do not establish rendered visual quality. The optional real-Blender tests compare all 360 reopened poses, verify imported mesh alignment and glass settings, and render small diagnostic stills to check plate validation and frame matching:
 
 ```bash
 RUN_BLENDER_TESTS=1 python3.12 -m unittest discover -s tests -p test_blender_roundtrip.py -v
@@ -98,6 +131,14 @@ RUN_BLENDER_TESTS=1 python3.12 -m unittest discover -s tests -p test_blender_rou
 
 Set `BLENDER=/absolute/path/to/blender` if needed. Render integration and human approval are separate checks described in the [validation plan](docs/validation-plan.md).
 
+Run numerical reconstruction tests with the optional dependencies installed; the real SPZ codec check also uses the pinned web dependencies:
+
+```bash
+.venv/bin/python -m unittest discover -s tests -p test_splat_mesh.py -v
+```
+
+These tests check analytic Gaussian surfaces, covariance/axis conversion, vertex colors, bounded grids and reproducible SPZ-to-mesh output. They do not establish fidelity to a generated world or its reference image.
+
 The [engineering verification record](docs/verification.md) describes the local tests and render checks performed for this milestone.
 
-The [original technical proposal](docs/technical-prototype.md) contains the staged experiments and their unmeasured targets. The next decision is whether the deterministic authored-set sequence passes visual and replay review. Real-asset preparation, opaque/glass world comparisons, the browser editor, assistance, and user pilots follow their respective gates.
+The [original technical proposal](docs/technical-prototype.md) contains the staged experiments and their unmeasured targets. Current review should assess the authored sequence and the same-world official/reconstructed mesh conditions, including alignment, contact, parallax, occlusion, gloss and glass. Real product preparation, assistance and user pilots retain their separate gates; the implemented editor and local render checks do not establish those outcomes.

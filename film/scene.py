@@ -5,6 +5,8 @@ import json
 import math
 from pathlib import Path
 
+from .worlds import validate_asset_record
+
 
 def scene_digest(scene):
     return hashlib.sha256(json.dumps(scene, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
@@ -40,6 +42,23 @@ def _provenance(value, name):
     _require(isinstance(destinations, list) and all(isinstance(x, str) for x in destinations), f"{name} must declare external destinations")
 
 
+def _material(value):
+    _require(isinstance(value, dict), "Material must be an object")
+    _vector(value["baseColor"], "baseColor", 4)
+    _require(all(0 <= x <= 1 for x in value["baseColor"]), "Color channels must be in [0,1]")
+    for key in ("roughness", "metallic"):
+        _number(value[key], key, minimum=0, maximum=1)
+    if "transmission" in value:
+        _number(value["transmission"], "transmission", minimum=0, maximum=1)
+    if "ior" in value:
+        _number(value["ior"], "ior", minimum=1, maximum=3)
+
+
+def _quaternion(value, name):
+    _vector(value, name, 4)
+    _require(abs(sum(x*x for x in value) - 1) < 1e-6, f"{name} must be normalized")
+
+
 def validate_scene(scene):
     """Reject unsupported state rather than guessing mechanics or coordinates."""
     try:
@@ -68,22 +87,41 @@ def validate_scene(scene):
             q = c["assembly"]["rotationXyzw"]
             _vector(q, "assembly quaternion", 4)
             _require(abs(sum(x*x for x in q) - 1) < 1e-6, "Assembly quaternion must be normalized")
-            _vector(c["material"]["baseColor"], "baseColor", 4)
-            _require(all(0 <= x <= 1 for x in c["material"]["baseColor"]), "Color channels must be in [0,1]")
-            for key in ("roughness", "metallic"):
-                _number(c["material"][key], key, minimum=0, maximum=1)
+            _material(c["material"])
             _number(c.get("bevelM", 0), "bevelM", minimum=0, maximum=min(c["sizeM"])/2)
         if "label" in p:
             _require(p["label"]["componentId"] in ids, "Label component does not exist")
             for key in ("text", "subtitle"):
                 _require(isinstance(p["label"][key], str), "Label text must be a string")
         env = scene["environment"]
-        _require(env["kind"] == "authored" and bool(env["revisionId"]), "Only the authored baseline is enabled before Phase 2")
+        _require(env["kind"] in ("authored", "mesh", "splat") and isinstance(env["revisionId"], str) and env["revisionId"].strip(), "Environment kind and revision are required")
+        if env["kind"] != "authored":
+            validate_asset_record(env.get("asset"), kind=env["kind"])
+            _require(env.get("reviewStatus") in ("unreviewed", "reviewed", "approved", "rejected"), "World reviewStatus is required")
+            _require(isinstance(env.get("displayName"), str) and env["displayName"].strip(), "World displayName is required")
+        else:
+            _require("asset" not in env, "Authored environments must not hide an unused world asset")
+        if "fixture" in env:
+            _require(type(env["fixture"]) is bool, "World fixture must be boolean")
         _provenance(env["provenance"], "environment")
         _vector(env["worldColor"], "worldColor")
         _require(all(0 <= x <= 1 for x in env["worldColor"]), "World color must be in [0,1]")
+        _require(isinstance(env["plinth"]["id"], str) and env["plinth"]["id"].strip() and env["plinth"]["id"] not in ids, "Plinth ID must be nonempty and distinct from product IDs")
         _positive_size(env["plinth"]["sizeM"], "plinth size")
         _vector(env["plinth"]["translationM"], "plinth translation")
+        prop_ids = set(ids) | {env["plinth"]["id"]}
+        _require(isinstance(env.get("props", []), list), "Environment props must be a list")
+        for prop in env.get("props", []):
+            _require(isinstance(prop["id"], str) and prop["id"].strip() and prop["id"] not in prop_ids, "Prop IDs must be unique and distinct from product/plinth IDs")
+            prop_ids.add(prop["id"])
+            _require(prop["shape"] in ("box", "cylinder"), "Only rigid box/cylinder props are supported")
+            _positive_size(prop["sizeM"], "prop size")
+            if prop["shape"] == "cylinder":
+                _require(abs(prop["sizeM"][0] - prop["sizeM"][2]) < 1e-9, "Cylinder X/Z diameters must match")
+            _vector(prop["translationM"], "prop translation")
+            _quaternion(prop["rotationXyzw"], "prop quaternion")
+            _material(prop["material"])
+            _number(prop.get("bevelM", 0), "prop bevelM", minimum=0, maximum=min(prop["sizeM"])/2)
         _require(scene["placement"]["restsOn"] == env["plinth"]["id"], "Unknown contact surface")
         _vector(scene["placement"]["translationM"], "product placement")
         _require(isinstance(scene["evidence"], list), "Evidence list is required")
@@ -175,9 +213,15 @@ def evaluate(scene, frame):
     _require(type(frame) is int and 1 <= frame <= total, f"Frame must be in 1..{total}")
     t = (frame-1) / scene["render"]["fps"]
     components = {}
+    # Product placement is relative to the top-center of its explicit support.
+    # The baseline plinth top-center is [0,0,0], preserving original poses.
+    plinth = scene["environment"]["plinth"]
+    contact_origin = list(plinth["translationM"])
+    contact_origin[1] += plinth["sizeM"][1] / 2
+    placement = _add(scene["placement"]["translationM"], contact_origin)
     for c in scene["product"]["components"]:
         pose = c["assembly"]
-        components[c["id"]] = {"translationM": _add(pose["translationM"], scene["placement"]["translationM"]), "rotationXyzw": list(pose["rotationXyzw"])}
+        components[c["id"]] = {"translationM": _add(pose["translationM"], placement), "rotationXyzw": list(pose["rotationXyzw"])}
     for a in scene["actions"]:
         pose = components[a["componentId"]]
         u = _smooth((t-a["startSeconds"])/a["durationSeconds"])

@@ -13,27 +13,68 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("init", help="Copy the fictional bottle fixture to a new scene")
     p.add_argument("path", type=Path)
-    for command in ("validate", "sample", "render"):
+    for command in ("validate", "sample", "render", "still"):
         p = sub.add_parser(command)
         p.add_argument("scene", type=Path)
         if command == "sample":
             p.add_argument("--output", type=Path, required=True)
-        if command == "render":
+        if command in ("render", "still"):
             p.add_argument("--output", type=Path, required=True)
             p.add_argument("--width", type=int)
             p.add_argument("--height", type=int)
             p.add_argument("--samples", type=int)
             p.add_argument("--blender", default="blender")
             p.add_argument("--ffmpeg", default="ffmpeg")
+            if command == "still":
+                p.add_argument("--frame", type=int, default=1)
     for command in ("resume", "cancel", "status"):
         p = sub.add_parser(command)
         p.add_argument("output", type=Path)
         if command == "resume":
             p.add_argument("--blender", default="blender")
             p.add_argument("--ffmpeg", default="ffmpeg")
+    p = sub.add_parser("serve", help="Run the local browser editor and render queue")
+    p.add_argument("--data-dir", type=Path, default=Path("workspace-data"))
+    p.add_argument("--port", type=int, default=8787)
+    p.add_argument("--blender", default="blender")
+    p.add_argument("--ffmpeg", default="ffmpeg")
+    p = sub.add_parser("world-import", help="Import a self-contained visual GLB or Gaussian SPZ/PLY")
+    p.add_argument("asset", type=Path)
+    p.add_argument("--library", type=Path, default=Path("workspace-data"))
+    p.add_argument("--name", required=True)
+    p.add_argument("--owner", required=True)
+    p.add_argument("--reuse-basis", required=True)
+    p.add_argument("--source-up", choices=("Y", "Z"), default="Y")
+    p.add_argument("--scale-to-meters", type=float, default=1)
+    p = sub.add_parser("worlds", help="List imported world revisions")
+    p.add_argument("--library", type=Path, default=Path("workspace-data"))
+    p = sub.add_parser("compare", help="Create the five-probe authored/mesh/Gaussian comparison")
+    p.add_argument("scene", type=Path)
+    p.add_argument("--library", type=Path, default=Path("workspace-data"))
+    p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--mesh-id", required=True)
+    p.add_argument("--splat-id", required=True)
+    p.add_argument("--world-id")
     args = parser.parse_args(argv)
     try:
-        if args.command == "init":
+        if args.command == "serve":
+            from .server import serve
+            serve(args.data_dir, port=args.port, blender=args.blender, ffmpeg=args.ffmpeg)
+        elif args.command == "world-import":
+            from .worlds import import_world
+            provenance = {"source": str(args.asset.name), "owner": args.owner, "reuseBasis": args.reuse_basis,
+                          "allowedExternalDestinations": []}
+            print(json.dumps(import_world(args.asset, args.library, name=args.name, provenance=provenance,
+                                          source_up=args.source_up, scale_to_meters=args.scale_to_meters), indent=2))
+        elif args.command == "worlds":
+            from .worlds import list_worlds
+            print(json.dumps(list_worlds(args.library), indent=2))
+        elif args.command == "compare":
+            from .probes import create_comparison
+            manifest = create_comparison(args.scene, args.library, args.output, mesh_id=args.mesh_id,
+                                         splat_id=args.splat_id, world_id=args.world_id)
+            print(f"Created {len(manifest['results'])} comparison scenes in {args.output}")
+        elif args.command == "init":
             fixture = Path(__file__).resolve().parents[1] / "examples" / "bottle.scene.json"
             args.path.parent.mkdir(parents=True, exist_ok=True)
             with args.path.open("x") as output:
@@ -51,12 +92,19 @@ def main(argv=None):
             print(f"Wrote {args.output}")
         else:
             from .jobs import cancel_job, create_job, run_job
-            if args.command == "render":
+            from .stills import create_still_job, run_still_job
+            if args.command == "still":
+                create_still_job(args.scene, args.output, frame=args.frame, width=args.width or 540,
+                                 height=args.height or 960, samples=args.samples or 32)
+                print(json.dumps(run_still_job(args.output, blender=args.blender, ffmpeg=args.ffmpeg), indent=2))
+            elif args.command == "render":
                 create_job(args.scene, args.output, width=args.width, height=args.height, samples=args.samples)
                 job = run_job(args.output, blender=args.blender, ffmpeg=args.ffmpeg)
                 print(json.dumps(job, indent=2))
             elif args.command == "resume":
-                print(json.dumps(run_job(args.output, blender=args.blender, ffmpeg=args.ffmpeg), indent=2))
+                saved = json.loads((args.output / "job.json").read_text())
+                runner = run_still_job if saved.get("kind") == "still" else run_job
+                print(json.dumps(runner(args.output, blender=args.blender, ffmpeg=args.ffmpeg), indent=2))
             elif args.command == "cancel":
                 cancel_job(args.output)
                 print(f"Cancellation requested for {args.output}")

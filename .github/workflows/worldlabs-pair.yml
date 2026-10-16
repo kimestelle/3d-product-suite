@@ -1,0 +1,111 @@
+name: World Labs same-world comparison
+run-name: ${{ inputs.experiment_id }} · World Labs official and Gaussian reconstructed meshes (${{ inputs.model }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      experiment_id:
+        description: Identifier used to match this run and its resulting artifact
+        required: false
+        default: world-comparison
+        type: string
+      prompt:
+        description: Empty foreground product studio, with no generated product or text
+        required: false
+        default: ''
+        type: string
+      default_environment:
+        description: Environment preset when prompt is empty
+        required: true
+        default: botanical-studio
+        type: choice
+        options:
+          - botanical-studio
+          - warm-gallery
+          - modern-loft
+      reference_image_url:
+        description: Optional public HTTPS reference image; private images use the local CLI
+        required: false
+        type: string
+      model:
+        description: Explicit model; standard text plus HQ mesh costs 5080 API credits
+        required: true
+        default: marble-1.1
+        type: choice
+        options:
+          - marble-1.1
+          - marble-1.0
+          - marble-1.0-draft
+          - marble-1.1-plus
+      budget_credits:
+        description: Whole experiment maximum; Plus requires at least 6580 credits
+        required: true
+        default: '6000'
+        type: string
+      world_id:
+        description: Recover an existing world; leave empty for one new world
+        required: false
+        type: string
+      generation_operation_id:
+        description: Recover accepted generation by operation ID; do not also supply world_id
+        required: false
+        type: string
+      mesh_operation_id:
+        description: Recover accepted mesh export operation; also supply world_id or generation operation
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worldlabs-same-world-pair
+  cancel-in-progress: false
+
+jobs:
+  prepare-comparison:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    environment: Myenv
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12.14'
+      - name: Set up Node for the pinned SPZ decoder
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.19.0'
+      - name: Install pinned reconstruction dependencies before paid work
+        run: python -m pip install --disable-pip-version-check --no-input -r requirements-worlds.txt
+      - name: Install the pinned Gaussian decoder
+        run: npm ci --prefix web
+      - name: Verify the complete local reconstruction runtime
+        run: python -c "from scripts.worldlabs_experiment import preflight_reconstruction; preflight_reconstruction()"
+      - name: Verify provider contracts without spending credits
+        run: python -m unittest tests.test_worldlabs tests.test_worldlabs_experiment -v
+      - name: Verify reconstruction before spending credits
+        run: python -m unittest discover -s tests -p test_splat_mesh.py -v
+      - name: Generate or recover one world and prepare both representations
+        env:
+          WORLDLABS_API_KEY: ${{ secrets.WORLDLABS_API_KEY }}
+          WORLDLABS_EXPERIMENT_ID: ${{ inputs.experiment_id }}
+          WORLDLABS_PROMPT: ${{ inputs.prompt }}
+          WORLDLABS_DEFAULT_ENVIRONMENT: ${{ inputs.default_environment }}
+          WORLDLABS_REFERENCE_IMAGE_URL: ${{ inputs.reference_image_url }}
+          WORLDLABS_MODEL: ${{ inputs.model }}
+          WORLDLABS_BUDGET_CREDITS: ${{ inputs.budget_credits }}
+          WORLDLABS_WORLD_ID: ${{ inputs.world_id }}
+          WORLDLABS_GENERATION_OPERATION_ID: ${{ inputs.generation_operation_id }}
+          WORLDLABS_MESH_OPERATION_ID: ${{ inputs.mesh_operation_id }}
+        run: python scripts/worldlabs_experiment.py --output worldlabs-experiment
+      - name: Preserve assets and durable recovery state
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: worldlabs-pair-${{ github.run_id }}-${{ github.run_attempt }}
+          path: worldlabs-experiment/
+          if-no-files-found: warn
+          retention-days: 30

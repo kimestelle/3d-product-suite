@@ -1,0 +1,5 @@
+# Optional local Gaussian-density visual-mesh reconstruction stack.
+# These versions were exercised together; the baseline editor does not need them.
+numpy==2.3.5
+scipy==1.17.0
+scikit-image==0.25.2

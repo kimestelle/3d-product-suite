@@ -1,14 +1,19 @@
 """Optional real-Blender round-trip check: RUN_BLENDER_TESTS=1 python -m unittest discover -s tests."""
 
 import json
+import hashlib
+import math
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import struct
 import tempfile
 import unittest
+import zlib
 
-from film.scene import load_scene, sample_scene
+from film.scene import load_scene, sample_scene, scene_digest
+from film.worlds import import_world
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @unittest.skipUnless(os.environ.get("RUN_BLENDER_TESTS") == "1", "Set RUN_BLENDER_TESTS=1 for the pinned Blender integration test")
 class BlenderRoundTripTests(unittest.TestCase):
-    def run_blender(self, *arguments):
+    def run_blender(self, *arguments, error=None):
         executable = shutil.which(os.environ.get("BLENDER", "blender"))
         self.assertIsNotNone(executable, "Blender 4.3.2 must be installed")
         result = subprocess.run(
@@ -25,7 +30,149 @@ class BlenderRoundTripTests(unittest.TestCase):
             text=True,
             timeout=120,
         )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        if error:
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn(error, result.stdout + result.stderr)
+        else:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result
+
+    def world_payload(self, temporary, format_):
+        manifest = json.loads((ROOT / "examples/worlds/manifest.json").read_text())
+        entry = import_world(ROOT / f"examples/worlds/neutral-room.{format_}", temporary,
+                             name="Original synthetic room QA", provenance=manifest["provenance"], fixture=True)
+        scene = load_scene(ROOT / "examples/glass.scene.json")
+        entry["environment"]["plinth"] = scene["environment"]["plinth"]
+        scene["environment"] = entry["environment"]
+        payload = sample_scene(scene)
+        payload["frames"] = [payload["frames"][0], payload["frames"][239]]
+        return payload
+
+    def write_samples(self, temporary, payload):
+        path = temporary / "samples.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return path
+
+    def verify_native(self, temporary, samples, code, *extra):
+        verification = temporary / "verify-native.py"
+        verification.write_text("import bpy, json, sys\nfrom mathutils import Matrix, Quaternion, Vector\n"
+                                "args=sys.argv[sys.argv.index('--')+1:]\n"
+                                "bpy.ops.wm.open_mainfile(filepath=args[0])\n"
+                                "payload=json.load(open(args[1]))\n" + code, encoding="utf-8")
+        self.run_blender("--python", verification, "--", temporary / "scene.blend", samples, *extra)
+
+    @staticmethod
+    def png(path, color, width=72, height=128):
+        def chunk(kind, payload):
+            return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload) & 0xffffffff)
+        payload = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+                   + chunk(b"IDAT", zlib.compress((b"\0" + bytes(color) * width) * height)) + chunk(b"IEND", b""))
+        path.write_bytes(payload)
+        return hashlib.sha256(payload).hexdigest()
+
+    def write_plate_manifest(self, temporary, payload, colors):
+        plate = temporary / "plate"
+        plate.mkdir(exist_ok=True)
+        hashes = {str(frame): self.png(plate / f"{frame:06d}.png", color) for frame, color in colors.items()}
+        manifest = {"schemaVersion": 1, "sourceDigest": scene_digest(payload["scene"]),
+                    "assetSha256": payload["scene"]["environment"]["asset"]["sha256"],
+                    "profile": {"width": 72, "height": 128, "frameNumbers": list(colors),
+                                "renderer": "spark", "colorSpace": "srgb", "toneMapping": "none", "contents": "gaussian-world-only"},
+                    "frames": hashes}
+        (plate / "capture-manifest.json").write_text(json.dumps(manifest))
+        return manifest
+
+    def test_visual_glb_alignment_preserves_exact_near_field_and_glass(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            payload = self.world_payload(temporary, "glb")
+            angle = 0.22
+            asset = payload["scene"]["environment"]["asset"]
+            asset.update(scaleToMeters=0.85, translationM=[0.04, 0.015, -0.03],
+                         rotationXyzw=[0, math.sin(angle / 2), 0, math.cos(angle / 2)])
+            payload["scene"]["environment"]["props"] = [{
+                "id": "occlusion-probe", "shape": "box", "sizeM": [0.008, 0.04, 0.025],
+                "translationM": [0.027, 0.02, 0.03], "rotationXyzw": [0, 0, 0, 1],
+                "material": {"baseColor": [0.3, 0.2, 0.1, 1], "roughness": 0.3, "metallic": 0}, "bevelM": 0.001}]
+            samples = self.write_samples(temporary, payload)
+            self.run_blender("--python", ROOT / "scripts/blender_scene.py", "--", "--samples", samples,
+                             "--output", temporary, "--frames", "1", "--width", 72, "--height", 128, "--samples-per-pixel", 2)
+            self.assertTrue((temporary / "frames/000001.png").is_file())
+            config = json.loads((temporary / "render-config.json").read_text())
+            self.assertEqual(config["renderingPath"], "visual-glb-cycles")
+            self.assertTrue(any("glass probe" in limitation for limitation in config["limitations"]))
+            self.verify_native(temporary, samples, r'''
+import itertools, math
+source=payload["scene"]
+asset=source["environment"]["asset"]
+conversion=Matrix.Rotation(math.pi/2,4,"X")
+x,y,z,w=asset["rotationXyzw"]
+alignment=conversion @ Matrix.Translation(Vector(asset["translationM"])) @ Quaternion((w,x,y,z)).to_matrix().to_4x4() @ Matrix.Scale(asset["scaleToMeters"],4)
+geometry=json.load(open(args[2]))["geometry"]
+expected=[]
+for box in geometry["boxes"]:
+    for signs in itertools.product((-1,1),repeat=3):
+        expected.append(alignment @ Vector([center+sign*size/2 for center,sign,size in zip(box["centerM"],signs,box["sizeM"])]))
+actual=[obj.matrix_world @ vertex.co for obj in bpy.context.scene.objects if obj.type=="MESH" and obj.name.startswith("World / ") for vertex in obj.data.vertices]
+assert len(actual)==192
+for axis in range(3):
+    assert abs(min(point[axis] for point in actual)-min(point[axis] for point in expected))<2e-6
+    assert abs(max(point[axis] for point in actual)-max(point[axis] for point in expected))<2e-6
+assert bpy.data.objects.get("Set / curved studio sweep") is None
+plinth=bpy.data.objects[source["environment"]["plinth"]["id"]]
+assert (plinth.location-conversion @ Vector(source["environment"]["plinth"]["translationM"])).length<1e-6
+prop=bpy.data.objects["occlusion-probe"]
+assert (prop.location-Vector((.027,-.03,.02))).length<1e-6
+for sample in payload["frames"]:
+    bpy.context.scene.frame_set(sample["frame"])
+    for component_id,pose in sample["components"].items():
+        assert (bpy.data.objects[component_id].location-conversion @ Vector(pose["translationM"])).length<1e-6
+shader=bpy.data.objects["bottle-body"].data.materials[0].node_tree.nodes.get("Principled BSDF")
+assert shader.inputs["Transmission Weight"].default_value==1
+assert abs(shader.inputs["IOR"].default_value-1.47)<1e-6
+''', ROOT / "examples/worlds/manifest.json")
+
+    def test_gaussian_plates_are_verified_and_frame_matched_after_reopen(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            payload = self.world_payload(temporary, "ply")
+            samples = self.write_samples(temporary, payload)
+            arguments = ("--python", ROOT / "scripts/blender_scene.py", "--", "--samples", samples,
+                         "--output", temporary, "--frames", "1,240", "--width", 72, "--height", 128, "--samples-per-pixel", 2)
+            self.run_blender(*arguments, error="require plate/capture-manifest.json")
+            self.write_plate_manifest(temporary, payload, {1: (120, 25, 10), 240: (10, 25, 120)})
+            self.png(temporary / "plate/000240.png", (10, 25, 120), width=74)
+            self.run_blender(*arguments, error="plate resolution must match")
+            self.write_plate_manifest(temporary, payload, {1: (120, 25, 10), 240: (10, 25, 120)})
+            self.run_blender(*arguments)
+            config = json.loads((temporary / "render-config.json").read_text())
+            self.assertEqual(config["renderingPath"], "gaussian-plate-cycles-foreground")
+            self.assertTrue(config["environment"]["details"]["captureManifestVerified"])
+            self.assertTrue(any("No splat depth" in limitation for limitation in config["limitations"]))
+            self.verify_native(temporary, samples, r'''
+scene=bpy.context.scene
+assert scene.render.film_transparent
+assert bpy.data.objects.get("World / visual mesh alignment") is None
+assert bpy.data.objects.get("Set / curved studio sweep") is None
+plate=scene.node_tree.nodes.get("Gaussian camera-matched plate")
+assert plate.image.source=="SEQUENCE" and plate.frame_start==1
+assert plate.image.filepath.startswith("//")
+for frame,red in ((1,True),(240,False)):
+    scene.frame_set(frame)
+    image=bpy.data.images.load(args[2]+f"/{frame:06d}.png",check_existing=False)
+    offset=(image.size[1]-2)*image.size[0]*4+4
+    pixel=list(image.pixels[offset:offset+4])
+    assert (pixel[0]>pixel[2])==red, (frame,pixel)
+# Re-render the saved native sequence at the distant frame, independently of
+# the adapter's loop, to catch incorrect sequence offsets after reopen.
+scene.frame_set(240)
+scene.render.filepath=args[2]+"/reopened.png"
+bpy.ops.render.render(write_still=True)
+image=bpy.data.images.load(scene.render.filepath,check_existing=False)
+offset=(image.size[1]-2)*image.size[0]*4+4
+pixel=list(image.pixels[offset:offset+4])
+assert pixel[2]>pixel[0], pixel
+''', temporary / "frames")
 
     def test_saved_scene_preserves_every_sampled_pose(self):
         payload = sample_scene(load_scene(ROOT / "examples" / "bottle.scene.json"))

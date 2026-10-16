@@ -22,6 +22,7 @@ import uuid
 import zlib
 
 from .scene import load_scene, sample_scene, scene_digest
+from .worlds import bundle_assets, verify_scene_assets
 
 BLENDER_VERSION = "4.3.2"
 FFMPEG_VERSION = "7.1.5"
@@ -122,13 +123,17 @@ def create_job(scene_path, output_dir, *, width=None, height=None, samples=None)
             return job
         if any(path.name != ".manifest.lock" for path in output.iterdir()):
             raise ValueError("Output directory is not empty and has no job manifest; use a new directory")
+        assets = bundle_assets(scene, Path(scene_path).resolve().parent, output)
         timestamp = _now()
         job = {"schemaVersion": 1, "jobId": str(uuid.uuid4()), "state": "queued",
                "createdAt": timestamp, "updatedAt": timestamp,
                "sceneDigest": digest, "sourceScene": "scene.json", "samples": "samples.json",
                "rendererScript": "renderer.py", "rendererDigest": renderer_digest,
                "renderProfile": profile, "completedRanges": [], "frameDigests": {}, "attempts": [],
-               "errors": [], "tools": {}, "artifacts": {}, "cancellationRequested": False}
+               "errors": [], "tools": {}, "artifacts": {}, "assets": assets, "cancellationRequested": False,
+               "renderingPath": {"authored": "authored-cycles", "mesh": "mesh-cycles", "splat": "camera-matched-splat-plate"}[scene["environment"]["kind"]]}
+        if scene["environment"]["kind"] == "splat":
+            job["limitations"] = ["Distant color plate only: no near-field Gaussian depth, occlusion, reflections or transmission equivalence."]
         with (output / "renderer.py").open("wb") as handle:
             handle.write(renderer_source)
             handle.flush()
@@ -147,6 +152,9 @@ def _verify_snapshots(output, job):
     scene = load_scene(output / "scene.json")
     if scene_digest(scene) != job.get("sceneDigest"):
         raise ValueError("Source revision was modified after job creation; create a new job directory")
+    assets = verify_scene_assets(scene, output)
+    if assets != job.get("assets", []):
+        raise ValueError("Bundled world asset records do not match the immutable job source")
     expected = sample_scene(scene)
     try:
         actual = json.loads((output / "samples.json").read_text(encoding="utf-8"))
@@ -229,6 +237,70 @@ def validate_png(path, width=None, height=None):
                 and all(raw[row * stride] <= 4 for row in range(h)))
     except (OSError, ValueError, struct.error, zlib.error):
         return False
+
+
+def validate_plate_inputs(output, job, frame_numbers):
+    """Verify and pin camera-matched splat plates before reusing rendered frames.
+
+    The caller owns the worker lock and persists the mutated job. Capture runs
+    before this boundary; plates are immutable inputs once a render begins.
+    """
+    output = Path(output).resolve()
+    scene = load_scene(output / "scene.json")
+    if scene["environment"]["kind"] != "splat":
+        return None
+    numbers = list(frame_numbers)
+    profile = job["renderProfile"]
+    if (not numbers or any(type(number) is not int or not 1 <= number <= profile["frameCount"] for number in numbers)
+            or len(numbers) != len(set(numbers))):
+        raise ValueError("Splat plate frame numbers must be unique source frame IDs")
+    numbers = sorted(numbers)
+    try:
+        manifest = json.loads((output / "plate" / "capture-manifest.json").read_text(encoding="utf-8"))
+        sampled = json.loads((output / "samples.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ValueError("Splat capture-manifest.json and complete camera-matched plates are required") from error
+    if not isinstance(manifest, dict):
+        raise ValueError("Splat capture manifest must be a JSON object")
+    expected_samples = hashlib.sha256(json.dumps(sampled, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+    asset = scene["environment"]["asset"]
+    capture_profile = manifest.get("profile", {})
+    if (type(manifest.get("schemaVersion")) is not int or manifest["schemaVersion"] != 1 or manifest.get("sourceDigest") != job["sceneDigest"]
+            or manifest.get("samplesDigest") != expected_samples
+            or manifest.get("assetSha256") != asset["sha256"] or manifest.get("assetFormat") != asset["format"]):
+        raise ValueError("Splat capture source, sampled cameras or world asset does not match this job")
+    if (not isinstance(capture_profile, dict)
+            or type(capture_profile.get("width")) is not int or type(capture_profile.get("height")) is not int
+            or capture_profile.get("width") != profile["width"] or capture_profile.get("height") != profile["height"]
+            or not isinstance(capture_profile.get("frameNumbers"), list)
+            or any(type(number) is not int for number in capture_profile["frameNumbers"])
+            or capture_profile.get("frameNumbers") != numbers or capture_profile.get("renderer") != "spark"
+            or capture_profile.get("contents") != "gaussian-world-only" or capture_profile.get("colorSpace") != "srgb"
+            or capture_profile.get("toneMapping") != "none"
+            or not isinstance(capture_profile.get("runtimeDigest"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", capture_profile["runtimeDigest"]) is None):
+        raise ValueError("Splat capture profile does not match requested frames, dimensions or pinned Spark runtime")
+    recorded = manifest.get("frames", {})
+    if not isinstance(recorded, dict):
+        raise ValueError("Splat capture must record a hash for every plate frame")
+    hashes = {}
+    for number in numbers:
+        path = output / "plate" / f"{number:06d}.png"
+        if not validate_png(path, profile["width"], profile["height"]):
+            raise ValueError(f"Missing or invalid camera-matched splat plate for frame {number}")
+        digest = _sha256(path)
+        if recorded.get(str(number)) != digest:
+            raise ValueError(f"Splat plate hash changed for frame {number}; create a new job directory")
+        hashes[str(number)] = digest
+    pinned = {"sourceDigest": manifest["sourceDigest"], "samplesDigest": expected_samples,
+              "assetSha256": asset["sha256"], "assetFormat": asset["format"],
+              "profile": capture_profile, "frames": hashes}
+    digest = hashlib.sha256(json.dumps(pinned, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+    if job.get("plateDigest") is not None and job["plateDigest"] != digest:
+        raise ValueError("Splat plates or capture runtime changed after job started; create a new job directory")
+    job["plateDigest"] = digest
+    job["plateInputs"] = pinned
+    return digest
 
 
 def _frames(output, profile):
@@ -430,11 +502,12 @@ def _encode(output, job, scene, ffmpeg, *, worker_fd=None):
                                      "still-03.png", "contact-sheet.png")}
 
 
-def run_job(output_dir, *, blender="blender", ffmpeg="ffmpeg"):
+def run_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cancellation=True):
     """Render missing/invalid frames, then assemble all requested deliverables.
 
     Failed attempts remain in the manifest and raise their original exception.
     A subsequent call resumes; an explicit cancel also remains resumable.
+    Queue dispatchers pass reset_cancellation=False to honor a queued cancel.
     """
     output = Path(output_dir).resolve()
     if not output.is_dir():
@@ -442,13 +515,18 @@ def run_job(output_dir, *, blender="blender", ffmpeg="ffmpeg"):
     with _lock(output, ".worker.lock", blocking=False) as worker_lock:
         with _lock(output, ".manifest.lock"):
             job = _read_job(output)
+            if job.get("kind") == "still":
+                raise ValueError("This is a still job; resume it with film.stills.run_still_job")
             # Clear a previous cancellation before validation. A cancellation
             # arriving after this point must remain visible to this attempt.
-            (output / "cancel.requested").unlink(missing_ok=True)
+            if reset_cancellation:
+                (output / "cancel.requested").unlink(missing_ok=True)
         attempt = None
         try:
+            _check_cancel(output)
             scene = _verify_snapshots(output, job)
             profile = job["renderProfile"]
+            validate_plate_inputs(output, job, range(1, profile["frameCount"] + 1))
             completed = _verified_frames(output, job)
             job["completedRanges"] = _ranges(completed)
             if job["state"] == "succeeded" and _outputs_valid(output, job, completed):

@@ -310,6 +310,17 @@ with jobs._lock(output, '.worker.lock', blocking=False) as handle:
         self.assertFalse((self.output / "cancel.requested").exists())
         self.assertEqual(jobs.cancel_job(self.output)["state"], "succeeded")
 
+    def test_queue_dispatch_honors_cancellation_without_reset(self):
+        self.init()
+        jobs.cancel_job(self.output)
+        with patch.object(jobs.subprocess, "run") as tool, patch.object(jobs, "_run_process") as process:
+            result = jobs.run_job(self.output, reset_cancellation=False)
+        tool.assert_not_called()
+        process.assert_not_called()
+        self.assertEqual(result["state"], "cancelled")
+        self.assertEqual(result["attempts"], [])
+        self.assertTrue((self.output / "cancel.requested").exists())
+
     def test_cancellation_arriving_during_frame_reconciliation_is_preserved(self):
         self.init()
         original_frames = jobs._frames

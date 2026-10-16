@@ -1,4 +1,4 @@
-name: Python checks
+name: Prototype checks
 
 on:
   push:
@@ -25,3 +25,17 @@ jobs:
         run: python -m compileall -q film scripts
       - name: Validate the synthetic fixture
         run: python -m film validate examples/bottle.scene.json
+  editor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.19.0'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --prefix web --ignore-scripts
+      - run: npm test --prefix web
+      - run: npm run build --prefix web
+      - run: node scripts/capture_splats.test.mjs

@@ -8,3 +8,13 @@ work/
 *.blend
 *.blend1
 .DS_Store
+workspace-data/
+web/node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/
+.env*
+!.env.example
+worldlabs-experiment/
+.cache/
+web/*.tsbuildinfo

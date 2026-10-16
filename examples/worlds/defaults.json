@@ -1,0 +1,621 @@
+{
+  "schemaVersion": 1,
+  "generatorVersion": 1,
+  "regenerate": "python scripts/create_default_environments.py",
+  "environments": [
+    {
+      "id": "gallery",
+      "displayName": "Gallery",
+      "description": "A warm limestone gallery with a recessed ivory niche and distant stepped display ledge.",
+      "assetFile": "default-gallery.glb",
+      "worldColor": [
+        0.24,
+        0.23,
+        0.2
+      ],
+      "format": "glb",
+      "sourceUp": "Y",
+      "scaleToMeters": 1,
+      "translationM": [
+        0,
+        0,
+        0
+      ],
+      "rotationXyzw": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "fixture": true,
+      "defaultEnvironment": true,
+      "reviewStatus": "unreviewed",
+      "sha256": "cb9d71f18b062488af67633cb9bfb1c04554a740048a3036b751fe3648a4e983",
+      "bytes": 14172,
+      "geometrySha256": "886a32d27dc8fb0ec2ac5498a4961c7b9eecc26021e985c66ac09c4bff884253",
+      "boundsM": {
+        "min": [
+          -0.9,
+          -0.045,
+          -1.1
+        ],
+        "max": [
+          0.9,
+          1.055,
+          -0.18
+        ],
+        "size": [
+          1.8,
+          1.1,
+          0.92
+        ]
+      },
+      "provenance": {
+        "source": "Original authored offline gallery starter environment; not a World Labs export or a captured real location.",
+        "owner": "3d-product-suite project",
+        "reuseBasis": "Original project geometry and material colors. No third-party models, textures, photographs or provider output.",
+        "allowedExternalDestinations": []
+      },
+      "geometry": {
+        "coordinates": {
+          "up": "Y",
+          "units": "meters",
+          "handedness": "right"
+        },
+        "materials": [
+          {
+            "name": "sand limestone",
+            "rgb": [
+              0.56,
+              0.5,
+              0.41
+            ],
+            "roughness": 0.86
+          },
+          {
+            "name": "warm gallery plaster",
+            "rgb": [
+              0.75,
+              0.71,
+              0.63
+            ],
+            "roughness": 0.9
+          },
+          {
+            "name": "niche ivory",
+            "rgb": [
+              0.86,
+              0.82,
+              0.73
+            ],
+            "roughness": 0.84
+          },
+          {
+            "name": "recess shadow stone",
+            "rgb": [
+              0.32,
+              0.29,
+              0.24
+            ],
+            "roughness": 0.92
+          }
+        ],
+        "boxes": [
+          {
+            "name": "distant gallery floor",
+            "centerM": [
+              0,
+              -0.035,
+              -0.64
+            ],
+            "sizeM": [
+              1.8,
+              0.02,
+              0.92
+            ],
+            "material": 0
+          },
+          {
+            "name": "gallery back wall",
+            "centerM": [
+              0,
+              0.515,
+              -0.72
+            ],
+            "sizeM": [
+              1.8,
+              1.08,
+              0.04
+            ],
+            "material": 1
+          },
+          {
+            "name": "niche recessed backing",
+            "centerM": [
+              -0.3,
+              0.3,
+              -0.694
+            ],
+            "sizeM": [
+              0.58,
+              0.54,
+              0.012
+            ],
+            "material": 3
+          },
+          {
+            "name": "niche ivory field",
+            "centerM": [
+              -0.3,
+              0.3,
+              -0.684
+            ],
+            "sizeM": [
+              0.47,
+              0.43,
+              0.012
+            ],
+            "material": 2
+          },
+          {
+            "name": "niche left return",
+            "centerM": [
+              -0.585,
+              0.3,
+              -0.655
+            ],
+            "sizeM": [
+              0.06,
+              0.6,
+              0.09
+            ],
+            "material": 1
+          },
+          {
+            "name": "niche right return",
+            "centerM": [
+              -0.015,
+              0.3,
+              -0.655
+            ],
+            "sizeM": [
+              0.06,
+              0.6,
+              0.09
+            ],
+            "material": 1
+          },
+          {
+            "name": "niche top return",
+            "centerM": [
+              -0.3,
+              0.585,
+              -0.655
+            ],
+            "sizeM": [
+              0.51,
+              0.06,
+              0.09
+            ],
+            "material": 1
+          },
+          {
+            "name": "niche lower return",
+            "centerM": [
+              -0.3,
+              0.015,
+              -0.655
+            ],
+            "sizeM": [
+              0.51,
+              0.06,
+              0.09
+            ],
+            "material": 0
+          },
+          {
+            "name": "distant display ledge lower step",
+            "centerM": [
+              0.36,
+              0.025,
+              -0.47
+            ],
+            "sizeM": [
+              0.38,
+              0.1,
+              0.2
+            ],
+            "material": 0
+          },
+          {
+            "name": "distant display ledge upper step",
+            "centerM": [
+              0.43,
+              0.09,
+              -0.5
+            ],
+            "sizeM": [
+              0.2,
+              0.03,
+              0.14
+            ],
+            "material": 2
+          }
+        ]
+      },
+      "meshes": 10,
+      "triangles": 120,
+      "vertices": 240,
+      "limitations": [
+        "Authored starter environment; no validated generated-world quality or provider generation claim.",
+        "All geometry is behind Z=-0.15 m. The exact product and contact plinth are deliberately absent and must come from the scene.",
+        "The gallery's distant display ledge and the botanical planter are background decorations, not product placement or collision surfaces.",
+        "Offline self-contained mesh; no API key, credits, image upload or network request is required."
+      ]
+    },
+    {
+      "id": "botanical-room",
+      "displayName": "Botanical room",
+      "description": "A muted sage room with a pale wall panel and an original stylized potted plant made from simple box geometry.",
+      "assetFile": "default-botanical.glb",
+      "worldColor": [
+        0.16,
+        0.21,
+        0.17
+      ],
+      "format": "glb",
+      "sourceUp": "Y",
+      "scaleToMeters": 1,
+      "translationM": [
+        0,
+        0,
+        0
+      ],
+      "rotationXyzw": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "fixture": true,
+      "defaultEnvironment": true,
+      "reviewStatus": "unreviewed",
+      "sha256": "8523905d1e4e3f5c34e8d7d1da84d1643a07c555a4be0605f24a7c54e3c7ca07",
+      "bytes": 22148,
+      "geometrySha256": "eb58b544948e67d62520127bb8573566d65cf2ef2cd3d1e89fda18904254df36",
+      "boundsM": {
+        "min": [
+          -0.9,
+          -0.045,
+          -1.1
+        ],
+        "max": [
+          0.9,
+          1.055,
+          -0.18
+        ],
+        "size": [
+          1.8,
+          1.1,
+          0.92
+        ]
+      },
+      "provenance": {
+        "source": "Original authored offline botanical room starter environment; not a World Labs export or a captured real location.",
+        "owner": "3d-product-suite project",
+        "reuseBasis": "Original project geometry and material colors. No third-party models, textures, photographs or provider output.",
+        "allowedExternalDestinations": []
+      },
+      "geometry": {
+        "coordinates": {
+          "up": "Y",
+          "units": "meters",
+          "handedness": "right"
+        },
+        "materials": [
+          {
+            "name": "pale botanical stone",
+            "rgb": [
+              0.6,
+              0.59,
+              0.5
+            ],
+            "roughness": 0.89
+          },
+          {
+            "name": "sage limewash",
+            "rgb": [
+              0.36,
+              0.47,
+              0.37
+            ],
+            "roughness": 0.93
+          },
+          {
+            "name": "pale sage wall panel",
+            "rgb": [
+              0.54,
+              0.62,
+              0.5
+            ],
+            "roughness": 0.88
+          },
+          {
+            "name": "terracotta planter",
+            "rgb": [
+              0.43,
+              0.29,
+              0.19
+            ],
+            "roughness": 0.88
+          },
+          {
+            "name": "dark planter soil",
+            "rgb": [
+              0.08,
+              0.07,
+              0.045
+            ],
+            "roughness": 1.0
+          },
+          {
+            "name": "olive stems",
+            "rgb": [
+              0.16,
+              0.24,
+              0.1
+            ],
+            "roughness": 0.91
+          },
+          {
+            "name": "soft sage leaf",
+            "rgb": [
+              0.28,
+              0.39,
+              0.18
+            ],
+            "roughness": 0.82
+          },
+          {
+            "name": "deep olive leaf",
+            "rgb": [
+              0.17,
+              0.29,
+              0.12
+            ],
+            "roughness": 0.86
+          }
+        ],
+        "boxes": [
+          {
+            "name": "distant botanical floor",
+            "centerM": [
+              0,
+              -0.035,
+              -0.64
+            ],
+            "sizeM": [
+              1.8,
+              0.02,
+              0.92
+            ],
+            "material": 0
+          },
+          {
+            "name": "botanical back wall",
+            "centerM": [
+              0,
+              0.515,
+              -0.68
+            ],
+            "sizeM": [
+              1.8,
+              1.08,
+              0.04
+            ],
+            "material": 1
+          },
+          {
+            "name": "pale sage inset panel",
+            "centerM": [
+              0.25,
+              0.34,
+              -0.652
+            ],
+            "sizeM": [
+              0.49,
+              0.61,
+              0.016
+            ],
+            "material": 2
+          },
+          {
+            "name": "planter main body",
+            "centerM": [
+              -0.39,
+              0.02,
+              -0.43
+            ],
+            "sizeM": [
+              0.12,
+              0.09,
+              0.12
+            ],
+            "material": 3
+          },
+          {
+            "name": "planter rim",
+            "centerM": [
+              -0.39,
+              0.07,
+              -0.43
+            ],
+            "sizeM": [
+              0.14,
+              0.016,
+              0.14
+            ],
+            "material": 3
+          },
+          {
+            "name": "planter soil surface",
+            "centerM": [
+              -0.39,
+              0.079,
+              -0.43
+            ],
+            "sizeM": [
+              0.112,
+              0.004,
+              0.112
+            ],
+            "material": 4
+          },
+          {
+            "name": "plant main stem",
+            "centerM": [
+              -0.39,
+              0.235,
+              -0.43
+            ],
+            "sizeM": [
+              0.008,
+              0.31,
+              0.008
+            ],
+            "material": 5
+          },
+          {
+            "name": "plant side stem",
+            "centerM": [
+              -0.35,
+              0.22,
+              -0.43
+            ],
+            "sizeM": [
+              0.006,
+              0.23,
+              0.006
+            ],
+            "material": 5,
+            "rotationZDeg": -14
+          },
+          {
+            "name": "leaf left lower",
+            "centerM": [
+              -0.438,
+              0.155,
+              -0.424
+            ],
+            "sizeM": [
+              0.104,
+              0.03,
+              0.008
+            ],
+            "material": 6,
+            "rotationZDeg": -25
+          },
+          {
+            "name": "leaf right lower",
+            "centerM": [
+              -0.337,
+              0.187,
+              -0.415
+            ],
+            "sizeM": [
+              0.104,
+              0.032,
+              0.008
+            ],
+            "material": 7,
+            "rotationZDeg": 24
+          },
+          {
+            "name": "leaf left middle",
+            "centerM": [
+              -0.438,
+              0.235,
+              -0.425
+            ],
+            "sizeM": [
+              0.11,
+              0.033,
+              0.008
+            ],
+            "material": 7,
+            "rotationZDeg": -24
+          },
+          {
+            "name": "leaf right middle",
+            "centerM": [
+              -0.331,
+              0.276,
+              -0.417
+            ],
+            "sizeM": [
+              0.108,
+              0.034,
+              0.008
+            ],
+            "material": 6,
+            "rotationZDeg": 29
+          },
+          {
+            "name": "leaf left upper",
+            "centerM": [
+              -0.43,
+              0.315,
+              -0.424
+            ],
+            "sizeM": [
+              0.095,
+              0.03,
+              0.008
+            ],
+            "material": 6,
+            "rotationZDeg": -32
+          },
+          {
+            "name": "leaf right upper",
+            "centerM": [
+              -0.35,
+              0.348,
+              -0.422
+            ],
+            "sizeM": [
+              0.082,
+              0.029,
+              0.008
+            ],
+            "material": 7,
+            "rotationZDeg": 35
+          },
+          {
+            "name": "leaf crown",
+            "centerM": [
+              -0.386,
+              0.391,
+              -0.425
+            ],
+            "sizeM": [
+              0.033,
+              0.077,
+              0.008
+            ],
+            "material": 6,
+            "rotationZDeg": -12
+          }
+        ]
+      },
+      "meshes": 15,
+      "triangles": 180,
+      "vertices": 360,
+      "limitations": [
+        "Authored starter environment; no validated generated-world quality or provider generation claim.",
+        "All geometry is behind Z=-0.15 m. The exact product and contact plinth are deliberately absent and must come from the scene.",
+        "The gallery's distant display ledge and the botanical planter are background decorations, not product placement or collision surfaces.",
+        "Offline self-contained mesh; no API key, credits, image upload or network request is required."
+      ]
+    }
+  ]
+}
