@@ -4,7 +4,7 @@ This record distinguishes engineering checks from visual approval, real-asset va
 
 ## 16 October 2026 — milestones 2–3
 
-The local browser editor, immutable world library, explicit near-field props, mesh import, Gaussian diagnostics and experimental Gaussian-to-mesh workflow are implemented. The requested final generated-world comparison uses the official visual GLB and a mesh reconstructed from the same world's Gaussian SPZ, alongside the authored baseline. No paid World Labs generation or mesh export was invoked for the checks below.
+The local browser editor, immutable world library, explicit near-field props, mesh import, Gaussian diagnostics and experimental Gaussian-to-mesh workflow are implemented. The requested final generated-world comparison uses the official visual GLB and a mesh reconstructed from the same world's Gaussian SPZ, alongside the authored baseline. No paid World Labs generation or mesh export was invoked for the local checks below. The first protected GitHub experiment is tracked separately at [run 38862464590](https://github.com/kimestelle/3d-product-suite/actions/runs/38862464590); at this record update it is in progress.
 
 The environment uses Python 3.12.14, Blender 4.3.2 / Cycles CPU, FFmpeg 7.1.5, Node 24.19.0 and Spark 2.3.1. The optional reconstruction stack exercised locally is NumPy 2.3.5, SciPy 1.17.0 and scikit-image 0.25.2, installed in `.venv` and pinned in `requirements-worlds.txt`.
 
@@ -13,7 +13,7 @@ The environment uses Python 3.12.14, Blender 4.3.2 / Cycles CPU, FFmpeg 7.1.5, N
 ```bash
 RUN_BLENDER_TESTS=1 .venv/bin/python -m unittest discover -s tests -q
 npm test --prefix web
-node --test scripts/capture_splats.test.mjs
+node scripts/capture_splats.test.mjs
 ```
 
 The Python command passed **159 tests in 14.640 seconds**, including **three real-Blender integrations** and **six numerical reconstruction tests**. The browser history suite passed **six Vitest tests**. The direct Node capture command passed **seven tests**.
@@ -30,11 +30,13 @@ A separate actual Spark Gaussian capture at **frame 180, 270 × 480** passed thr
 
 Studio, Gallery and Botanical room provide offline authored defaults. Their original assets, hashes and provenance are available without provider keys. Import/render checks on these fixtures do not measure generated-world or reference-image fidelity.
 
-### Browser checks and pending smoke render
+### Browser and smoke-render checks
 
 Browser checks confirmed paused startup, undo/redo, saves, the separate approved-revision pointer, restoring saved/approved state and timeline scrubbing. These checks exercise document/revision behavior; clicking the approval control is not a CG or brand appearance approval.
 
-The final editor-requested end-to-end smoke still remains pending at this record update. Its result should be recorded separately after completion; the earlier direct Blender and Gaussian checks do not substitute for that dispatch/artifact check.
+The real Playwright smoke check passed paused startup, undo/redo, save/approval/restore, scrubbing, offline Gallery/Botanical choices, image-reference controls, native Gaussian preview and mobile overflow checks. It requested a Gallery Cycles still through the editor and verified a successful job with downloadable `still.png` and `scene.blend` artifacts (job `15a9382960dc4f63911c8e9337ed4415`, 540 × 960, 32 samples). Packaged Open Sans fonts load before canvas artwork measurement; no third-party font service is required.
+
+Run `PLAYWRIGHT_BROWSERS_PATH=/path/to/playwright-browsers node web/tests/editor-smoke.mjs` with a server on port 8789, or set `PRODUCT_SUITE_URL` to its loopback origin. This check creates a local verification campaign and performs one local Blender still render; it never clicks paid generation.
 
 ### Open quality and human gates
 

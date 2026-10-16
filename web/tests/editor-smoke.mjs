@@ -69,6 +69,7 @@ try {
  await page.waitForTimeout(1200);
  await page.screenshot({path:output+'editor-gaussians.png',fullPage:true});
  await page.setViewportSize({width:390,height:844});
+ await page.waitForTimeout(700);
  await page.screenshot({path:output+'editor-mobile.png',fullPage:true});
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Mobile overflow');
  assert.deepEqual(errors,[]);
