@@ -40,7 +40,8 @@ Official API documentation checked **2026-10-16**:
 | `marble-1.0` / `marble-1.1` | 1,580 | 3,500 | 5,080 | $4.064 |
 | `marble-1.1-plus` | 3,080 | 3,500 | 6,580 | $5.264 |
 
-The default `marble-1.1` experiment uses a 6,000-credit cap. Plus is rejected at
+The default `marble-1.1` experiment uses a 6,000-credit cap. World Labs documents
+up to one hour for HQ mesh export, independently of generation time. Plus is rejected at
 that cap before any request. HQ export caching can reduce the actual charge: one
 new export run produces both textured and vertex-colored variants, and an
 existing or running export is reused by the provider. Downloading the existing

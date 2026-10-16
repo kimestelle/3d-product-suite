@@ -30,6 +30,12 @@ A separate actual Spark Gaussian capture at **frame 180, 270 × 480** passed thr
 
 Studio, Gallery and Botanical room provide offline authored defaults. Their original assets, hashes and provenance are available without provider keys. Import/render checks on these fixtures do not measure generated-world or reference-image fidelity.
 
+The real Botanical world’s 500k SPZ also completed **SPZ → GLB → Blender** locally: 482,613 opacity-eligible splats, 100,000 selected for reconstruction, a 95 × 93 × 96 density grid, 69,097 vertices and 138,274 triangles. Conversion took 5.587 seconds and produced a 4,149,244-byte GLB (SHA256 `4313016cbf530e0182ace6858e2a69b15c00bfa015659207d1e3f480f9adc8c9`). Both provider-alignment and adjusted-preview frame-1 stills completed at 270 × 480 / 8 samples.
+
+This real fixture exposes an important quality limit: at the product origin, the coarse density surface makes the floor approximately 0.327 m thick and initially intersects the bottle. A separate preview revision translates only the reconstructed environment down 0.2318435282 m, placing its measured upper floor surface at the explicit plinth bottom (−0.07 m). Original source alignment, product, shots, actions and placement remain unchanged. This is a preview placement correction, not a geometry repair, official-mesh calibration, or appearance approval.
+
+[Recovery run 38864636256](https://github.com/kimestelle/3d-product-suite/actions/runs/38864636256) continues using the existing world and accepted mesh operation, with zero new paid operations planned. At this record update the official HQ mesh is still unavailable; the documented provider export allowance is up to one hour. A fidelity winner has not been measured.
+
 ### Browser and smoke-render checks
 
 Browser checks confirmed paused startup, undo/redo, saves, the separate approved-revision pointer, restoring saved/approved state and timeline scrubbing. These checks exercise document/revision behavior; clicking the approval control is not a CG or brand appearance approval.
