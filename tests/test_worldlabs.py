@@ -302,6 +302,78 @@ class WorldLabsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "too large"):
             client.get_world("image-world")
 
+    def not_found(self):
+        return urllib.error.HTTPError("https://api.worldlabs.ai", 404, "Not found", {}, None)
+
+    def test_terminal_generation_post_and_saved_terminal_resume_never_poll(self):
+        operation = {"operation_id": "done-generation", "done": True, "response": self.world_metadata(),
+                     "cost": {"total_credits": 1580}}
+        client = self.client(operation)
+        state = client._submit(self.state, request={}, max_credits=1580, expected_credits=1580)
+        self.assertEqual(state["state"], "completed")
+        self.assertEqual(state["settledCredits"], 1580)
+        self.assertEqual(client.poll_generation(self.state)["worldId"], "same-world-1")
+        self.assertEqual(client.attach_operation(self.state, "done-generation")["state"], "completed")
+        self.assertEqual([r.method for r in self.api.requests], ["POST"])
+
+    def test_terminal_mesh_post_and_new_process_resume_preserve_cost_without_get(self):
+        operation = {"operation_id": "done-mesh", "done": True, "cost": {"total_credits": 3500},
+                     "response": {"asset_type": "mesh", "format": "glb", "mesh_variant": "textured",
+                                  "url": "https://assets.worldlabs.ai/hq.glb"}}
+        client = self.client(operation)
+        state = client._submit(self.state, request={"mesh_variant": "textured"}, max_credits=3500, expected_credits=3500,
+                               operation_type="mesh-export", world_id="same-world-1")
+        self.assertEqual(state["state"], "completed")
+        resumed = self.client()
+        self.assertEqual(resumed.poll_generation(self.state)["settledCredits"], 3500)
+        self.assertEqual(self.api.requests, [])
+
+    def test_mesh_operation_404_reads_same_world_until_visual_asset_is_ready(self):
+        pending_world = self.world_metadata()
+        pending_world["assets"]["mesh"] = None
+        client = self.client({"operation_id": "mesh-1", "done": False}, self.not_found(), pending_world,
+                             self.not_found(), self.world_metadata())
+        client._submit(self.state, request={"mesh_variant": "textured"}, max_credits=3500, expected_credits=3500,
+                       operation_type="mesh-export", world_id="same-world-1")
+        self.assertEqual(client.poll_generation(self.state)["state"], "pending")
+        state = client.poll_generation(self.state)
+        self.assertEqual(state["state"], "completed")
+        self.assertEqual(state["operationId"], "mesh-1")
+        self.assertEqual(state["completionEvidence"], "world.assets.mesh.hq_mesh_url")
+        self.assertNotIn("settledCredits", state)
+        self.assertIn("unknown", state["costStatus"])
+        self.assertEqual([r.method for r in self.api.requests], ["POST", "GET", "GET", "GET", "GET"])
+        before = len(self.api.requests)
+        self.assertEqual(client.poll_generation(self.state)["state"], "completed")
+        self.assertEqual(len(self.api.requests), before)
+
+    def test_mesh_recovery_identity_is_durable_before_404_metadata_fallback(self):
+        client = self.client(self.not_found(), self.world_metadata())
+        state = client.attach_operation(self.state, "accepted-mesh", operation_type="mesh-export",
+                                        world_id="same-world-1", max_credits=3500)
+        self.assertEqual(state["state"], "completed")
+        self.assertEqual(worldlabs.load_generation(self.state)["operationId"], "accepted-mesh")
+        self.assertTrue(all(r.method == "GET" for r in self.api.requests))
+
+    def test_mesh_metadata_fallback_rejects_different_world_and_insecure_url(self):
+        for invalid in (self.world_metadata(world_id="different-world"), self.world_metadata()):
+            if invalid["world_id"] == "same-world-1":
+                invalid["assets"]["mesh"]["hq_mesh_url"] = "http://127.0.0.1/private"
+            directory = self.root / invalid["world_id"]
+            client = self.client(self.not_found(), invalid)
+            with self.subTest(world=invalid["world_id"]), self.assertRaises(ValueError):
+                client.attach_operation(directory, "accepted-mesh", operation_type="mesh-export",
+                                        world_id="same-world-1", max_credits=3500)
+            self.assertEqual(worldlabs.load_generation(directory)["operationId"], "accepted-mesh")
+            self.assertTrue(all(r.method == "GET" for r in self.api.requests))
+
+    def test_generation_recovery_404_preserves_identity_for_bounded_wait(self):
+        client = self.client(self.not_found())
+        state = client.attach_operation(self.state, "accepted-generation", operation_type="generation", max_credits=1580)
+        self.assertEqual(state["state"], "pending")
+        self.assertEqual(worldlabs.load_generation(self.state)["operationId"], "accepted-generation")
+        self.assertEqual([r.method for r in self.api.requests], ["GET"])
+
 
 if __name__ == "__main__":
     unittest.main()

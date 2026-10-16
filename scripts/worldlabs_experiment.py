@@ -73,15 +73,26 @@ def _record_identity(label, state):
 
 
 def _wait(client, directory, *, deadline, monotonic, sleep):
+    invisible_since = None
     while monotonic() < deadline:
         try:
             state = client.poll_generation(directory)
         except worldlabs.WorldLabsError as error:
             transient = any(text in str(error) for text in ("connection failed", "HTTP 429", "HTTP 502", "HTTP 503", "HTTP 504"))
+            if "HTTP 404" in str(error):
+                saved = worldlabs.load_generation(directory)
+                if saved.get("operationType", "generation") != "generation":
+                    raise
+                now = monotonic()
+                invisible_since = now if invisible_since is None else invisible_since
+                if now - invisible_since >= 120:
+                    raise worldlabs.WorldLabsError("Generation operation remained unavailable for 120 seconds. Its saved operation ID is preserved; do not submit another generation.") from None
+                transient = True
             if not transient:
                 raise
             print("A read-only operation poll failed temporarily; waiting before polling the same operation.", flush=True)
         else:
+            invisible_since = None
             if state["state"] == "completed":
                 return state
             if state["state"] == "failed":

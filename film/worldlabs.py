@@ -233,8 +233,16 @@ class WorldLabsClient:
     def _redact(self, value):
         """Do not persist inline private image contents or an echoed API key."""
         if isinstance(value, dict):
-            return {key: ({"omitted": True, "encodedSha256": hashlib.sha256(str(child).encode()).hexdigest()}
-                          if key == "data_base64" else self._redact(child)) for key, child in value.items()}
+            result = {}
+            for key, child in value.items():
+                if key == "data_base64":
+                    if isinstance(child, dict) and set(child) == {"omitted", "encodedSha256"} and child.get("omitted") is True:
+                        result[key] = self._redact(child)
+                    else:
+                        result[key] = {"omitted": True, "encodedSha256": hashlib.sha256(str(child).encode()).hexdigest()}
+                else:
+                    result[key] = self._redact(child)
+            return result
         if isinstance(value, list):
             return [self._redact(child) for child in value]
         return value.replace(self._api_key, "<redacted>") if isinstance(value, str) else value
@@ -285,39 +293,85 @@ class WorldLabsClient:
                              error="Submission outcome is uncertain. Find the accepted operation in World Labs before attaching it; do not create another generation.")
                 _atomic_json(path, state)
                 raise WorldLabsError(state["error"]) from None
+            state = self._consume_operation(state, operation)
+            _atomic_json(path, state)
             return state
+
+    def _consume_operation(self, state, operation):
+        """Apply a provider response without discarding an already terminal result."""
+        _require(operation.get("operation_id") == state["operationId"], "Provider returned a different operation ID")
+        _require(type(operation.get("done")) is bool, "Provider operation has no valid done flag")
+        state.update(operation=self._redact(operation), updatedAt=_now())
+        if not operation["done"]:
+            state["state"] = "pending"
+            state.pop("error", None)
+        elif operation.get("error") is not None:
+            state.update(state="failed", error="World Labs operation failed; inspect its operation ID in the provider platform")
+        else:
+            response = operation.get("response")
+            _require(isinstance(response, dict), "Completed World Labs operation has no result")
+            if state.get("operationType", "generation") == "generation":
+                state["worldId"] = _identifier(response.get("world_id"), "provider world ID in generation result")
+                state["world"] = self._redact(response)
+            else:
+                _require(response.get("asset_type") == "mesh" and response.get("format") == "glb",
+                         "Mesh export did not return a visual GLB")
+                _validate_download_url(response.get("url"))
+                state["export"] = self._redact(response)
+            state["state"] = "completed"
+            state.pop("error", None)
+            cost = operation.get("cost")
+            if isinstance(cost, dict) and type(cost.get("total_credits")) is int:
+                state["settledCredits"] = cost["total_credits"]
+                if cost["total_credits"] > state["maxCredits"]:
+                    state["budgetExceeded"] = True
+        return state
+
+    def _mesh_metadata_after_404(self, state):
+        """Read-only completion evidence for export IDs not exposed by Operations."""
+        world = self.get_world(state["worldId"])
+        _require(world.get("world_id") == state["worldId"], "Provider returned a different world ID during mesh recovery")
+        assets = world.get("assets") or {}
+        _require(isinstance(assets, dict), "World Labs world assets are invalid during mesh recovery")
+        meshes = assets.get("mesh") or {}
+        _require(isinstance(meshes, dict), "World Labs mesh assets are invalid during mesh recovery")
+        variant = ((state.get("request") or {}).get("mesh_variant") or
+                   ((state.get("operation") or {}).get("metadata") or {}).get("mesh_variant") or "textured")
+        _require(variant in ("textured", "vertex_colored"), "Recovered mesh variant is invalid")
+        field = "hq_mesh_url" if variant == "textured" else "full_res_mesh_url"
+        url = meshes.get(field)
+        state.update(providerOperationUnavailable=True, updatedAt=_now())
+        if not url:
+            state.update(state="pending", readVisibility="operation-404-awaiting-world-visual-mesh")
+            state.pop("error", None)
+            return state
+        _validate_download_url(url)
+        state.update(state="completed", export={"asset_type": "mesh", "format": "glb", "mesh_variant": variant, "url": url},
+                     completionEvidence="world.assets.mesh." + field, costStatus="unknown-operation-endpoint-unavailable")
+        state.pop("settledCredits", None)
+        state.pop("error", None)
+        state.pop("readVisibility", None)
+        return state
 
     def poll_generation(self, directory):
         """Poll an existing generation/export once. Polling never creates work."""
         with _state_lock(directory):
             state = load_generation(directory)
             _require(state.get("operationId"), "No operation ID is saved; attach the accepted provider operation before polling")
-            operation = self.get_operation(state["operationId"])
-            _require(operation.get("operation_id") == state["operationId"], "Provider returned a different operation ID")
-            _require(type(operation.get("done")) is bool, "Provider operation has no valid done flag")
-            state.update(operation=self._redact(operation), updatedAt=_now())
-            if not operation["done"]:
-                state["state"] = "pending"
-            elif operation.get("error") is not None:
-                state.update(state="failed", error="World Labs operation failed; inspect its operation ID in the provider platform")
-            else:
-                response = operation.get("response")
-                _require(isinstance(response, dict), "Completed World Labs operation has no result")
-                if state.get("operationType", "generation") == "generation":
-                    state["worldId"] = _identifier(response.get("world_id"), "provider world ID in generation result")
-                    state["world"] = self._redact(response)
-                else:
-                    _require(response.get("asset_type") == "mesh" and response.get("format") == "glb",
-                             "Mesh export did not return a visual GLB")
-                    _validate_download_url(response.get("url"))
-                    state["export"] = self._redact(response)
-                state["state"] = "completed"
-                state.pop("error", None)
-                cost = operation.get("cost")
-                if isinstance(cost, dict) and type(cost.get("total_credits")) is int:
-                    state["settledCredits"] = cost["total_credits"]
-                    if cost["total_credits"] > state["maxCredits"]:
-                        state["budgetExceeded"] = True
+            if state.get("state") == "completed" and state.get("completionEvidence", "").startswith("world.assets.mesh."):
+                _validate_download_url(state.get("export", {}).get("url"))
+                return state
+            operation = state.get("operation")
+            if not (isinstance(operation, dict) and operation.get("done") is True):
+                try:
+                    operation = self.get_operation(state["operationId"])
+                except WorldLabsError as error:
+                    if "HTTP 404" not in str(error) or state.get("operationType") != "mesh-export" or not state.get("worldId"):
+                        raise
+                    state = self._mesh_metadata_after_404(state)
+                    _atomic_json(Path(directory) / "generation.json", state)
+                    return state
+            state = self._consume_operation(state, operation)
             _atomic_json(Path(directory) / "generation.json", state)
             return state
 
@@ -405,13 +459,20 @@ class WorldLabsClient:
             if world_id is not None:
                 _require(state.get("worldId", world_id) == world_id,
                          "Recovery world ID differs from the saved mesh operation")
-            operation = self.get_operation(operation_id)
-            returned_id = operation.get("operation_id", operation_id)
-            _require(returned_id == operation_id, "Provider returned a different operation ID")
-            state.update(operationId=operation_id, operation=self._redact(operation), state="pending", updatedAt=_now())
-            state.pop("error", None)
+            # Persist explicit recovery identity before its first GET, so a 404
+            # or connection failure cannot erase the operation being recovered.
+            state.update(operationId=operation_id, updatedAt=_now())
+            if state.get("state") != "completed":
+                state["state"] = "pending"
             _atomic_json(Path(directory) / "generation.json", state)
-            return state
+        try:
+            return self.poll_generation(directory)
+        except WorldLabsError as error:
+            if "HTTP 404" not in str(error) or state.get("operationType") != "generation":
+                raise
+            # A fresh generation operation may not yet be visible. The caller's
+            # read-only wait loop grants a bounded visibility window.
+            return load_generation(directory)
 
     def _request(self, method, path, payload=None):
         _require(path.startswith("/") and not path.startswith("//"), "Invalid World Labs API path")

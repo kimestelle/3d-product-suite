@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 from film import worldlabs
@@ -164,6 +165,33 @@ class ExperimentTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "conversion dependencies"):
                 experiment.run_experiment(self.args, client=client)
         self.assertEqual(self.api.requests, [])
+
+    def test_generation_operation_visibility_404_retries_only_reads(self):
+        missing = lambda: urllib.error.HTTPError("https://api.worldlabs.ai", 404, "Not found", {}, None)
+        client = self.client({"operation_id": "generation-1", "done": False}, missing(), missing(), self.generation_done)
+        directory = self.output / "provider-state" / "generation"
+        client._submit(directory, request={}, max_credits=1580, expected_credits=1580)
+        elapsed = [0]
+        def sleep(seconds):
+            elapsed[0] += seconds
+        with contextlib.redirect_stdout(io.StringIO()):
+            state = experiment._wait(client, directory, deadline=300, monotonic=lambda: elapsed[0], sleep=sleep)
+        self.assertEqual(state["state"], "completed")
+        self.assertEqual([r.method for r in self.api.requests], ["POST", "GET", "GET", "GET"])
+
+    def test_generation_operation_visibility_404_stops_after_bounded_window(self):
+        missing = [urllib.error.HTTPError("https://api.worldlabs.ai", 404, "Not found", {}, None) for _ in range(12)]
+        client = self.client({"operation_id": "generation-1", "done": False}, *missing)
+        directory = self.output / "provider-state" / "generation"
+        client._submit(directory, request={}, max_credits=1580, expected_credits=1580)
+        elapsed = [0]
+        def sleep(seconds):
+            elapsed[0] += seconds
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, "120 seconds"):
+            experiment._wait(client, directory, deadline=300, monotonic=lambda: elapsed[0], sleep=sleep)
+        self.assertEqual(elapsed[0], 120)
+        self.assertEqual(worldlabs.load_generation(directory)["operationId"], "generation-1")
+        self.assertEqual(sum(r.method == "POST" for r in self.api.requests), 1)
 
 
 if __name__ == "__main__":

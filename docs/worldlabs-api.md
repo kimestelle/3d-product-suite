@@ -57,7 +57,12 @@ overages, so its own low-balance threshold is not a substitute for this prefligh
 Before every paid POST the client durably saves its intent. It never automatically
 retries a POST with an uncertain outcome. Accepted operation IDs are saved and
 printed immediately, and appear in the GitHub run summary. Polling retries only
-read-only transient failures.
+read-only transient failures. Accepted generation IDs tolerate up to 120 seconds of
+404 visibility lag. If an HQ export operation returns 404, the client reads the
+saved world’s requested HQ visual-mesh field until it appears; this never submits
+another export. Metadata completion records the export’s settled cost as unknown.
+Terminal POST responses and saved terminal receipts are consumed without an
+unnecessary status request.
 
 The workflow uploads `worldlabs-experiment/` even after failure, including provider
 state, immutable world assets, reconstruction metadata and the comparison

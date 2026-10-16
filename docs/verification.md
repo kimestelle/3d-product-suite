@@ -4,7 +4,7 @@ This record distinguishes engineering checks from visual approval, real-asset va
 
 ## 16 October 2026 — milestones 2–3
 
-The local browser editor, immutable world library, explicit near-field props, mesh import, Gaussian diagnostics and experimental Gaussian-to-mesh workflow are implemented. The requested final generated-world comparison uses the official visual GLB and a mesh reconstructed from the same world's Gaussian SPZ, alongside the authored baseline. No paid World Labs generation or mesh export was invoked for the local checks below. The first protected GitHub experiment is tracked separately at [run 38862464590](https://github.com/kimestelle/3d-product-suite/actions/runs/38862464590); at this record update it is in progress.
+The local browser editor, immutable world library, explicit near-field props, mesh import, Gaussian diagnostics and experimental Gaussian-to-mesh workflow are implemented. The requested final generated-world comparison uses the official visual GLB and a mesh reconstructed from the same world's Gaussian SPZ, alongside the authored baseline. No paid World Labs generation or mesh export was invoked for the local checks below. The first protected GitHub experiment is tracked at [run 38862464590](https://github.com/kimestelle/3d-product-suite/actions/runs/38862464590). It generated world `f5a9a297-e44e-4c16-9f2b-0e069e444dd8` for 1,580 settled credits and accepted one HQ mesh export. The first export status read returned HTTP 404; durable IDs and receipts were preserved. The recovery implementation now reads the same world’s requested visual mesh when an export operation is unavailable, with no POST retry and unknown export settlement until confirmed.
 
 The environment uses Python 3.12.14, Blender 4.3.2 / Cycles CPU, FFmpeg 7.1.5, Node 24.19.0 and Spark 2.3.1. The optional reconstruction stack exercised locally is NumPy 2.3.5, SciPy 1.17.0 and scikit-image 0.25.2, installed in `.venv` and pinned in `requirements-worlds.txt`.
 
@@ -16,11 +16,11 @@ npm test --prefix web
 node scripts/capture_splats.test.mjs
 ```
 
-The Python command passed **159 tests in 14.640 seconds**, including **three real-Blender integrations** and **six numerical reconstruction tests**. The browser history suite passed **six Vitest tests**. The direct Node capture command passed **seven tests**.
+The Python command passed **167 tests in 13.083 seconds**, including **three real-Blender integrations** and **six numerical reconstruction tests**. The browser history suite passed **six Vitest tests**. The direct Node capture command passed **seven tests**.
 
 The real-Blender checks build and reopen all 360 sampled poses, verify primitive metre dimensions, builtin typography and initial plinth contact, and preserve exact product/camera transforms. A visual GLB with nonidentity scale, rotation and translation retains the expected world bounds while leaving the exact product, plinth and explicit foreground prop unchanged. The glass probe retains its declared transmission and IOR. Plate checks reject missing manifests and wrong resolution, verify frame membership/hashes and reproduce the correct distant frame after native-scene reopening.
 
-The numerical checks compare an anisotropic Gaussian isosurface with its analytic dimensions and outward normals, exercise quaternion covariance and Z-up conversion, verify spatial colour transfer and threshold-dependent surfaces, enforce bounded room-fixture grids, and decode a real Spark-written SPZ before producing repeatable mesh hashes. Provider/orchestration tests use fake transports and consume no API credits.
+The numerical checks compare an anisotropic Gaussian isosurface with its analytic dimensions and outward normals, exercise quaternion covariance and Z-up conversion, verify spatial colour transfer and threshold-dependent surfaces, enforce bounded room-fixture grids, and decode a real Spark-written SPZ before producing repeatable mesh hashes. Provider/orchestration tests use fake transports and consume no API credits. Added regressions cover terminal POST receipts, saved terminal recovery, a bounded generation-404 visibility window, and read-only mesh-404 recovery without a duplicate paid POST.
 
 ### Local world and render checks
 
@@ -36,11 +36,13 @@ Browser checks confirmed paused startup, undo/redo, saves, the separate approved
 
 The real Playwright smoke check passed paused startup, undo/redo, save/approval/restore, scrubbing, offline Gallery/Botanical choices, image-reference controls, native Gaussian preview and mobile overflow checks. It requested a Gallery Cycles still through the editor and verified a successful job with downloadable `still.png` and `scene.blend` artifacts (job `15a9382960dc4f63911c8e9337ed4415`, 540 × 960, 32 samples). Packaged Open Sans fonts load before canvas artwork measurement; no third-party font service is required.
 
-Run `PLAYWRIGHT_BROWSERS_PATH=/path/to/playwright-browsers node web/tests/editor-smoke.mjs` with a server on port 8789, or set `PRODUCT_SUITE_URL` to its loopback origin. This check creates a local verification campaign and performs one local Blender still render; it never clicks paid generation.
+Run `PLAYWRIGHT_BROWSERS_PATH=/path/to/playwright-browsers node web/tests/editor-smoke.mjs` with a server on port 8789, or set `PRODUCT_SUITE_URL` to its loopback origin. A focused browser check also simulated an unavailable GitHub service and verified that the error remains visible while both local render controls stay enabled.
+
+This check creates a local verification campaign and performs one local Blender still render; it never clicks paid generation.
 
 ### Open quality and human gates
 
-No real World Labs image-guided world has yet been generated or compared in this verification. The official HQ mesh and reconstructed Gaussian mesh require independent axis, scale and ground review before a calibrated same-world comparison. Reconstruction remains a threshold-dependent approximation: finite voxels can lose thin structures, broaden surfaces or create holes, and rough SH0 vertex colours do not preserve trained view-dependent appearance or physical materials.
+No image-guided world has yet been compared in this verification. The first real generated world uses the Botanical preset without a reference image; its paired export is undergoing recovery. The official HQ mesh and reconstructed Gaussian mesh require independent axis, scale and ground review before a calibrated same-world comparison. Reconstruction remains a threshold-dependent approximation: finite voxels can lose thin structures, broaden surfaces or create holes, and rough SH0 vertex colours do not preserve trained view-dependent appearance or physical materials.
 
 CG/brand approval, real product preparation and rights validation, hollow glass/contents fidelity, final-resolution generated-world sequences, preparation-time economics, declared-laptop performance, comprehensive accessibility review and the three-user uncoached editing target remain open. No trained assistance model or user pilot is claimed.
 
