@@ -194,6 +194,36 @@ class WorldCacheTests(unittest.TestCase):
         self.assertFalse(result["cacheHit"])
         self.assertEqual(result["cacheStatus"], "miss")
 
+    def test_low_balance_before_any_post_does_not_poison_a_fresh_cache(self):
+        client = self.client({"remaining_credits": 0})
+        with self.assertRaisesRegex(ValueError, "balance"):
+            self.run_quietly(client)
+        self.assertFalse(any(request.method == "POST" for request in self.api.requests))
+        self.assertFalse((self.cache() / "provider-state").exists())
+        result = self.complete()
+        self.assertEqual(result["cacheStatus"], "miss")
+
+    def test_generation_balance_preflight_before_any_post_can_be_retried(self):
+        client = self.client({"remaining_credits": 10000}, {"remaining_credits": 0})
+        with self.assertRaisesRegex(ValueError, "balance"):
+            self.run_quietly(client)
+        self.assertFalse(any(request.method == "POST" for request in self.api.requests))
+        result = self.complete()
+        self.assertEqual(result["cacheStatus"], "miss")
+
+    def test_process_interruption_before_journal_keeps_started_cache_guard(self):
+        client = self.client()
+        with patch.object(client, "_check_balance", side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+            self.run_quietly(client)
+        record = json.loads((self.cache() / "cache.json").read_text())
+        self.assertTrue(record["providerWorkStarted"])
+        self.args.output = self.root / "interrupted-process-output"
+        self.args.experiment_id = "interrupted-process-output"
+        client = self.client()
+        with self.assertRaisesRegex(ValueError, "journal is missing"):
+            self.run_quietly(client)
+        self.assertEqual(self.api.requests, [])
+
     def test_completed_legacy_output_backfills_without_network(self):
         self.complete()
         shutil.rmtree(self.root / ".worldlabs-cache")

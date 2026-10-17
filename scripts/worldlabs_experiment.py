@@ -421,9 +421,33 @@ def run_experiment(args, *, client=None, monotonic=time.monotonic, sleep=time.sl
                 # Missing credentials are a local configuration failure, before
                 # there can be any accepted work or submission uncertainty.
                 active_client = client or worldlabs.WorldLabsClient.from_environment()
+                definitely_fresh = (not resumed and not cache.record.get("backfilledExistingOutput")
+                                    and not any((provider_args.world_id, provider_args.generation_operation_id,
+                                                 provider_args.mesh_operation_id, cache.record.get("worldId")))
+                                    and not (cache.directory / "provider-state").exists()
+                                    and not any(cached_manifest.get(key) for key in
+                                                ("worldId", "generationOperationId", "meshOperationId", "meshExportSubmissionStarted")))
                 cache.save(status="incomplete", providerWorkStarted=True)
-                provider_manifest = _run_provider_experiment(provider_args, client=active_client, monotonic=monotonic,
-                                                             sleep=sleep, converter=converter)
+                try:
+                    provider_manifest = _run_provider_experiment(provider_args, client=active_client, monotonic=monotonic,
+                                                                 sleep=sleep, converter=converter)
+                except Exception:
+                    # A fresh read-only balance/preflight rejection has never
+                    # entered _submit: that routine creates its journal directory
+                    # before its first paid POST. Permit a funded retry only
+                    # while every durable and explicit work identity is absent.
+                    # Process interruption deliberately bypasses this rollback.
+                    if (definitely_fresh and not (cache.directory / "provider-state").exists()
+                            and not (cache.directory / "world-pair.json").exists()):
+                        try:
+                            failed_manifest = read_json(cached_manifest_path)
+                        except worldlabs.WorldLabsError:
+                            pass
+                        else:
+                            if not any(failed_manifest.get(key) for key in
+                                       ("worldId", "generationOperationId", "meshOperationId", "meshExportSubmissionStarted")):
+                                cache.save(status="prepared", providerWorkStarted=False)
+                    raise
                 pair = verify_pair(cache.directory)
                 cache.save(status="completed", worldId=pair["worldId"])
                 manifest.update(provider_manifest)
