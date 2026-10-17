@@ -48,7 +48,7 @@ def main(argv=None):
     p.add_argument("--scale-to-meters", type=float, default=1)
     p = sub.add_parser("worlds", help="List imported world revisions")
     p.add_argument("--library", type=Path, default=Path("workspace-data"))
-    p = sub.add_parser("product-import", help="Prepare a centered, meter-scale, self-contained static product GLB")
+    p = sub.add_parser("product-import", help="Import a prepared GLB or normalize an OBJ/STL/PLY product mesh")
     p.add_argument("asset", type=Path)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--name", required=True)
@@ -56,6 +56,9 @@ def main(argv=None):
     p.add_argument("--source", required=True)
     p.add_argument("--reuse-basis", required=True)
     p.add_argument("--workspace", type=Path, help="Also open the prepared scene as a local editor project")
+    p.add_argument("--source-up", choices=("Y", "Z"), help="Required for OBJ/STL/PLY; source model's up axis")
+    p.add_argument("--units", choices=("m", "cm", "mm", "in", "ft"), help="Required for OBJ/STL/PLY; source model's units")
+    p.add_argument("--blender", default="blender")
     p = sub.add_parser("compare", help="Create the five-probe authored/mesh/Gaussian comparison")
     p.add_argument("scene", type=Path)
     p.add_argument("--library", type=Path, default=Path("workspace-data"))
@@ -78,10 +81,11 @@ def main(argv=None):
             from .worlds import list_worlds
             print(json.dumps(list_worlds(args.library), indent=2))
         elif args.command == "product-import":
-            from .products import create_product_scene
+            from .products import create_product_scene_from_asset
             provenance = {"source": args.source, "owner": args.owner, "reuseBasis": args.reuse_basis,
                           "allowedExternalDestinations": []}
-            scene = create_product_scene(args.asset, args.output, name=args.name, provenance=provenance)
+            scene = create_product_scene_from_asset(args.asset, args.output, name=args.name, provenance=provenance,
+                                                     source_up=args.source_up, units=args.units, blender=args.blender)
             result = {"scene": str(args.output / "scene.json"), "sceneDigest": scene_digest(scene)}
             if args.workspace:
                 from .store import ProjectStore

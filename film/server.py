@@ -18,7 +18,7 @@ from .stills import create_still_job, run_still_job
 from .store import ConflictError, ProjectStore, ROOT, identifier, now
 from .worlds import MAX_ASSET_BYTES, import_world, list_worlds
 from .github_worlds import GitHubWorlds
-from .products import create_product_scene
+from .products import create_product_scene_from_asset
 from .comparison import calibrate_scene, comparison_payload, review_alignment
 from .comparison_jobs import ComparisonJobs
 
@@ -210,6 +210,8 @@ class Application:
                 "githubWorldsAvailable": shutil.which("gh") is not None,
                 "githubWorkflowUrl": self.github.url,
                 "blenderAvailable": shutil.which(self.renders.blender) is not None,
+                "productMeshImportAvailable": shutil.which(self.renders.blender) is not None,
+                "productMeshFormats": ["glb", "obj", "stl", "ply"],
                 "ffmpegAvailable": shutil.which(self.renders.ffmpeg) is not None}
 
 
@@ -325,18 +327,21 @@ def make_handler(app):
                 payload = self._body(binary=True)
                 query = parse_qs(parsed.query)
                 one = lambda name, default="": query.get(name, [default])[0]
-                if Path(self.headers.get("X-Asset-Filename", "")).suffix.lower() != ".glb":
-                    raise ValueError("Upload a self-contained product GLB in meters, centered at its bounding-box origin")
+                suffix = Path(self.headers.get("X-Asset-Filename", "")).suffix.lower()
+                if suffix not in (".glb", ".obj", ".stl", ".ply"):
+                    raise ValueError("Upload a product GLB, OBJ, STL or polygon PLY. Export CAD to one of these formats first.")
                 temporary = app.store.root / f"product-import-{uuid.uuid4().hex}"
                 temporary.mkdir()
                 try:
-                    source = temporary / "source.glb"
+                    source = temporary / f"source{suffix}"
                     source.write_bytes(payload)
-                    provenance = {"source": one("source", "Product GLB supplied through the local editor"),
+                    provenance = {"source": one("source", "Product mesh supplied through the local editor"),
                                   "owner": one("owner"), "reuseBasis": one("reuseBasis"),
                                   "allowedExternalDestinations": []}
-                    scene = create_product_scene(source, temporary / "prepared", name=one("name", "Imported product"),
-                                                 provenance=provenance)
+                    scene = create_product_scene_from_asset(
+                        source, temporary / "prepared", name=one("name", "Imported product"), provenance=provenance,
+                        source_up=one("sourceUp") or None, units=one("units") or None,
+                        blender=app.renders.blender)
                     return self._json(app.store.create(one("name", "Imported product"), scene,
                                                        source_dir=temporary / "prepared"), 201)
                 finally:

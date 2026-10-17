@@ -269,6 +269,65 @@ class EditorApiTests(unittest.TestCase):
         self.assertEqual(status, 404)
         self.assertIn("error", error)
 
+    def test_mesh_upload_normalizes_into_a_reopenable_pinned_product_project(self):
+        baseline = self.bootstrap()["project"]
+        source = b"v 0 0 0\nv 60 0 0\nv 60 120 40\nf 1 2 3\n"
+        normalized = product_glb()
+        metadata = {"sourceFormat": "obj", "sourceSha256": hashlib.sha256(source).hexdigest(),
+                    "units": "mm", "sourceUp": "Z", "scaleToMeters": .001}
+
+        def convert(source_path, output_path, **options):
+            self.assertEqual(source_path.read_bytes(), source)
+            self.assertEqual(source_path.suffix, ".obj")
+            self.assertEqual(options, {"source_up": "Z", "units": "mm", "blender": self.app.renders.blender})
+            output_path.write_bytes(normalized)
+            return metadata
+
+        query = urlencode({"name": "Supplied mesh", "owner": "Design team", "reuseBasis": "Original model",
+                           "source": "Approved supplier model", "units": "mm", "sourceUp": "Z"})
+        with patch("film.mesh_import.prepare_product_mesh", side_effect=convert) as converter:
+            status, project, _ = self.request("POST", "/api/products/import?" + query, raw=source,
+                                              headers={"X-Asset-Filename": "product.OBJ", "Content-Type": "application/octet-stream"})
+        self.assertEqual(status, 201)
+        converter.assert_called_once()
+        self.assertEqual(project["scene"]["product"]["metadata"]["meshImport"], metadata)
+        asset = project["scene"]["product"]["components"][0]["asset"]
+        self.assertEqual(self.request("GET", "/api/" + asset["path"])[1], normalized)
+        self.assertEqual(self.request("GET", f"/api/projects/{project['id']}")[1], project)
+        self.assertEqual(self.request("GET", f"/api/projects/{baseline['id']}")[1], baseline)
+        self.assertEqual(project["scene"]["actions"], [])
+        self.assertEqual(list(self.app.store.root.glob("product-import-*")), [])
+
+    def test_mesh_upload_requires_explicit_scale_orientation_and_provenance_before_conversion(self):
+        baseline = self.bootstrap()["projects"]
+        original_assets = {path.name: path.read_bytes() for path in (self.app.store.root / "assets").iterdir()}
+        query = {"name": "Mesh", "owner": "Design team", "reuseBasis": "Original model", "source": "Supplier",
+                 "units": "mm", "sourceUp": "Z"}
+        headers = {"X-Asset-Filename": "product.stl", "Content-Type": "application/octet-stream"}
+        with patch("film.mesh_import.prepare_product_mesh") as converter:
+            for key in ("units", "sourceUp", "owner", "reuseBasis"):
+                with self.subTest(missing=key):
+                    status, error, _ = self.request("POST", "/api/products/import?" + urlencode({k: v for k, v in query.items() if k != key}),
+                                                    raw=b"not a complete mesh", headers=headers)
+                    self.assertEqual(status, 400)
+                    self.assertIn("error", error)
+            converter.assert_not_called()
+        self.assertEqual(self.request("GET", "/api/projects")[1], baseline)
+        self.assertEqual({path.name: path.read_bytes() for path in (self.app.store.root / "assets").iterdir()}, original_assets)
+        self.assertEqual(list(self.app.store.root.glob("product-import-*")), [])
+
+    def test_failed_mesh_conversion_leaves_no_partial_project_or_assets(self):
+        baseline = self.bootstrap()["projects"]
+        query = urlencode({"name": "Mesh", "owner": "Design team", "reuseBasis": "Original model", "source": "Supplier",
+                           "units": "mm", "sourceUp": "Z"})
+        with patch("film.mesh_import.prepare_product_mesh", side_effect=ValueError("Install Blender 4.3.2 to import OBJ/STL/PLY meshes")):
+            status, error, _ = self.request("POST", "/api/products/import?" + query, raw=b"mesh",
+                                            headers={"X-Asset-Filename": "product.stl", "Content-Type": "application/octet-stream"})
+        self.assertEqual(status, 400)
+        self.assertIn("Blender 4.3.2", error["error"])
+        self.assertEqual(self.request("GET", "/api/projects")[1], baseline)
+        self.assertEqual(list(self.app.store.root.glob("product-import-*")), [])
+
     def test_provider_status_exposes_boolean_and_no_api_key(self):
         key = "worldlabs-key-that-must-never-reach-browser"
         with patch.dict("os.environ", {"WORLDLABS_API_KEY": key}):

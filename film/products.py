@@ -11,6 +11,7 @@ import json
 import math
 from pathlib import Path
 import struct
+import tempfile
 
 from .worlds import (_canonical, _data_uri, _immutable_write, _read_asset, _require,
                      _validate_glb, bundle_assets, safe_asset_path,
@@ -292,3 +293,34 @@ def import_product(source_path, library_root, *, name, provenance, template=None
     _write_assets(scene, payload, destination, template_root)
     _immutable_write(safe_asset_path(destination, f"products/{product_id}.json"), _canonical(entry) + b"\n")
     return entry
+
+
+def create_product_scene_from_asset(source_path, output_dir, *, name, provenance,
+                                    source_up=None, units=None, blender="blender"):
+    """Accept prepared GLBs or normalize local OBJ/STL/PLY meshes for the editor.
+
+    Mesh units and orientation are explicit input, never inferred from size.
+    Existing GLBs retain their original bytes and strict prepared-asset contract.
+    """
+    from .mesh_import import prepare_product_mesh
+
+    source_path = Path(source_path)
+    suffix = source_path.suffix.lower()
+    _require(suffix in (".glb", ".obj", ".stl", ".ply"),
+             "Upload a product GLB, OBJ, STL or polygon PLY. Export CAD to one of these formats first.")
+    _require(isinstance(name, str) and 0 < len(name.strip()) <= 120,
+             "Product name must contain 1 to 120 characters")
+    validate_provenance(provenance)
+    if suffix == ".glb":
+        _require(source_up in (None, "Y") and units in (None, "m"),
+                 "Prepared GLBs must already use Y-up meters; convert the source model before importing")
+        return create_product_scene(source_path, output_dir, name=name, provenance=provenance)
+    _require(source_up in ("Y", "Z"), "Choose the mesh source up axis: Y or Z")
+    _require(units in ("m", "cm", "mm", "in", "ft"),
+             "Choose the mesh source units: m, cm, mm, in or ft")
+    with tempfile.TemporaryDirectory(prefix="product-mesh-") as temporary:
+        prepared = Path(temporary) / "normalized.glb"
+        metadata = prepare_product_mesh(source_path, prepared, source_up=source_up, units=units,
+                                        blender=blender)
+        return create_product_scene(prepared, output_dir, name=name, provenance=provenance,
+                                    metadata={"meshImport": metadata})
