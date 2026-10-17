@@ -2,6 +2,7 @@
 import copy
 from unittest.mock import patch
 import unittest
+from urllib.parse import quote
 
 from film import server
 from tests import test_editor_api
@@ -35,7 +36,7 @@ class TextureApiTests(unittest.TestCase):
                 self.assertEqual(status, 400)
 
     def test_upload_bounds_mime_and_security_fail_before_creating_assets(self):
-        for filename in ("label.svg", "../../label.png", "label.jpg"):
+        for filename in ("label.svg", "../../label.png", "label.jpg", "..%2Flabel.png"):
             status, error, _ = self.upload(filename=filename)
             self.assertEqual(status, 400)
         status, error, _ = self.upload(headers={"Content-Type": "image/png"})
@@ -49,6 +50,13 @@ class TextureApiTests(unittest.TestCase):
             status, error, _ = self.upload()
         self.assertEqual(status, 400)
         self.assertIn("1–10", error["error"])
+
+    def test_unicode_artwork_filenames_use_percent_encoded_http_headers(self):
+        filename = "ラベル – café 50%.png"
+        status, imported, _ = self.upload(filename=quote(filename, safe=""))
+        self.assertEqual(status, 201, imported)
+        self.assertEqual(imported["name"], filename)
+        self.assertEqual(imported["asset"]["format"], "png")
 
     def test_texture_edits_evaluate_save_and_reopen_and_reject_corrupt_persistence(self):
         project = self.bootstrap()["project"]

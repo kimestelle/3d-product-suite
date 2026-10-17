@@ -330,7 +330,7 @@ def make_handler(app):
             if self.command == "POST" and path == "/api/textures/import":
                 payload = self._body(binary=True, limit=MAX_TEXTURE_BYTES)
                 return self._json(import_texture(payload, app.store.root,
-                                                filename=self.headers.get("X-Asset-Filename", "")), 201)
+                                                filename=unquote(self.headers.get("X-Asset-Filename", ""))), 201)
             if self.command == "POST" and path == "/api/products/import":
                 payload = self._body(binary=True)
                 query = parse_qs(parsed.query)

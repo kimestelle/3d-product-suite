@@ -113,7 +113,7 @@ function Editor() {
   const importProduct=async({file:chosen,query:q,normalized}:ProductImportRequest)=>{setProductImporting(true);setError('');try{const result=await fetch(`/api/products/import?${q}`,{method:'POST',headers:{'X-Product-Suite':'1','Content-Type':'application/octet-stream','X-Asset-Filename':chosen.name},body:chosen});const data=await result.json();if(!result.ok)throw new Error(data.error);loadProject(data);setProjects(await api('/api/projects'));setShowProductImport(false);setNotice(normalized?'Product mesh imported, converted to meters and centered. Review its size and materials before rendering.':'Product imported with its original geometry and materials.')}catch(e:any){setError(e.message)}finally{setProductImporting(false)}};
   const uploadLabel=async(chosen:File):Promise<TextureAsset>=>{
     const projectId=projectIdRef.current;
-    const result=await fetch('/api/textures/import',{method:'POST',headers:{'X-Product-Suite':'1','Content-Type':'application/octet-stream','X-Asset-Filename':chosen.name},body:chosen});
+    const result=await fetch('/api/textures/import',{method:'POST',headers:{'X-Product-Suite':'1','Content-Type':'application/octet-stream','X-Asset-Filename':encodeURIComponent(chosen.name)},body:chosen});
     const data=await result.json();if(!result.ok)throw new Error(data.error||'Artwork upload failed');
     if(projectIdRef.current!==projectId)throw new Error('The project changed during upload. Upload the artwork into the current project.');
     return data.asset;
