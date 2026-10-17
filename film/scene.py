@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 
 from .worlds import validate_asset_record, validate_product_asset_record
+from .textures import validate_texture_asset_record
 from .scene_objects import resolve_scene_objects
 
 
@@ -55,6 +56,23 @@ def _material(value):
         _number(value["ior"], "ior", minimum=1, maximum=3)
 
 
+def _label_texture(value):
+    _require(isinstance(value, dict), "labelTexture must be an object")
+    validate_texture_asset_record(value.get("asset"))
+    mapping = value.get("mapping")
+    _require(isinstance(mapping, dict), "Label mapping must be an object")
+    _require(mapping.get("mode") in ("planar", "cylindrical", "uv"), "Label mapping mode must be planar, cylindrical or uv")
+    _require(mapping.get("face") in ("front", "back", "left", "right", "top", "bottom"), "Label mapping face is invalid")
+    for key, minimum, maximum in (("scale", .01, 10), ("offset", -5, 5)):
+        _vector(mapping.get(key), f"label mapping {key}", 2)
+        for number in mapping[key]:
+            _number(number, f"label mapping {key}", minimum=minimum, maximum=maximum)
+    _number(mapping.get("rotationDegrees"), "label mapping rotationDegrees", minimum=-360, maximum=360)
+    _material(value.get("material"))
+    _require(value["material"].get("transmission", 0) == 0,
+             "Label coatings cannot transmit light; use image alpha for transparent areas")
+
+
 def _quaternion(value, name):
     _vector(value, name, 4)
     _require(abs(sum(x*x for x in value) - 1) < 1e-6, f"{name} must be normalized")
@@ -95,6 +113,10 @@ def validate_scene(scene):
             _vector(q, "assembly quaternion", 4)
             _require(abs(sum(x*x for x in q) - 1) < 1e-6, "Assembly quaternion must be normalized")
             _material(c["material"])
+            if "labelTexture" in c:
+                _label_texture(c["labelTexture"])
+                _require(c["labelTexture"]["mapping"]["mode"] != "uv" or c["shape"] == "mesh",
+                         "Existing UV maps are supported on imported mesh components; use planar or cylindrical mapping for primitives")
             _number(c.get("bevelM", 0), "bevelM", minimum=0, maximum=min(c["sizeM"])/2)
         if "label" in p:
             _require(p["label"]["componentId"] in ids, "Label component does not exist")

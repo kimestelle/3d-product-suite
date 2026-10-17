@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import type { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
+import { labelGeometry, labelImageDimensions, labelTemplateSvg, type LabelMapping } from './labelMapping';
 
 export type SurfacePointPick = {
   worldPoint: [number, number, number];
@@ -268,6 +269,8 @@ export class StudioViewport {
       const group = new THREE.Group();
       group.name = specification.id;
       group.userData.componentId = specification.id;
+      group.userData.labelSizeM = [...specification.sizeM];
+      group.userData.labelShape = specification.shape;
       if (specification.shape === 'mesh') {
         const imported = await this.loadVerifiedGlb(specification.asset, signal);
         if (version !== this.loadVersion || this.disposed) { this.disposeObject(imported); return; }
@@ -282,6 +285,12 @@ export class StudioViewport {
         mesh.receiveShadow = true;
         group.add(mesh);
       }
+      if (specification.labelTexture) {
+        try {
+          await this.applyLabelTexture(group, specification, signal);
+          if (version !== this.loadVersion || this.disposed) { this.disposeObject(group); return; }
+        } catch (error) { this.disposeObject(group); throw error; }
+      }
       group.position.fromArray(specification.assembly.translationM);
       group.position.add(new THREE.Vector3().fromArray(source.placement.translationM));
       group.quaternion.fromArray(specification.assembly.rotationXyzw);
@@ -291,8 +300,159 @@ export class StudioViewport {
     const label = source.product.label;
     if (label && this.components.has(label.componentId)) {
       const component = source.product.components.find((item: any) => item.id === label.componentId);
-      this.addLabel(this.components.get(label.componentId)!, label, component.sizeM);
+      if (!component.labelTexture) this.addLabel(this.components.get(label.componentId)!, label, component.sizeM);
     }
+  }
+
+  private async loadVerifiedLabel(asset: any, signal: AbortSignal): Promise<THREE.Texture> {
+    if (!['png', 'jpg'].includes(asset?.format) || !/^[a-f0-9]{64}$/.test(asset?.sha256 || '')
+        || asset?.path !== `assets/${asset.sha256}.${asset.format}`
+        || !Number.isInteger(asset.widthPx) || !Number.isInteger(asset.heightPx)) {
+      throw new Error('The label must reference a content-addressed PNG or JPEG image.');
+    }
+    const response = await fetch(`/api/assets/${asset.sha256}.${asset.format}`, { signal, credentials: 'same-origin' });
+    if (!response.ok) throw new Error(`Could not load label image (${response.status}).`);
+    const limit = 8 * 1024 * 1024;
+    const declared = response.headers.get('Content-Length');
+    if (declared && (!/^\d+$/.test(declared) || Number(declared) > limit)) throw new Error('The label image exceeds the 8 MiB limit.');
+    const bytes = await response.arrayBuffer();
+    if (bytes.byteLength > limit) throw new Error('The label image exceeds the 8 MiB limit.');
+    const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), value => value.toString(16).padStart(2, '0')).join('');
+    if (digest !== asset.sha256) throw new Error('The label image SHA-256 does not match its immutable scene revision.');
+    const [width, height] = labelImageDimensions(bytes, asset.format);
+    if (width !== asset.widthPx || height !== asset.heightPx) throw new Error('The label image dimensions do not match its immutable scene revision.');
+    if (signal.aborted) throw new DOMException('Label loading was superseded.', 'AbortError');
+    // ImageBitmap uploads ignore Texture.flipY. Flip exactly once at decode,
+    // so both planar/cylindrical v-up UVs and normalized glTF UVs agree.
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: asset.format === 'png' ? 'image/png' : 'image/jpeg' }),
+      { imageOrientation: 'flipY', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+    if (signal.aborted) { bitmap.close(); throw new DOMException('Label loading was superseded.', 'AbortError'); }
+    if (bitmap.width !== width || bitmap.height !== height) { bitmap.close(); throw new Error('The decoded label image dimensions changed. Export the image without EXIF rotation.'); }
+    const texture = new THREE.Texture(bitmap);
+    texture.flipY = false;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  private async applyLabelTexture(group: THREE.Group, component: any, signal: AbortSignal): Promise<void> {
+    const specification = component.labelTexture;
+    const mapping = specification.mapping as LabelMapping;
+    if (mapping.mode === 'uv' && component.shape !== 'mesh') throw new Error('Existing UV maps require an imported mesh. Choose flat or cylindrical mapping for this component.');
+    group.updateWorldMatrix(true, true);
+    const inverse = group.matrixWorld.clone().invert();
+    const prepared = new Map<THREE.Mesh, THREE.BufferGeometry>();
+    let texture: THREE.Texture | undefined;
+    try {
+      group.traverse(object => {
+        if (!(object instanceof THREE.Mesh)) return;
+        prepared.set(object, labelGeometry(object.geometry, inverse.clone().multiply(object.matrixWorld), component.sizeM, mapping));
+      });
+      texture = await this.loadVerifiedLabel(specification.asset, signal);
+      const originals = new Set<THREE.Material>();
+      const materials = new Map<THREE.Material, THREE.Material>();
+      for (const [mesh, geometry] of prepared) {
+        const oldGeometry = mesh.geometry;
+        mesh.geometry = geometry;
+        // Another mesh can share the original geometry; all mapped clones
+        // have already been prepared before releasing its GPU allocation.
+        oldGeometry.dispose();
+        const replace = (original: THREE.Material): THREE.Material => {
+          if (materials.has(original)) return materials.get(original)!;
+          const result = this.labelMaterial(original, texture!, specification);
+          materials.set(original, result); originals.add(original); return result;
+        };
+        mesh.material = Array.isArray(mesh.material) ? mesh.material.map(replace) : replace(mesh.material);
+      }
+      // Texture maps are shared by the clones, so release only old materials.
+      originals.forEach(material => material.dispose());
+    } catch (error) {
+      prepared.forEach(geometry => geometry.dispose());
+      texture?.dispose();
+      if (texture && typeof ImageBitmap !== 'undefined' && texture.image instanceof ImageBitmap) texture.image.close();
+      throw error;
+    }
+  }
+
+  private labelMaterial(original: THREE.Material, texture: THREE.Texture, specification: any): THREE.Material {
+    let material: THREE.Material;
+    const unlit = original instanceof THREE.MeshBasicMaterial;
+    if (original instanceof THREE.MeshPhysicalMaterial) material = original.clone();
+    else if (original instanceof THREE.MeshStandardMaterial) {
+      const physical = new THREE.MeshPhysicalMaterial();
+      THREE.MeshStandardMaterial.prototype.copy.call(physical, original);
+      (physical as any).defines = { ...(physical as any).defines, STANDARD: '', PHYSICAL: '' };
+      material = physical;
+    } else if (unlit) {
+      // Preserve unlit glTF color outside the print as emitted light while the
+      // printed region uses an ordinary, lit physical material.
+      const source = original as THREE.MeshBasicMaterial;
+      material = new THREE.MeshPhysicalMaterial({ color: source.color, map: source.map, alphaMap: source.alphaMap,
+        opacity: source.opacity, transparent: source.transparent, alphaTest: source.alphaTest, side: source.side,
+        vertexColors: source.vertexColors, depthWrite: source.depthWrite, depthTest: source.depthTest,
+        toneMapped: source.toneMapped, visible: source.visible, name: source.name, specularIntensity: 0 });
+    } else throw new Error('Label printing requires a standard, physical or unlit mesh material.');
+    // A glTF MASK cutoff belongs to the substrate. Ink can still be partially
+    // visible over a cutout, so compositing needs a blended material there.
+    if (original.alphaTest > 0) material.transparent = true;
+    const mapping = specification.mapping;
+    const print = specification.material;
+    const previous = original.onBeforeCompile;
+    material.onBeforeCompile = (shader, renderer) => {
+      previous.call(material, shader, renderer);
+      Object.assign(shader.uniforms, {
+        labelArtwork: { value: texture }, labelTint: { value: this.color(print.baseColor) },
+        labelOpacity: { value: print.baseColor[3] },
+        labelRoughness: { value: print.roughness }, labelMetalness: { value: print.metallic }, labelIor: { value: print.ior ?? 1.5 },
+        labelScale: { value: new THREE.Vector2().fromArray(mapping.scale) },
+        labelOffset: { value: new THREE.Vector2().fromArray(mapping.offset) },
+        labelAngle: { value: -mapping.rotationDegrees * Math.PI / 180 },
+      });
+      shader.vertexShader = shader.vertexShader.replace('#include <common>', `#include <common>\nattribute vec2 labelUv;\nattribute float labelCoverage;\nvarying vec2 vLabelUv;\nvarying float vLabelCoverage;`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>\nvLabelUv = labelUv;\nvLabelCoverage = labelCoverage;`);
+      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>\nuniform sampler2D labelArtwork;\nuniform vec3 labelTint;\nuniform float labelOpacity;\nuniform float labelRoughness;\nuniform float labelMetalness;\nuniform float labelIor;\nuniform vec2 labelScale;\nuniform vec2 labelOffset;\nuniform float labelAngle;\nvarying vec2 vLabelUv;\nvarying float vLabelCoverage;`)
+        .replace('#include <alphatest_fragment>', `vec2 labelDelta = vLabelUv - vec2(0.5) - labelOffset;\n${mapping.mode === 'cylindrical' ? 'labelDelta.x = fract(labelDelta.x + 0.5) - 0.5;' : ''}\nvec2 labelPosition = labelDelta / labelScale;\nfloat labelC = cos(labelAngle);\nfloat labelS = sin(labelAngle);\nvec2 printUv = vec2(labelC * labelPosition.x - labelS * labelPosition.y, labelS * labelPosition.x + labelC * labelPosition.y) + vec2(0.5);\nvec4 labelSample = texture2D(labelArtwork, printUv);\nfloat labelInside = step(0.0, printUv.x) * step(printUv.x, 1.0) * step(0.0, printUv.y) * step(printUv.y, 1.0);\nfloat printAlpha = labelSample.a * labelInside * vLabelCoverage * labelOpacity;\n${unlit ? 'totalEmissiveRadiance = diffuseColor.rgb;\ndiffuseColor.rgb = vec3(0.0);' : ''}\ndiffuseColor.rgb = mix(diffuseColor.rgb, labelSample.rgb * labelTint, printAlpha);\ndiffuseColor.a = mix(diffuseColor.a, 1.0, printAlpha);\n#include <alphatest_fragment>`)
+        .replace('float printAlpha = labelSample.a * labelInside * vLabelCoverage * labelOpacity;', `float inkAlpha = labelSample.a * labelInside * vLabelCoverage * labelOpacity;\n#ifdef USE_ALPHATEST\nif (diffuseColor.a < alphaTest) diffuseColor.a = 0.0;\n#endif\n#ifdef OPAQUE\ndiffuseColor.a = 1.0;\n#endif\nfloat compositeAlpha = mix(diffuseColor.a, 1.0, inkAlpha);\nfloat printAlpha = inkAlpha / max(compositeAlpha, 0.000001);`)
+        .replace('diffuseColor.a = mix(diffuseColor.a, 1.0, printAlpha);\n#include <alphatest_fragment>', 'diffuseColor.a = compositeAlpha;\nif (diffuseColor.a <= 0.0) discard;')
+        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, labelRoughness, printAlpha);')
+        .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = mix(metalnessFactor, labelMetalness, printAlpha);')
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance *= (1.0 - printAlpha);')
+        .replace('#include <lights_physical_fragment>', THREE.ShaderChunk.lights_physical_fragment
+          .replace('material.ior = ior;', 'material.ior = mix(ior, labelIor, printAlpha);')
+          .replace('material.specularF90 = mix( specularIntensityFactor, 1.0, metalnessFactor );', 'specularIntensityFactor = mix(specularIntensityFactor, 1.0, printAlpha);\nspecularColorFactor = mix(specularColorFactor, vec3(1.0), printAlpha);\nmaterial.specularF90 = mix( specularIntensityFactor, 1.0, metalnessFactor );')
+          .replace('material.clearcoat = saturate( material.clearcoat );', 'material.clearcoat = saturate( material.clearcoat ) * (1.0 - printAlpha);')
+          .replace('material.dispersion = dispersion;', 'material.dispersion = dispersion * (1.0 - printAlpha);')
+          .replace('material.iridescence = iridescence;', 'material.iridescence = iridescence * (1.0 - printAlpha);')
+          .replace('material.sheenColor = sheenColor;', 'material.sheenColor = sheenColor * (1.0 - printAlpha);')
+          .replace('material.anisotropy = length( anisotropyV );', 'material.anisotropy = length( anisotropyV ) * (1.0 - printAlpha);'))
+        .replace('#include <transmission_fragment>', THREE.ShaderChunk.transmission_fragment
+          .replace('material.transmission = transmission;', 'material.transmission = transmission * (1.0 - printAlpha);'));
+    };
+    material.customProgramCacheKey = () => `gesso-label-v1-${mapping.mode}-${unlit ? 'unlit' : 'physical'}-${original.customProgramCacheKey()}`;
+    // Custom shader uniforms are not discovered by generic material disposal.
+    // Keep this enumerable texture reference so the existing lifecycle owns it.
+    (material as any).labelArtwork = texture;
+    material.needsUpdate = true;
+    return material;
+  }
+
+  labelTemplate(componentId: string, mapping: LabelMapping): string {
+    const component = this.components.get(componentId);
+    if (!component || this.loading || this.disposed) throw new Error('Wait for the selected product component to finish loading.');
+    if (mapping.mode === 'uv' && component.userData.labelShape !== 'mesh') throw new Error('Existing UV maps require an imported mesh.');
+    component.updateWorldMatrix(true, true);
+    const inverse = component.matrixWorld.clone().invert();
+    const geometries: THREE.BufferGeometry[] = [];
+    try {
+      component.traverse(object => {
+        if (object instanceof THREE.Mesh && object.name !== 'Declared label artwork') {
+          geometries.push(labelGeometry(object.geometry, inverse.clone().multiply(object.matrixWorld), component.userData.labelSizeM, mapping));
+        }
+      });
+      return labelTemplateSvg(geometries, componentId);
+    } finally { geometries.forEach(geometry => geometry.dispose()); }
   }
 
   private prepareImportedMesh(root: THREE.Object3D): void {
@@ -848,6 +1008,7 @@ export function createViewport(host: HTMLElement, options: {
     setSelected(id: string | null) { viewport.setSelection(id); },
     setWorldPickEnabled(enabled: boolean) { viewport.setWorldPickEnabled(enabled); },
     setSurfacePickEnabled(enabled: boolean) { viewport.setSurfacePickEnabled(enabled); },
+    labelTemplate(componentId: string, mapping: LabelMapping) { return viewport.labelTemplate(componentId, mapping); },
     clearScene() {
       version++;
       latestSample = null;

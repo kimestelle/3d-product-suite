@@ -116,6 +116,113 @@ describe('real product component meshes', () => {
   });
 });
 
+function labelSpecification() {
+  return { asset: { format: 'png', path: `assets/${'a'.repeat(64)}.png`, sha256: 'a'.repeat(64), widthPx: 16, heightPx: 8 },
+    mapping: { mode: 'planar', face: 'front', scale: [.6, .4], offset: [.1, .2], rotationDegrees: 30 },
+    material: { baseColor: [.5, .6, .7, 1], roughness: .3, metallic: .8, ior: 1.6 } };
+}
+
+describe('surface label artwork', () => {
+  it('keeps imported map/roughness/metallicity outside alpha and gives the artwork independent physical properties', () => {
+    const view = viewport(); const texture = new THREE.Texture();
+    const original = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(.2, .3, .4), map: new THREE.Texture(),
+      roughnessMap: new THREE.Texture(), metalnessMap: new THREE.Texture(), roughness: .8, metalness: .1, transmission: .8, ior: 1.45 });
+    const label = labelSpecification(); label.material.baseColor[3] = .4;
+    const material = view.labelMaterial(original, texture, label);
+    expect(material).not.toBe(original);
+    expect(material.map).toBe(original.map); expect(material.roughnessMap).toBe(original.roughnessMap);
+    expect(material.metalnessMap).toBe(original.metalnessMap);
+    expect(material.color.toArray()).toEqual(original.color.toArray());
+    expect(material.roughness).toBe(.8); expect(material.metalness).toBe(.1); expect(material.transmission).toBe(.8);
+    const shader = { vertexShader: THREE.ShaderLib.physical.vertexShader, fragmentShader: THREE.ShaderLib.physical.fragmentShader, uniforms: {} } as any;
+    material.onBeforeCompile(shader, {} as any);
+    expect(shader.uniforms.labelArtwork.value).toBe(texture);
+    expect(shader.uniforms.labelRoughness.value).toBe(.3); expect(shader.uniforms.labelMetalness.value).toBe(.8);
+    expect(shader.uniforms.labelOpacity.value).toBe(.4);
+    expect(shader.fragmentShader).toContain('vLabelCoverage * labelOpacity');
+    expect(shader.fragmentShader).toContain('#include <map_fragment>');
+    expect(shader.fragmentShader).toContain('roughnessFactor = mix(roughnessFactor, labelRoughness, printAlpha)');
+    expect(shader.fragmentShader).toContain('metalnessFactor = mix(metalnessFactor, labelMetalness, printAlpha)');
+    expect(shader.fragmentShader).toContain('material.ior = mix(ior, labelIor, printAlpha)');
+    expect(shader.fragmentShader).toContain('material.transmission = transmission * (1.0 - printAlpha)');
+    expect(shader.fragmentShader).toContain('float compositeAlpha = mix(diffuseColor.a, 1.0, inkAlpha)');
+    expect(shader.fragmentShader).toContain('float printAlpha = inkAlpha / max(compositeAlpha, 0.000001)');
+    expect(shader.fragmentShader).toContain('totalEmissiveRadiance *= (1.0 - printAlpha)');
+    expect(shader.fragmentShader).toContain('material.clearcoat = saturate( material.clearcoat ) * (1.0 - printAlpha)');
+    expect(shader.fragmentShader).toContain('material.sheenColor = sheenColor * (1.0 - printAlpha)');
+    expect(shader.fragmentShader).toContain('specularColorFactor = mix(specularColorFactor, vec3(1.0), printAlpha)');
+    expect(shader.fragmentShader).toContain('step(printUv.x, 1.0)');
+    expect(shader.vertexShader).toContain('vLabelUv = labelUv');
+    expect(material.labelArtwork).toBe(texture);
+    const dispose = vi.spyOn(texture, 'dispose'); const group = new THREE.Group();
+    group.add(new THREE.Mesh(new THREE.PlaneGeometry(), material)); view.disposeObject(group);
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it('promotes standard materials to physical while preserving their texture channels and handles unlit surfaces', () => {
+    const view = viewport(); const original = new THREE.MeshStandardMaterial({ map: new THREE.Texture(), roughness: .12, metalness: .9 });
+    const material = view.labelMaterial(original, new THREE.Texture(), labelSpecification());
+    expect(material).toBeInstanceOf(THREE.MeshPhysicalMaterial);
+    expect(material.map).toBe(original.map); expect(material.roughness).toBe(.12); expect(material.metalness).toBe(.9);
+    expect(material.defines.PHYSICAL).toBe(''); expect(material.ior).toBe(1.5);
+    const unlit = view.labelMaterial(new THREE.MeshBasicMaterial({ map: new THREE.Texture() }), new THREE.Texture(), labelSpecification());
+    const shader = { vertexShader: THREE.ShaderLib.physical.vertexShader, fragmentShader: THREE.ShaderLib.physical.fragmentShader, uniforms: {} } as any;
+    unlit.onBeforeCompile(shader, {} as any);
+    expect(shader.fragmentShader).toContain('totalEmissiveRadiance = diffuseColor.rgb');
+    expect(shader.fragmentShader).toContain('specularIntensityFactor = mix(specularIntensityFactor, 1.0, printAlpha)');
+  });
+
+  it('applies the original glTF alpha cutoff only to the substrate, keeping translucent ink over cutouts', () => {
+    const view = viewport(); const original = new THREE.MeshStandardMaterial({ alphaTest: .5, opacity: 0 });
+    const label = labelSpecification(); label.material.baseColor[3] = .4;
+    const material = view.labelMaterial(original, new THREE.Texture(), label);
+    const shader = { vertexShader: THREE.ShaderLib.physical.vertexShader, fragmentShader: THREE.ShaderLib.physical.fragmentShader, uniforms: {} } as any;
+    material.onBeforeCompile(shader, {} as any);
+    expect(original.transparent).toBe(false); expect(material.transparent).toBe(true);
+    expect(shader.fragmentShader).toContain('if (diffuseColor.a < alphaTest) diffuseColor.a = 0.0');
+    expect(shader.fragmentShader).toContain('diffuseColor.a = compositeAlpha');
+    expect(shader.fragmentShader).not.toContain('#include <alphatest_fragment>');
+  });
+
+  it('applies artwork to exact component-local geometry without requiring a material override and suppresses legacy text', async () => {
+    const fixture = glb(); const view = viewport(); vi.stubGlobal('fetch', async () => new Response(fixture.bytes));
+    vi.spyOn(view, 'loadVerifiedLabel').mockResolvedValue(new THREE.Texture());
+    const legacy = vi.spyOn(view, 'addLabel'); const scene: any = source(fixture.asset);
+    scene.product.components[0].labelTexture = labelSpecification(); scene.product.label = { componentId: 'real-component', text: 'Old label' };
+    await view.makeProduct(scene, 1, new AbortController().signal);
+    expect(legacy).not.toHaveBeenCalled();
+    const root = view.components.get('real-component'); const mesh = root.getObjectByName('Original_mesh') || root.getObjectByName('Original mesh');
+    expect(mesh.geometry.getAttribute('labelUv')).toBeDefined(); expect(mesh.material.name).toBe('Original red material');
+    expect(mesh.material.color.toArray()).toEqual([.8, .1, .05]); expect(mesh.material.labelArtwork).toBeInstanceOf(THREE.Texture);
+    const svg = view.labelTemplate('real-component', labelSpecification().mapping);
+    expect(svg).toContain('real-component label UV layout'); expect(svg).toContain('id="artwork"');
+    expect(() => view.labelTemplate('missing', labelSpecification().mapping)).toThrow('finish loading');
+    expect(() => view.labelTemplate('real-component', { ...labelSpecification().mapping, mode: 'uv' })).toThrow('no UV map');
+  });
+
+  it('verifies immutable image bytes and dimensions before decoding, rejects external assets, and closes cancelled decodes', async () => {
+    const bytes = new Uint8Array(33); bytes.set([137, 80, 78, 71, 13, 10, 26, 10]);
+    const header = new DataView(bytes.buffer); header.setUint32(8, 13); header.setUint32(12, 0x49484452); header.setUint32(16, 16); header.setUint32(20, 8);
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    const asset = { ...labelSpecification().asset, sha256, path: `assets/${sha256}.png` };
+    const view = viewport(); view.renderer = { capabilities: { getMaxAnisotropy: () => 4 } };
+    const fetch = vi.fn(async () => new Response(bytes)); vi.stubGlobal('fetch', fetch);
+    const bitmap = { width: 16, height: 8, close: vi.fn() }; const decode = vi.fn(async () => bitmap); vi.stubGlobal('createImageBitmap', decode);
+    const controller = new AbortController();
+    await expect(view.loadVerifiedLabel({ ...asset, path: 'https://example.com/image.png' }, controller.signal)).rejects.toThrow('content-addressed');
+    expect(fetch).not.toHaveBeenCalled();
+    await expect(view.loadVerifiedLabel({ ...asset, sha256: '0'.repeat(64), path: `assets/${'0'.repeat(64)}.png` }, controller.signal)).rejects.toThrow('SHA-256');
+    expect(decode).not.toHaveBeenCalled();
+    await expect(view.loadVerifiedLabel({ ...asset, widthPx: 20 }, controller.signal)).rejects.toThrow('dimensions');
+    const texture = await view.loadVerifiedLabel(asset, controller.signal);
+    expect(texture.colorSpace).toBe(THREE.SRGBColorSpace); expect(texture.flipY).toBe(false);
+    expect(decode).toHaveBeenCalledWith(expect.any(Blob), { imageOrientation: 'flipY', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+    decode.mockImplementationOnce(async () => { controller.abort(); return bitmap; });
+    await expect(view.loadVerifiedLabel(asset, controller.signal)).rejects.toThrow('superseded');
+    expect(bitmap.close).toHaveBeenCalledOnce();
+  });
+});
+
 function pickingViewport() {
   const view = viewport();
   const world = new THREE.Group();

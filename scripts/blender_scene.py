@@ -465,6 +465,280 @@ def product_mesh(component, samples_root):
                     "excludedEmbeddedCamerasAndLights": excluded, "geometryPolicy": "Centered local metres; no rescaling or recentering"}
 
 
+def verified_label_image(asset, samples_root):
+    """Decode only the hash-pinned PNG/JPEG bundled with the sampled scene.
+
+    Render jobs copy this script without the film package, so keep the image
+    boundary self-contained and verify headers before asking Blender to decode.
+    """
+    kind, digest = asset.get("format"), asset.get("sha256")
+    if kind not in {"png", "jpg"} or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("Label texture requires a PNG or JPEG with a lowercase SHA256")
+    if asset.get("path") != f"assets/{digest}.{kind}":
+        raise ValueError("Label texture path must be assets/<sha256>.png or .jpg")
+    path = verified_asset_record(asset, samples_root, "Label texture")
+    if path.stat().st_size > 8 * 1024 * 1024:
+        raise ValueError("Label texture exceeds the 8 MiB limit")
+    raw = path.read_bytes()
+    dimensions = None
+    if kind == "png":
+        if len(raw) >= 33 and raw[:8] == b"\x89PNG\r\n\x1a\n" and raw[12:16] == b"IHDR" and struct.unpack_from(">I", raw, 8)[0] == 13:
+            dimensions = struct.unpack_from(">II", raw, 16)
+    elif raw.startswith(b"\xff\xd8"):
+        position = 2
+        while position < len(raw):
+            if raw[position] != 0xff:
+                break
+            while position < len(raw) and raw[position] == 0xff:
+                position += 1
+            if position >= len(raw):
+                break
+            marker = raw[position]
+            position += 1
+            if marker in {0xd9, 0xda}:
+                break
+            if marker == 0x01 or 0xd0 <= marker <= 0xd7:
+                continue
+            if position + 2 > len(raw):
+                break
+            length = struct.unpack_from(">H", raw, position)[0]
+            if length < 2 or position + length > len(raw):
+                break
+            if marker in {0xc0, 0xc1, 0xc2} and length >= 8:
+                height, width = struct.unpack_from(">HH", raw, position + 3)
+                dimensions = (width, height)
+                break
+            position += length
+    if dimensions is None:
+        raise ValueError("Label texture must have a valid PNG or supported JPEG image header")
+    width, height = dimensions
+    if not 1 <= width <= 8192 or not 1 <= height <= 8192 or width * height > 32_000_000:
+        raise ValueError("Label texture dimensions exceed 8192 per side or 32 million pixels")
+    if type(asset.get("widthPx")) is not int or type(asset.get("heightPx")) is not int or dimensions != (asset["widthPx"], asset["heightPx"]):
+        raise ValueError("Label texture dimensions do not match the image header")
+    image = bpy.data.images.load(str(path), check_existing=False)
+    if tuple(image.size) != dimensions or not image.has_data:
+        raise ValueError("Label texture could not be decoded at the declared dimensions")
+    image.name = f"Label artwork / {digest[:12]}"
+    image.colorspace_settings.name = "sRGB"
+    image.alpha_mode = "STRAIGHT"
+    image.pack()
+    return image
+
+
+def label_coordinates(point, normal, size, mapping, source_uv=None):
+    """Canonical component-local Y-up projection, shared with the editor."""
+    x, y, z = point
+    sx, sy, sz = size
+    mode = mapping["mode"]
+    if mode == "uv":
+        if source_uv is None:
+            raise ValueError("This component has no source UV map; choose Front or Wrap instead")
+        return tuple(source_uv), 1.0
+    if mode == "cylindrical":
+        return (math.atan2(x, z) / (2 * math.pi) + 0.5, y / sy + 0.5), float(abs(normal.y) < 0.95)
+    face = mapping.get("face", "front")
+    if face == "front":
+        return (x / sx + 0.5, y / sy + 0.5), float(normal.z > 0)
+    if face == "back":
+        return (-x / sx + 0.5, y / sy + 0.5), float(normal.z < 0)
+    if face == "right":
+        return (-z / sz + 0.5, y / sy + 0.5), float(normal.x > 0)
+    if face == "left":
+        return (z / sz + 0.5, y / sy + 0.5), float(normal.x < 0)
+    if face == "top":
+        return (x / sx + 0.5, -z / sz + 0.5), float(normal.y > 0)
+    if face == "bottom":
+        return (x / sx + 0.5, z / sz + 0.5), float(normal.y < 0)
+    raise ValueError(f"Unsupported label face: {face}")
+
+
+def placed_label_uv(uv, mapping):
+    scale = mapping.get("scale", [1, 1])
+    offset = mapping.get("offset", [0, 0])
+    u, v = (uv[index] - 0.5 - offset[index] for index in (0, 1))
+    if mapping["mode"] == "cylindrical":
+        u = (u + 0.5) % 1 - 0.5
+    u, v = u / scale[0], v / scale[1]
+    angle = math.radians(-mapping.get("rotationDegrees", 0))
+    cosine, sine = math.cos(angle), math.sin(angle)
+    return (cosine * u - sine * v + 0.5, sine * u + cosine * v + 0.5)
+
+
+def label_uvs(obj, anchor, component):
+    """Add corner data only; keep imported geometry, hierarchy and UVs intact."""
+    mapping = component["labelTexture"]["mapping"]
+    if mapping["mode"] == "uv" and component["shape"] != "mesh":
+        raise ValueError("Source UV mapping requires an imported mesh; choose Front or Wrap instead")
+    mesh = obj.data
+    original_uv = mesh.uv_layers[0] if mesh.uv_layers else None
+    if mapping["mode"] == "uv" and original_uv is None:
+        raise ValueError("This component has no source UV map; choose Front or Wrap instead")
+    # Blender's glTF importer already flips raw glTF V to V-up artwork, matching
+    # the editor's raw (u, 1-v) source-UV mapping and downloadable guide.
+    source_uvs = [tuple(loop.uv) for loop in original_uv.data] if original_uv else None
+    uv_name = mesh.uv_layers.new(name="Gesso Label UV").name
+    coverage_name = mesh.attributes.new("Gesso Label Coverage", "FLOAT", "CORNER").name
+    # Allocating another corner attribute can relocate Blender's custom-data
+    # storage; reacquire both RNA handles after all layers exist.
+    layer = mesh.uv_layers[uv_name]
+    coverage = mesh.attributes[coverage_name]
+    transform = anchor.matrix_world.inverted() @ obj.matrix_world
+    normal_transform = transform.to_3x3().inverted().transposed()
+    for polygon in mesh.polygons:
+        normal = normal_transform @ polygon.normal
+        normal.normalize()
+        canonical_normal = Vector((normal.x, normal.z, -normal.y))
+        values, coverages = [], []
+        for loop_index in polygon.loop_indices:
+            position = transform @ mesh.vertices[mesh.loops[loop_index].vertex_index].co
+            point = (position.x, position.z, -position.y)
+            uv, mask = label_coordinates(point, canonical_normal, component["sizeM"], mapping,
+                                         source_uvs[loop_index] if source_uvs else None)
+            values.append(uv)
+            coverages.append(mask)
+        if mapping["mode"] == "cylindrical" and max(value[0] for value in values) - min(value[0] for value in values) > 0.5:
+            values = [(u + 1 if u < 0.5 else u, v) for u, v in values]
+        for loop_index, uv, mask in zip(polygon.loop_indices, values, coverages):
+            # Cylindrical placement wraps per fragment in the material. Baking
+            # the discontinuity here would interpolate artwork across the seam.
+            layer.data[loop_index].uv = uv if mapping["mode"] == "cylindrical" else placed_label_uv(uv, mapping)
+            coverage.data[loop_index].value = mask
+    return layer.name, coverage.name
+
+
+def label_material(original, image, specification, uv_name, coverage_name, mapping):
+    """Mix a physical opaque print over the untouched original surface shader."""
+    surface = original.copy() if original else material("Unassigned product surface", (0.8, 0.8, 0.8, 1))
+    surface.name += " / label print"
+    surface.use_nodes = True
+    tree = surface.node_tree
+    output = next((node for node in tree.nodes if node.type == "OUTPUT_MATERIAL" and node.is_active_output), None)
+    if output is None:
+        output = tree.nodes.new("ShaderNodeOutputMaterial")
+    original_shader = output.inputs["Surface"].links[0].from_socket if output.inputs["Surface"].is_linked else None
+    uv = tree.nodes.new("ShaderNodeUVMap")
+    uv.name = "Gesso Label UV"
+    uv.uv_map = uv_name
+    coordinates = uv.outputs["UV"]
+    if mapping["mode"] == "cylindrical":
+        separate = tree.nodes.new("ShaderNodeSeparateXYZ")
+        tree.links.new(coordinates, separate.inputs[0])
+        offset = mapping.get("offset", [0, 0])
+        scale = mapping.get("scale", [1, 1])
+
+        def math_node(operation, source, value):
+            node = tree.nodes.new("ShaderNodeMath")
+            node.operation = operation
+            tree.links.new(source, node.inputs[0])
+            node.inputs[1].default_value = value
+            return node
+
+        centered_u = math_node("SUBTRACT", separate.outputs["X"], offset[0])
+        wrap = math_node("WRAP", centered_u.outputs[0], 1)
+        wrap.name = "Gesso Label Periodic Cylinder Placement"
+        wrap.inputs[2].default_value = 0
+        centered_u = math_node("SUBTRACT", wrap.outputs[0], 0.5)
+        scaled_u = math_node("DIVIDE", centered_u.outputs[0], scale[0])
+        centered_v = math_node("SUBTRACT", separate.outputs["Y"], 0.5 + offset[1])
+        scaled_v = math_node("DIVIDE", centered_v.outputs[0], scale[1])
+        combined = tree.nodes.new("ShaderNodeCombineXYZ")
+        tree.links.new(scaled_u.outputs[0], combined.inputs["X"])
+        tree.links.new(scaled_v.outputs[0], combined.inputs["Y"])
+        rotate = tree.nodes.new("ShaderNodeVectorRotate")
+        rotate.rotation_type = "AXIS_ANGLE"
+        rotate.inputs["Axis"].default_value = (0, 0, 1)
+        rotate.inputs["Angle"].default_value = math.radians(-mapping.get("rotationDegrees", 0))
+        tree.links.new(combined.outputs[0], rotate.inputs["Vector"])
+        translate = tree.nodes.new("ShaderNodeVectorMath")
+        translate.operation = "ADD"
+        translate.inputs[1].default_value = (0.5, 0.5, 0)
+        tree.links.new(rotate.outputs[0], translate.inputs[0])
+        coordinates = translate.outputs[0]
+    texture = tree.nodes.new("ShaderNodeTexImage")
+    texture.name = "Gesso Label Artwork"
+    texture.image = image
+    texture.interpolation = "Linear"
+    # Match the editor's clamped edge filtering. Explicit bounds below provide
+    # clipping without making the last opaque texel fade into transparent black.
+    texture.extension = "EXTEND"
+    tree.links.new(coordinates, texture.inputs["Vector"])
+    color = tree.nodes.new("ShaderNodeMixRGB")
+    color.name = "Gesso Label Ink Tint"
+    color.blend_type = "MULTIPLY"
+    color.inputs[0].default_value = 1
+    color.inputs[2].default_value = tuple(specification["baseColor"])
+    tree.links.new(texture.outputs["Color"], color.inputs[1])
+    printed = tree.nodes.new("ShaderNodeBsdfPrincipled")
+    printed.name = "Gesso Label Surface"
+    printed.inputs["Roughness"].default_value = specification["roughness"]
+    printed.inputs["Metallic"].default_value = specification["metallic"]
+    printed.inputs["IOR"].default_value = specification.get("ior", 1.5)
+    printed.inputs["Transmission Weight"].default_value = 0
+    tree.links.new(color.outputs["Color"], printed.inputs["Base Color"])
+    attribute = tree.nodes.new("ShaderNodeAttribute")
+    attribute.name = "Gesso Label Face Coverage"
+    attribute.attribute_name = coverage_name
+    separate = tree.nodes.new("ShaderNodeSeparateXYZ")
+    tree.links.new(coordinates, separate.inputs[0])
+
+    def multiply(first, second, name):
+        node = tree.nodes.new("ShaderNodeMath")
+        node.name = name
+        node.operation = "MULTIPLY"
+        tree.links.new(first, node.inputs[0])
+        tree.links.new(second, node.inputs[1])
+        return node.outputs[0]
+
+    mask = multiply(texture.outputs["Alpha"], attribute.outputs["Fac"], "Gesso Label Alpha")
+    opacity = tree.nodes.new("ShaderNodeMath")
+    opacity.name = "Gesso Label Opacity"
+    opacity.operation = "MULTIPLY"
+    tree.links.new(mask, opacity.inputs[0])
+    opacity.inputs[1].default_value = specification["baseColor"][3]
+    mask = opacity.outputs[0]
+    # JPEG decoders expose alpha=1 even outside the artwork. Explicit UV bounds
+    # also guarantee placement never paints the remaining product black.
+    for axis in ("X", "Y"):
+        for operation, bound in (("GREATER_THAN", 0), ("LESS_THAN", 1)):
+            compare = tree.nodes.new("ShaderNodeMath")
+            compare.operation = operation
+            compare.inputs[1].default_value = bound
+            tree.links.new(separate.outputs[axis], compare.inputs[0])
+            mask = multiply(mask, compare.outputs[0], "Gesso Label Artwork Bounds")
+    mix = tree.nodes.new("ShaderNodeMixShader")
+    mix.name = "Gesso Label Over Original Surface"
+    tree.links.new(mask, mix.inputs[0])
+    if original_shader is not None:
+        tree.links.new(original_shader, mix.inputs[1])
+    tree.links.new(printed.outputs["BSDF"], mix.inputs[2])
+    tree.links.new(mix.outputs[0], output.inputs["Surface"])
+    return surface
+
+
+def apply_label_texture(anchor, component, samples_root):
+    specification = component["labelTexture"]
+    image = verified_label_image(specification["asset"], samples_root)
+    bpy.context.view_layer.update()
+    meshes = [anchor] if anchor.type == "MESH" else [obj for obj in anchor.children_recursive if obj.type == "MESH"]
+    surfaces = {}
+    for obj in meshes:
+        # Sharing a glTF mesh/material with another component must not attach its
+        # artwork there. A local data copy preserves the source topology/UVs.
+        obj.data = obj.data.copy()
+        uv_name, coverage_name = label_uvs(obj, anchor, component)
+        if not obj.data.materials:
+            obj.data.materials.append(None)
+        for index, original in enumerate(obj.data.materials):
+            key = (original.as_pointer() if original else None, uv_name, coverage_name)
+            if key not in surfaces:
+                surfaces[key] = label_material(original, image, specification["material"], uv_name, coverage_name, specification["mapping"])
+            obj.data.materials[index] = surfaces[key]
+    return {"asset": specification["asset"], "mapping": specification["mapping"],
+            "material": specification["material"], "packedInBlend": True,
+            "surfacePolicy": "Image alpha blends opaque label ink over the original surface"}
+
+
 def plate_compositor(source, frames, requested, samples_root, output_root, scene):
     """Composite the captured Gaussian world behind transparent Cycles geometry."""
     required = requested or [frames[0]["frame"]]
@@ -639,12 +913,15 @@ def main():
             surface = specified_material(component["id"] + " / surface", component["material"])
             obj = primitive(component["id"], component["shape"], component["sizeM"], surface, component.get("bevelM", 0))
             details = {"id": component["id"], "shape": component["shape"], "materialSource": "declared"}
+        if component.get("labelTexture"):
+            details["labelTexture"] = apply_label_texture(obj, component, args.samples.parent)
         objects[component["id"]] = obj
         product_components.append(details)
     label = source["product"].get("label")
     if label:
         component = next(item for item in source["product"]["components"] if item["id"] == label["componentId"])
-        text_on_label(objects[label["componentId"]], label, component["sizeM"])
+        if not component.get("labelTexture"):
+            text_on_label(objects[label["componentId"]], label, component["sizeM"])
     props = environment(source, frames[0])
     animate(source, frames, objects, props)
     kind = source["environment"]["kind"]

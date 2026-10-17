@@ -17,14 +17,15 @@ from .scene import sample_scene, scene_digest, validate_scene
 from .scene_objects import resolve_scene_objects
 from .stills import create_still_job, run_still_job
 from .store import ConflictError, ProjectStore, ROOT, identifier, now
-from .worlds import MAX_ASSET_BYTES, import_world, list_worlds
+from .worlds import MAX_ASSET_BYTES, import_world, list_worlds, safe_asset_path
+from .textures import MAX_TEXTURE_BYTES, import_texture, inspect_texture, read_texture_bytes
 from .github_worlds import GitHubWorlds
 from .products import create_product_scene_from_asset
 from .comparison import calibrate_scene, comparison_payload, review_alignment
 from .comparison_jobs import ComparisonJobs
 
 ARTIFACTS = {"still.png", "film.mp4", "scene.blend", "contact-sheet.png", "still-01.png", "still-02.png", "still-03.png"}
-ASSET_NAME = re.compile(r"[0-9a-f]{64}\.(?:glb|spz|ply)\Z")
+ASSET_NAME = re.compile(r"[0-9a-f]{64}\.(?:glb|spz|ply|png|jpg)\Z")
 
 
 class RenderQueue:
@@ -231,8 +232,8 @@ def make_handler(app):
             if mutate and self.headers.get("X-Product-Suite") != "1":
                 raise PermissionError("Missing local editor request header")
 
-        def _body(self, *, binary=False):
-            limit = MAX_ASSET_BYTES if binary else 4 * 1024 * 1024
+        def _body(self, *, binary=False, limit=None):
+            limit = limit if limit is not None else (MAX_ASSET_BYTES if binary else 4 * 1024 * 1024)
             length = int(self.headers.get("Content-Length", "0"))
             if length < 1 or length > limit:
                 raise ValueError(f"Request body must contain 1–{limit} bytes")
@@ -309,9 +310,11 @@ def make_handler(app):
                 if len(parts) == 3 and parts[:2] == ["api", "assets"]:
                     if not ASSET_NAME.fullmatch(parts[2]):
                         raise ValueError("Invalid immutable asset name")
-                    asset = app.store.root / "assets" / parts[2]
+                    asset = safe_asset_path(app.store.root, f"assets/{parts[2]}")
                     if jobs._sha256(asset) != parts[2].split(".")[0]:
                         raise ValueError("World asset was modified")
+                    if asset.suffix in (".png", ".jpg"):
+                        inspect_texture(read_texture_bytes(asset), asset.suffix[1:])
                     return self._file(asset, immutable=True)
                 if path.startswith("/api/"):
                     return self._json({"error": "Unknown API route"}, 404)
@@ -324,6 +327,10 @@ def make_handler(app):
                 if not selected.exists():
                     return self._json({"error": "Build the editor first: cd web && npm ci && npm run build"}, 503)
                 return self._file(selected)
+            if self.command == "POST" and path == "/api/textures/import":
+                payload = self._body(binary=True, limit=MAX_TEXTURE_BYTES)
+                return self._json(import_texture(payload, app.store.root,
+                                                filename=self.headers.get("X-Asset-Filename", "")), 201)
             if self.command == "POST" and path == "/api/products/import":
                 payload = self._body(binary=True)
                 query = parse_qs(parsed.query)

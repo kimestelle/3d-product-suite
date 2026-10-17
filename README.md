@@ -30,6 +30,8 @@ The World panel offers offline defaults and optional public HTTPS image-referenc
 
 Matching World Labs requests reuse saved results by default across editor restarts and GitHub runs. A verified local cache hit makes no provider requests; product, camera and scene edits reuse the same world. **Generate a new variation** explicitly requests another paid result. Preserve `workspace-data/` and the local `.worldlabs-cache/` (or your chosen `--cache-dir`); GitHub caches may expire or be evicted.
 
+**Product → Labels & materials** supports PNG/JPEG label artwork, face/cylinder/existing-UV mapping, draggable placement, downloadable UV guides and independent label/product finishes. Saved revisions and Blender renders preserve textures and material settings. See the [label and material workflow](docs/labels-and-materials.md).
+
 The local GitHub generation controls use an authenticated `gh` CLI; they never retrieve the World Labs secret. Alternatively run the **World Labs same-world comparison** workflow directly in GitHub. Public image URLs are workflow inputs. Private image files use `scripts/worldlabs_experiment.py --image-path ...` with a locally configured server-side key; they are not committed or put in public workflow inputs.
 
 The workflow prepares the assets and fifteen unreviewed scenes: contact, lateral camera movement, foreground occlusion, glossy material, and glass probes across the authored set and both mesh conditions. It does not render or approve the results. Both alternatives share one generated world ID; their scale and ground alignment still require review before a calibrated comparison.

@@ -439,6 +439,13 @@ def verify_scene_assets(scene, source_dir):
             validate_product_dimensions(metadata, component["sizeM"])
         records[asset["path"]] = {"path": asset["path"], "sha256": asset["sha256"], "format": asset["format"],
                                    "bytes": len(payload), **metadata}
+    from .textures import verify_texture_asset
+    for component in scene.get("product", {}).get("components", []):
+        if "labelTexture" in component:
+            label = component["labelTexture"]
+            _require(isinstance(label, dict), "labelTexture must be an object")
+            record = verify_texture_asset(label.get("asset"), source_dir)
+            records[record["path"]] = record
     return list(records.values())
 
 
@@ -450,7 +457,11 @@ def bundle_assets(scene, source_dir, destination_dir):
     for record in records:
         source = safe_asset_path(source_dir, record["path"])
         target = safe_asset_path(destination, record["path"])
-        payload = _read_asset(source)
+        if record["format"] in ("png", "jpg"):
+            from .textures import read_texture_bytes
+            payload = read_texture_bytes(source)
+        else:
+            payload = _read_asset(source)
         _require(hashlib.sha256(payload).hexdigest() == record["sha256"], "World asset changed while bundling")
         _immutable_write(target, payload)
     return records
