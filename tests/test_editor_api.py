@@ -341,6 +341,58 @@ class EditorApiTests(unittest.TestCase):
         with patch.dict("os.environ", {"WORLDLABS_API_KEY": ""}):
             self.assertEqual(self.request("GET", "/api/worldlabs/status")[1], {"configured": False})
 
+    def test_new_editor_scene_starts_on_floor_without_visible_plinth(self):
+        scene = self.bootstrap()["project"]["scene"]
+        self.assertFalse(scene["environment"]["plinth"]["visible"])
+        self.assertEqual(scene["environment"]["floorY"], 0)
+        self.assertEqual(scene["placement"]["restsOn"], "floor")
+        status, evaluated, _ = self.request("POST", "/api/evaluate", {"scene": scene})
+        self.assertEqual(status, 200)
+        self.assertEqual(evaluated["objects"]["supportOriginM"], [0, 0, 0])
+
+    def test_scene_relations_persist_and_drive_product_and_prop_poses(self):
+        project = self.bootstrap()["project"]
+        scene = copy.deepcopy(project["scene"])
+        material = {"baseColor": [.4, .4, .4, 1], "roughness": .5, "metallic": 0}
+        scene["environment"]["props"] = [
+            {"id": "support", "name": "Display stone", "shape": "cylinder", "sizeM": [.2, .1, .2],
+             "translationM": [.3, .05, -.2], "rotationXyzw": [0, 0, 0, 1], "material": material},
+            {"id": "companion", "shape": "box", "sizeM": [.03, .03, .03], "translationM": [0, 0, 0],
+             "rotationXyzw": [0, 0, 0, 1], "material": material,
+             "relationship": {"type": "beside", "targetId": "product", "gapM": .02}},
+        ]
+        scene["placement"]["restsOn"] = "support"
+        status, evaluated, _ = self.request("POST", "/api/evaluate", {"scene": scene})
+        self.assertEqual(status, 200)
+        self.assertEqual(evaluated["objects"]["supportOriginM"], [.3, .1, -.2])
+        self.assertAlmostEqual(evaluated["frames"][0]["components"]["bottle-body"]["translationM"][1], .152)
+        product_bounds = evaluated["objects"]["product"]["boundsM"]
+        companion = evaluated["frames"][0]["props"]["companion"]
+        self.assertAlmostEqual(companion["boundsM"][0][0] - product_bounds[1][0], .02)
+        status, saved, _ = self.request("PUT", f"/api/projects/{project['id']}",
+                                        {"scene": scene, "expectedRevisionId": project["revisionId"]})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.request("GET", f"/api/projects/{saved['id']}")[1]["scene"], scene)
+        status, framed, _ = self.request("POST", "/api/scene-objects/frame", {"scene": scene})
+        self.assertEqual(status, 200)
+        self.assertEqual(framed["scene"]["product"], scene["product"])
+        self.assertEqual(framed["scene"]["environment"], scene["environment"])
+        self.assertNotEqual(framed["scene"]["shots"], scene["shots"])
+
+    def test_cyclic_interactions_are_rejected_without_saving(self):
+        project = self.bootstrap()["project"]
+        scene = copy.deepcopy(project["scene"])
+        scene["environment"]["props"] = [{"id": "cycle", "shape": "box", "sizeM": [.1, .1, .1],
+            "translationM": [0, .05, 0], "rotationXyzw": [0, 0, 0, 1],
+            "material": {"baseColor": [.5, .5, .5, 1], "roughness": .5, "metallic": 0},
+            "relationship": {"type": "beside", "targetId": "product"}}]
+        scene["placement"]["restsOn"] = "cycle"
+        status, error, _ = self.request("PUT", f"/api/projects/{project['id']}",
+                                        {"scene": scene, "expectedRevisionId": project["revisionId"]})
+        self.assertEqual(status, 400)
+        self.assertIn("cycle", error["error"])
+        self.assertEqual(self.request("GET", f"/api/projects/{project['id']}")[1]["scene"], project["scene"])
+
     def test_render_requests_pin_source_and_defaults_and_validate_frame(self):
         scene = self.bootstrap()["project"]["scene"]
         for kind, width, height, samples in (("still", 540, 960, 32), ("reel", 270, 480, 8)):

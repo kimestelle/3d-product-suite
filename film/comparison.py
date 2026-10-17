@@ -13,7 +13,7 @@ import re
 
 from .worlds import validate_asset_record
 
-_SHARED_ENVIRONMENT = ("plinth", "props", "worldColor")
+_SHARED_ENVIRONMENT = ("plinth", "props", "floorY", "worldColor")
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _CALIBRATION_FIELDS = {"sourceFloorPoint", "measurement", "yawDeltaDegrees"}
 
@@ -147,7 +147,7 @@ def _alignment_digest(scene):
     return _digest({"schemaVersion": 1, "a": geometry(scene["environment"]),
                     "b": geometry(scene["comparison"]["alternative"]),
                     "contact": {key: copy.deepcopy(scene["environment"][key])
-                                for key in ("plinth", "props") if key in scene["environment"]},
+                                for key in ("plinth", "props", "floorY") if key in scene["environment"]},
                     "placement": scene["placement"], "productGeometry": product_geometry,
                     "actions": scene["actions"],
                     "timeSampling": {"fps": scene["render"]["fps"], "lastFrame": scene["shots"][-1]["endFrame"]}})
@@ -247,8 +247,8 @@ def calibrate_scene(scene, side, data):
     if floor is not None:
         floor = _point(floor, "Saved source floor point")
         rotated = _rotate(asset["rotationXyzw"], floor)
-        plinth = result["environment"]["plinth"]
-        target = plinth["translationM"][1] - plinth["sizeM"][1] / 2
+        from .scene_objects import resolve_scene_objects
+        target = resolve_scene_objects(result)["floorY"]
         translation = target - rotated[1] * asset["scaleToMeters"]
         _require(math.isfinite(translation), "Floor calibration produced a nonfinite translation")
         asset["translationM"][1] = translation

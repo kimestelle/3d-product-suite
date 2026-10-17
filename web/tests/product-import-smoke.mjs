@@ -24,6 +24,7 @@ const request = async path => {
 };
 try {
   await page.goto(origin);
+  await page.getByRole('button',{name:'Product',exact:true}).click();
   await page.waitForFunction(()=>!document.querySelector('.glass-button')?.disabled);
   await page.getByRole('button',{name:'Import a product mesh'}).click();
   await page.getByLabel('Product name',{exact:true}).fill('Original mesh browser trial');

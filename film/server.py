@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from . import jobs
 from .scene import sample_scene, scene_digest, validate_scene
+from .scene_objects import resolve_scene_objects
 from .stills import create_still_job, run_still_job
 from .store import ConflictError, ProjectStore, ROOT, identifier, now
 from .worlds import MAX_ASSET_BYTES, import_world, list_worlds
@@ -371,11 +372,14 @@ def make_handler(app):
                     return self._json(app.github.import_run(parts[3]))
                 if path == "/api/evaluate":
                     scene = validate_scene(body["scene"])
-                    result = {**sample_scene(scene), "digest": scene_digest(scene)}
+                    result = {**sample_scene(scene), "digest": scene_digest(scene), "objects": resolve_scene_objects(scene)}
                     payload = comparison_payload(scene) if "comparison" in scene else None
                     if payload:
                         result["comparison"] = payload
                     return self._json(result)
+                if path == "/api/scene-objects/frame":
+                    from .object_editing import frame_scene_objects
+                    return self._json({"scene": frame_scene_objects(body["scene"])})
                 if path == "/api/comparison/calibrate":
                     return self._json({"scene": calibrate_scene(body["scene"], body["side"], body["calibration"])})
                 if path == "/api/comparison/review":

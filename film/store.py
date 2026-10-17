@@ -59,7 +59,13 @@ class ProjectStore:
             return {**index, "scene": saved["scene"], "headRevisionId": index["revisionId"], "revisionId": selected}
 
     def create(self, name="MORA / Campaign 01", scene=None, *, source_dir=None):
-        scene = load_scene(ROOT / "examples" / "bottle.scene.json") if scene is None else validate_scene(scene)
+        if scene is None:
+            scene = load_scene(ROOT / "examples" / "bottle.scene.json")
+            scene["environment"]["plinth"]["visible"] = False
+            scene["environment"]["floorY"] = 0
+            scene["placement"]["restsOn"] = "floor"
+        else:
+            validate_scene(scene)
         if not isinstance(name, str) or not name.strip() or len(name) > 120:
             raise ValueError("Project name must contain 1–120 characters")
         with self.lock:

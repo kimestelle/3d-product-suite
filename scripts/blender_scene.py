@@ -174,25 +174,77 @@ def configure_scene(source, width, height, samples):
     return scene
 
 
-def environment(source):
+def authored_floor_height(source):
+    """Use the declared floor or the visible plinth's world-space bottom."""
+    specification = source["environment"]
+    height = specification.get("floorY")
+    if type(height) in (int, float) and math.isfinite(height):
+        return height
+    plinth = specification["plinth"]
+    if not plinth.get("visible", True):
+        return 0
+    x, y, z, w = plinth.get("rotationXyzw", [0, 0, 0, 1])
+    rotation = Quaternion((w, x, y, z))
+    rotation.normalize()
+    half = [value / 2 for value in plinth["sizeM"]]
+    extent = sum(abs((rotation @ Vector(axis)).y) * radius
+                 for axis, radius in zip(((1, 0, 0), (0, 1, 0), (0, 0, 1)), half))
+    return plinth["translationM"][1] - extent
+
+
+def sampled_product_origin(source, first_sample=None):
+    """Recover the resolved rigid root from an assembled component sample.
+
+    The standalone renderer consumes exported samples without importing the
+    evaluator. Removing the component's authored assembly transform recovers
+    the support/placement origin, including product yaw and off-center CAD.
+    """
+    if first_sample:
+        # A project may reopen on a frame where its first-listed cap is already
+        # lifted. A rigid component still carries the unchanged assembly root.
+        moving = {action["componentId"] for action in source.get("actions", [])}
+        components = sorted(source["product"]["components"], key=lambda component: component["id"] in moving)
+        for component in components:
+            pose = first_sample.get("components", {}).get(component["id"])
+            if pose is None:
+                continue
+            x, y, z, w = pose["rotationXyzw"]
+            world_rotation = Quaternion((w, x, y, z))
+            x, y, z, w = component["assembly"]["rotationXyzw"]
+            assembly_rotation = Quaternion((w, x, y, z))
+            root_rotation = world_rotation @ assembly_rotation.inverted()
+            root_rotation.normalize()
+            return list(Vector(pose["translationM"]) - root_rotation @ Vector(component["assembly"]["translationM"]))
+    return list(source["placement"]["translationM"])
+
+
+def environment(source, first_sample=None):
     """Build only explicit near-field geometry plus the common studio lights."""
     plinth = source["environment"]["plinth"]
-    porcelain = material("Set / warm matte porcelain", (0.56, 0.54, 0.49, 1), 0.58)
-    obj = primitive(plinth["id"], "box", plinth["sizeM"], porcelain, 0.004)
-    obj.location = blender_position(plinth["translationM"])
+    if plinth.get("visible", True):
+        porcelain = material("Set / warm matte porcelain", (0.56, 0.54, 0.49, 1), 0.58)
+        obj = primitive(plinth["id"], "box", plinth["sizeM"], porcelain, 0.004)
+        obj.location = blender_position(plinth["translationM"])
+        obj.rotation_mode = "QUATERNION"
+        obj.rotation_quaternion = blender_rotation(plinth.get("rotationXyzw", [0, 0, 0, 1]))
+    props = {}
     for prop in source["environment"].get("props", []):
+        if not prop.get("visible", True):
+            continue
         if bpy.data.objects.get(prop["id"]):
             raise ValueError(f"Near-field prop ID collides with an existing object: {prop['id']}")
         obj = primitive(prop["id"], prop["shape"], prop["sizeM"], specified_material(prop["id"] + " / surface", prop["material"]), prop.get("bevelM", 0))
-        obj.location = blender_position(prop["translationM"])
+        pose = (first_sample or {}).get("props", {}).get(prop["id"], prop)
+        obj.location = blender_position(pose["translationM"])
         obj.rotation_mode = "QUATERNION"
-        obj.rotation_quaternion = blender_rotation(prop["rotationXyzw"])
+        obj.rotation_quaternion = blender_rotation(pose["rotationXyzw"])
         obj["role"] = "Explicit near-field prop; independent of imported world alignment"
+        props[prop["id"]] = obj
     if source["environment"]["kind"] == "authored":
         # The authored fallback sweep must never cover a mesh or splat plate.
-        floor_height = plinth["translationM"][1] - plinth["sizeM"][1] / 2
+        floor_height = authored_floor_height(source)
         radius = max(source["product"]["dimensionsM"]) * 3
-        sweep = [(-radius * 15, floor_height - 0.0001), (radius, floor_height - 0.0001)]
+        sweep = [(-radius * 15, floor_height), (radius, floor_height)]
         sweep.extend((radius + radius * math.sin(index * math.pi / 64), floor_height + radius * (1 - math.cos(index * math.pi / 64))) for index in range(1, 33))
         sweep.append((radius * 2, floor_height + radius * 15))
         vertices = [(x, y, z) for y, z in sweep for x in (-radius * 15, radius * 15)]
@@ -208,7 +260,7 @@ def environment(source):
     # Scale illumination with the product, keeping intensity stable for metre units.
     size = max(source["product"]["dimensionsM"])
     scale = size / 0.12
-    position = blender_position(source["placement"]["translationM"])
+    position = blender_position(sampled_product_origin(source, first_sample))
     target = Vector(position) + Vector((0, 0, size * 0.52))
     for name, offset, power, diameter, color in (
         ("Studio / large soft key", (-0.19, -0.24, 0.32), 2.6, 0.23, (1.0, 0.93, 0.82)),
@@ -216,6 +268,7 @@ def environment(source):
         ("Studio / edge strip", (0.06, 0.19, 0.30), 3.4, 0.16, (1.0, 0.98, 0.90)),
     ):
         area_light(name, Vector(position) + Vector(offset) * scale, target, power * scale * scale, diameter * scale, color)
+    return props
 
 
 def verified_asset_record(asset, samples_root, role="World"):
@@ -474,7 +527,11 @@ def plate_compositor(source, frames, requested, samples_root, output_root, scene
     return {"directory": "plate", "sequenceRelativeToBlend": image.filepath, "validatedFrames": required, "captureManifestVerified": True, "sourceDigest": digest, "colorSpace": "sRGB plate decoded to linear; AgX applied once after compositing", "captureToneMapping": "none", "sequenceStartFrame": first_frame}
 
 
-def animate(source, frames, objects):
+def animate(source, frames, objects, props=None):
+    props = props or {}
+    source_props = {prop["id"]: prop for prop in source["environment"].get("props", [])}
+    sampled_objects = [("product", identity, obj) for identity, obj in objects.items()]
+    sampled_objects.extend(("prop", identity, obj) for identity, obj in props.items())
     scene = bpy.context.scene
     camera_data = bpy.data.cameras.new("Camera / sampled 36mm vertical gate")
     camera_data.type = "PERSP"
@@ -492,14 +549,16 @@ def animate(source, frames, objects):
     camera.rotation_mode = "QUATERNION"
     for sample in frames:
         frame = sample["frame"]
-        for component_id, obj in objects.items():
-            transform = sample["components"][component_id]
+        for role, identity, obj in sampled_objects:
+            transform = (sample["components"][identity] if role == "product"
+                         else sample.get("props", {}).get(identity, source_props[identity]))
             obj.location = blender_position(transform["translationM"])
             rotation = blender_rotation(transform["rotationXyzw"])
             # Quaternion sign is arbitrary; keep neighbouring samples continuous.
-            if component_id in previous_rotations and rotation.dot(previous_rotations[component_id]) < 0:
+            key = (role, identity)
+            if key in previous_rotations and rotation.dot(previous_rotations[key]) < 0:
                 rotation.negate()
-            previous_rotations[component_id] = rotation.copy()
+            previous_rotations[key] = rotation.copy()
             obj.rotation_mode = "QUATERNION"
             obj.rotation_quaternion = rotation
             obj.keyframe_insert(data_path="location", frame=frame, group="Sampled world transform")
@@ -518,7 +577,7 @@ def animate(source, frames, objects):
         camera.keyframe_insert(data_path="location", frame=frame, group="Sampled camera")
         camera.keyframe_insert(data_path="rotation_quaternion", frame=frame, group="Sampled camera")
         camera_data.keyframe_insert(data_path="lens", frame=frame)
-    for item in [*objects.values(), camera, camera_data]:
+    for item in [*objects.values(), *props.values(), camera, camera_data]:
         if item.animation_data and item.animation_data.action:
             for curve in item.animation_data.action.fcurves:
                 for keyframe in curve.keyframe_points:
@@ -586,8 +645,8 @@ def main():
     if label:
         component = next(item for item in source["product"]["components"] if item["id"] == label["componentId"])
         text_on_label(objects[label["componentId"]], label, component["sizeM"])
-    environment(source)
-    animate(source, frames, objects)
+    props = environment(source, frames[0])
+    animate(source, frames, objects, props)
     kind = source["environment"]["kind"]
     world_details = {}
     limitations = []
@@ -637,7 +696,12 @@ def main():
         "renderingPath": {"authored": "authored-cycles", "mesh": "visual-glb-cycles", "splat": "gaussian-plate-cycles-foreground"}[kind],
         "limitations": limitations,
         "environment": {"kind": kind, "revisionId": source["environment"]["revisionId"], "asset": source["environment"].get("asset"), "provenance": source["environment"]["provenance"], "fixture": source["environment"].get("fixture", False), "reviewStatus": source["environment"].get("reviewStatus"), "details": world_details},
-        "nearField": {"plinth": source["environment"]["plinth"], "props": source["environment"].get("props", [])},
+        "nearField": {"plinth": source["environment"]["plinth"], "props": source["environment"].get("props", []),
+                      "resolvedFirstFrame": {"productOriginM": sampled_product_origin(source, frames[0]),
+                                             "floorY": authored_floor_height(source),
+                                             "visiblePlinth": source["environment"]["plinth"].get("visible", True),
+                                             "props": {prop["id"]: frames[0].get("props", {}).get(prop["id"], prop)
+                                                       for prop in source["environment"].get("props", []) if prop["id"] in props}}},
         "coordinateConversion": {"from": "right-handed Y-up metres", "to": "right-handed Z-up metres", "position": "(x,-z,y)"},
         "lighting": [
             {"name": obj.name, "positionM": list(obj.location), "powerW": obj.data.energy, "diameterM": obj.data.size, "color": list(obj.data.color)}

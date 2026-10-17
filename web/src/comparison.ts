@@ -9,7 +9,7 @@ export interface Comparison {
   reviewedAlignmentDigest?: string;
 }
 
-const sharedFields = ['plinth', 'props', 'worldColor'] as const;
+const sharedFields = ['plinth', 'props', 'floorY', 'worldColor'] as const;
 const clone = <T>(value: T): T => structuredClone(value);
 
 /** B stores only world-specific data; shared fields always come from A. */

@@ -74,6 +74,8 @@ def create_comparison(scene_path, library_root, output_dir, *, mesh_id, splat_id
             if condition != "authored":
                 replacement = copy.deepcopy(entries[mesh_id if condition == "mesh" else splat_id]["environment"])
                 replacement["plinth"] = copy.deepcopy(base["environment"]["plinth"])
+                if "floorY" in base["environment"]:
+                    replacement["floorY"] = base["environment"]["floorY"]
                 if "props" in base["environment"]:
                     replacement["props"] = copy.deepcopy(base["environment"]["props"])
                 scene["environment"] = replacement

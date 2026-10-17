@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 
 from .worlds import validate_asset_record, validate_product_asset_record
+from .scene_objects import resolve_scene_objects
 
 
 def scene_digest(scene):
@@ -130,8 +131,8 @@ def validate_scene(scene):
             _quaternion(prop["rotationXyzw"], "prop quaternion")
             _material(prop["material"])
             _number(prop.get("bevelM", 0), "prop bevelM", minimum=0, maximum=min(prop["sizeM"])/2)
-        _require(scene["placement"]["restsOn"] == env["plinth"]["id"], "Unknown contact surface")
         _vector(scene["placement"]["translationM"], "product placement")
+        resolve_scene_objects(scene)
         _require(isinstance(scene["evidence"], list), "Evidence list is required")
         evidence_ids = [x["id"] for x in scene["evidence"]]
         _require(len(evidence_ids) == len(set(evidence_ids)), "Evidence IDs must be unique")
@@ -224,15 +225,15 @@ def evaluate(scene, frame):
     _require(type(frame) is int and 1 <= frame <= total, f"Frame must be in 1..{total}")
     t = (frame-1) / scene["render"]["fps"]
     components = {}
-    # Product placement is relative to the top-center of its explicit support.
-    # The baseline plinth top-center is [0,0,0], preserving original poses.
-    plinth = scene["environment"]["plinth"]
-    contact_origin = list(plinth["translationM"])
-    contact_origin[1] += plinth["sizeM"][1] / 2
-    placement = _add(scene["placement"]["translationM"], contact_origin)
+    objects = resolve_scene_objects(scene)
+    placement = objects["product"]["translationM"]
+    root_rotation = objects["product"]["rotationXyzw"]
     for c in scene["product"]["components"]:
         pose = c["assembly"]
-        components[c["id"]] = {"translationM": _add(pose["translationM"], placement), "rotationXyzw": list(pose["rotationXyzw"])}
+        components[c["id"]] = {
+            "translationM": _add(_rotate(root_rotation, pose["translationM"]), placement),
+            "rotationXyzw": _mul(root_rotation, pose["rotationXyzw"]),
+        }
     for a in scene["actions"]:
         pose = components[a["componentId"]]
         u = _smooth((t-a["startSeconds"])/a["durationSeconds"])
@@ -249,7 +250,8 @@ def evaluate(scene, frame):
     before, after = shot["camera"]["from"], shot["camera"]["to"]
     camera = {key: [x+(y-x)*u for x,y in zip(before[key],after[key])] for key in ("positionM","targetM")}
     camera["focalLengthMm"] = before["focalLengthMm"] + (after["focalLengthMm"]-before["focalLengthMm"])*u
-    return {"frame":frame,"timeSeconds":t,"shotId":shot["id"],"components":components,"camera":camera}
+    return {"frame":frame,"timeSeconds":t,"shotId":shot["id"],"components":components,"camera":camera,
+            "props": objects["props"]}
 
 
 def sample_scene(scene):

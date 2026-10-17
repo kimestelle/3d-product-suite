@@ -3,6 +3,11 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import type { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
 
+export type SurfacePointPick = {
+  worldPoint: [number, number, number];
+  normal: [number, number, number];
+};
+
 export type WorldPointPick = {
   sourcePoint: [number, number, number];
   worldPoint: [number, number, number];
@@ -14,6 +19,7 @@ type ViewportOptions = {
   onError?: (message: string) => void;
   onReady?: () => void;
   onWorldPoint?: (point: WorldPointPick) => void;
+  onSurfacePoint?: (point: SurfacePointPick) => void;
 };
 
 /** The browser only consumes poses sampled by film.scene; it evaluates no motion. */
@@ -23,13 +29,16 @@ export class StudioViewport {
   private readonly camera = new THREE.PerspectiveCamera(40, 9 / 16, 0.001, 100);
   private readonly content = new THREE.Group();
   private readonly components = new Map<string, THREE.Group>();
+  private readonly props = new Map<string, THREE.Mesh>();
+  private readonly plinths = new Map<string, THREE.Mesh>();
+  private readonly propSourcePoses = new Map<string, { translationM: number[]; rotationXyzw: number[] }>();
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly resizeObserver: ResizeObserver;
   private readonly intersectionObserver?: IntersectionObserver;
   private readonly options: ViewportOptions;
   private readonly canvas: HTMLCanvasElement;
-  private selection: THREE.BoxHelper | null = null;
+  private selection: THREE.Box3Helper | null = null;
   private selectedId: string | null = null;
   private spark: SparkRenderer | null = null;
   private splat: SplatMesh | null = null;
@@ -47,6 +56,8 @@ export class StudioViewport {
   private worldLoadVersion = -1;
   private worldReady = false;
   private worldPickEnabled = false;
+  private surfacePickEnabled = false;
+  private latestSample: any = null;
 
   constructor(canvas: HTMLCanvasElement, options: ViewportOptions = {}) {
     this.canvas = canvas;
@@ -98,7 +109,7 @@ export class StudioViewport {
     // Calibration never falls through to product selection, including while a
     // replacement world is loading or when the pointer misses its geometry.
     const world = this.worldRoot;
-    if (this.worldPickEnabled && (!world || this.loading || !this.worldReady
+    if ((this.worldPickEnabled || this.surfacePickEnabled) && (!world || this.loading || !this.worldReady
         || this.worldLoadVersion !== this.loadVersion || world.parent !== this.content
         || document.hidden || !this.visible || !this.objectVisible(world))) return;
     const bounds = this.canvas.getBoundingClientRect();
@@ -107,7 +118,7 @@ export class StudioViewport {
     this.pointer.set((event.clientX - bounds.left) / bounds.width * 2 - 1, -(event.clientY - bounds.top) / bounds.height * 2 + 1);
     this.camera.updateMatrixWorld(true);
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    if (this.worldPickEnabled) {
+    if (this.worldPickEnabled || this.surfacePickEnabled) {
       // Only the imported world hierarchy participates. Explicit plinth/props,
       // exact product geometry and selection helpers cannot become references.
       world!.updateWorldMatrix(true, true);
@@ -119,6 +130,19 @@ export class StudioViewport {
         const mesh = hit.object as THREE.Mesh;
         const surface = Array.isArray(mesh.material) ? mesh.material[hit.face?.materialIndex ?? 0] : mesh.material;
         if (!surface?.visible || (surface.transparent && surface.opacity <= 0)) continue;
+        if (this.surfacePickEnabled) {
+          // Ignore transparent helpers/glass. The nearest opaque surface must
+          // itself face up; do not place through a wall onto a floor behind it.
+          if ((surface.transparent && surface.opacity < 1)
+              || ((surface as THREE.MeshPhysicalMaterial).transmission ?? 0) > 0) continue;
+          if (!hit.face) return;
+          const normal = hit.face.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld)).normalize();
+          if (![normal.x, normal.y, normal.z, hit.point.x, hit.point.y, hit.point.z].every(Number.isFinite)
+              || normal.y < 0.7) return;
+          this.options.onSurfacePoint?.({ worldPoint: [hit.point.x, hit.point.y, hit.point.z],
+            normal: [normal.x, normal.y, normal.z] });
+          return;
+        }
         // Invert only the alignment root. The GLB scene's internal transforms
         // remain part of the raw source point, rather than returning mesh-local
         // coordinates or dividing world Y by scale without undoing rotation.
@@ -130,12 +154,18 @@ export class StudioViewport {
       }
       return;
     }
-    const hits = this.raycaster.intersectObjects([...this.components.values()], true);
+    const selectable = [...this.components.values(), ...this.props.values(), ...this.plinths.values()];
+    const hits = this.raycaster.intersectObjects(selectable, true);
     for (const hit of hits) {
       let node: THREE.Object3D | null = hit.object;
-      while (node && !node.userData.componentId) node = node.parent;
-      if (node?.userData.componentId) {
-        this.options.onSelect?.(node.userData.componentId);
+      if (!this.objectVisible(hit.object)) continue;
+      const material = (hit.object as THREE.Mesh).material;
+      const surface = Array.isArray(material) ? material[hit.face?.materialIndex ?? 0] : material;
+      if (surface && (!surface.visible || (surface.transparent && surface.opacity <= 0))) continue;
+      while (node && !node.userData.objectId && !node.userData.componentId) node = node.parent;
+      const id = node?.userData.objectId || node?.userData.componentId;
+      if (id) {
+        this.options.onSelect?.(id);
         return;
       }
     }
@@ -148,7 +178,18 @@ export class StudioViewport {
 
   setWorldPickEnabled(enabled: boolean): void {
     this.worldPickEnabled = !!enabled && !this.disposed && !this.options.capture;
-    this.canvas.style.cursor = this.worldPickEnabled ? 'crosshair' : '';
+    if (this.worldPickEnabled) this.surfacePickEnabled = false;
+    this.updatePickCursor();
+  }
+
+  setSurfacePickEnabled(enabled: boolean): void {
+    this.surfacePickEnabled = !!enabled && !this.disposed && !this.options.capture;
+    if (this.surfacePickEnabled) this.worldPickEnabled = false;
+    this.updatePickCursor();
+  }
+
+  private updatePickCursor(): void {
+    this.canvas.style.cursor = this.worldPickEnabled || this.surfacePickEnabled ? 'crosshair' : '';
   }
 
   resize(): void {
@@ -372,24 +413,42 @@ export class StudioViewport {
 
   private makeStudio(source: any): void {
     const plinth = source.environment.plinth;
-    const material = new THREE.MeshStandardMaterial({ color: this.color([0.56, 0.54, 0.49]), roughness: 0.58 });
-    const ledge = new THREE.Mesh(this.geometry('box', plinth.sizeM, 0.004), material);
-    ledge.name = 'Explicit contact plinth';
-    ledge.position.fromArray(plinth.translationM);
-    ledge.castShadow = true;
-    ledge.receiveShadow = true;
-    this.content.add(ledge);
+    if (plinth && plinth.visible !== false) {
+      const material = new THREE.MeshStandardMaterial({ color: this.color([0.56, 0.54, 0.49]), roughness: 0.58 });
+      const ledge = new THREE.Mesh(this.geometry('box', plinth.sizeM, 0.004), material);
+      ledge.name = 'Explicit contact plinth';
+      ledge.userData.objectId = `plinth:${plinth.id || 'plinth'}`;
+      ledge.position.fromArray(plinth.translationM);
+      ledge.quaternion.fromArray(plinth.rotationXyzw || [0, 0, 0, 1]);
+      ledge.castShadow = true;
+      ledge.receiveShadow = true;
+      this.plinths.set(plinth.id || 'plinth', ledge);
+      this.content.add(ledge);
+    }
     for (const specification of source.environment.props || []) {
+      if (specification.visible === false) continue;
       const prop = new THREE.Mesh(this.geometry(specification.shape, specification.sizeM, specification.bevelM), this.surface(specification.material));
       prop.name = specification.id;
+      prop.userData.objectId = `prop:${specification.id}`;
       prop.position.fromArray(specification.translationM);
       prop.quaternion.fromArray(specification.rotationXyzw);
       prop.castShadow = true;
       prop.receiveShadow = true;
+      this.props.set(specification.id, prop);
+      this.propSourcePoses.set(specification.id, {
+        translationM: [...specification.translationM], rotationXyzw: [...specification.rotationXyzw],
+      });
       this.content.add(prop);
     }
     if (source.environment.kind === 'authored') {
-      const floorHeight = plinth.translationM[1] - plinth.sizeM[1] / 2 - 0.0001;
+      let floorHeight = 0;
+      if (Number.isFinite(source.environment.floorY)) floorHeight = source.environment.floorY;
+      else if (plinth && plinth.visible !== false) {
+        const rotation = new THREE.Quaternion().fromArray(plinth.rotationXyzw || [0, 0, 0, 1]);
+        const axes = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
+        const halfHeight = axes.reduce((sum, axis, index) => sum + Math.abs(axis.applyQuaternion(rotation).y) * plinth.sizeM[index] / 2, 0);
+        floorHeight = plinth.translationM[1] - halfHeight;
+      }
       const radius = Math.max(...source.product.dimensionsM) * 3;
       const profile = [[radius * 15, floorHeight], [-radius, floorHeight]];
       for (let step = 1; step <= 32; step++) {
@@ -411,6 +470,7 @@ export class StudioViewport {
       geometry.setIndex(indices);
       geometry.computeVertexNormals();
       const floor = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: this.color([0.26, 0.28, 0.26]), roughness: 0.72, side: THREE.DoubleSide }));
+      floor.name = 'Authored environment sweep';
       floor.receiveShadow = true;
       this.content.add(floor);
     }
@@ -418,7 +478,7 @@ export class StudioViewport {
     this.content.add(ambient);
     const size = Math.max(...source.product.dimensionsM);
     const scale = size / 0.12;
-    const placement = new THREE.Vector3().fromArray(source.placement.translationM);
+    const placement = this.sampledProductOrigin(source, this.latestSample);
     const target = placement.clone().add(new THREE.Vector3(0, size * 0.52, 0));
     const configurations: [number[], number, number, number][] = [
       [[-0.19, 0.32, 0.24], 0xffedcf, 2.4, 0.23],
@@ -444,6 +504,22 @@ export class StudioViewport {
     }
   }
 
+  private sampledProductOrigin(source: any, sample: any): THREE.Vector3 {
+    // Prefer a rigid component: the first displayed frame can already contain
+    // an animated cap or another articulated part in a different local pose.
+    const moving = new Set((source.actions || []).map((action: any) => action.componentId));
+    const components = [...source.product.components].sort((a: any, b: any) => Number(moving.has(a.id)) - Number(moving.has(b.id)));
+    for (const component of components) {
+      const pose = sample?.components?.[component.id];
+      if (!pose) continue;
+      const rootRotation = new THREE.Quaternion().fromArray(pose.rotationXyzw)
+        .multiply(new THREE.Quaternion().fromArray(component.assembly.rotationXyzw).invert()).normalize();
+      const assemblyOffset = new THREE.Vector3().fromArray(component.assembly.translationM).applyQuaternion(rootRotation);
+      return new THREE.Vector3().fromArray(pose.translationM).sub(assemblyOffset);
+    }
+    return new THREE.Vector3().fromArray(source.placement.translationM);
+  }
+
   private alignWorld(root: THREE.Object3D, asset: any): void {
     const sourceUp = new THREE.Quaternion();
     if (asset.sourceUp === 'Z') sourceUp.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
@@ -453,7 +529,7 @@ export class StudioViewport {
     root.position.fromArray(asset.translationM || [0, 0, 0]);
   }
 
-  async load(source: any, assetUrl?: string): Promise<void> {
+  async load(source: any, assetUrl?: string, initialSample?: any): Promise<void> {
     if (this.disposed) throw new Error('Viewport has been disposed.');
     this.assetAbort?.abort();
     const assetAbort = new AbortController();
@@ -463,6 +539,7 @@ export class StudioViewport {
     this.loading = true;
     this.cancelRender();
     this.clearContent();
+    this.latestSample = initialSample ?? null;
     const environment = source.environment;
     const capture = !!this.options.capture;
     this.scene.background = capture ? null : this.color(environment.worldColor);
@@ -505,6 +582,9 @@ export class StudioViewport {
         if (version !== this.loadVersion || this.disposed) return;
       }
       if (version !== this.loadVersion || this.disposed) return;
+      // Apply authoritative Python poses before the first visible render,
+      // including a newer sample submitted while assets were loading.
+      if (this.latestSample) this.applySample(this.latestSample);
       this.loading = false;
       this.resize();
       this.setSelection(this.selectedId);
@@ -531,23 +611,13 @@ export class StudioViewport {
 
   async frame(sample: any): Promise<void> {
     if (this.disposed) throw new Error('Viewport has been disposed.');
+    this.latestSample = sample;
     const request = ++this.frameRequest;
     // Explicit callers can await the exact submitted frame. Serializing Spark
     // updates prevents a later camera from overtaking a requested capture.
     const task = this.frameQueue.catch(() => {}).then(async () => {
       if (this.disposed || (!this.options.capture && request !== this.frameRequest)) return;
-      for (const [id, pose] of Object.entries(sample.components || {}) as [string, any][]) {
-        const component = this.components.get(id);
-        if (!component) continue;
-        component.position.fromArray(pose.translationM);
-        component.quaternion.fromArray(pose.rotationXyzw);
-      }
-      const values = sample.camera;
-      this.camera.position.fromArray(values.positionM);
-      this.camera.lookAt(new THREE.Vector3().fromArray(values.targetM));
-      this.camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(18 / values.focalLengthMm));
-      this.camera.updateProjectionMatrix();
-      this.selection?.update();
+      this.applySample(sample);
       if (!this.loading && (this.options.capture || (!document.hidden && this.visible))) await this.render(!!this.spark);
       else this.dirty = true;
     });
@@ -584,6 +654,50 @@ export class StudioViewport {
     this.dirty = false;
   }
 
+  private applySample(sample: any): void {
+    for (const [id, pose] of Object.entries(sample.components || {}) as [string, any][]) {
+      const component = this.components.get(id);
+      if (!component) continue;
+      component.position.fromArray(pose.translationM);
+      component.quaternion.fromArray(pose.rotationXyzw);
+    }
+    for (const [id, prop] of this.props) {
+      const pose = sample.props?.[id] ?? this.propSourcePoses.get(id);
+      if (!pose) continue;
+      prop.position.fromArray(pose.translationM);
+      prop.quaternion.fromArray(pose.rotationXyzw);
+    }
+    const values = sample.camera;
+    if (values) {
+      this.camera.position.fromArray(values.positionM);
+      this.camera.lookAt(new THREE.Vector3().fromArray(values.targetM));
+      this.camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(18 / values.focalLengthMm));
+      this.camera.updateProjectionMatrix();
+    }
+    this.updateSelection();
+  }
+
+  private selectionObjects(): THREE.Object3D[] {
+    const id = this.selectedId;
+    if (!id) return [];
+    if (id === 'product-root') return [...this.components.values()];
+    if (id === 'world' || id === 'environment' || id.startsWith('world:')) return this.worldRoot ? [this.worldRoot] : [];
+    const object = id.startsWith('prop:') ? this.props.get(id.slice(5))
+      : id.startsWith('plinth:') ? this.plinths.get(id.slice(7)) : this.components.get(id);
+    return object ? [object] : [];
+  }
+
+  private updateSelection(): void {
+    if (!this.selection) return;
+    this.selection.box.makeEmpty();
+    for (const object of this.selectionObjects()) {
+      if (!this.objectVisible(object)) continue;
+      object.updateWorldMatrix(true, true);
+      this.selection.box.union(new THREE.Box3().setFromObject(object));
+    }
+    this.selection.visible = !this.selection.box.isEmpty();
+  }
+
   setSelection(id: string | null): void {
     this.selectedId = id;
     if (this.selection) {
@@ -592,10 +706,9 @@ export class StudioViewport {
       (this.selection.material as THREE.Material).dispose();
       this.selection = null;
     }
-    const component = id ? this.components.get(id) : undefined;
-    if (component && !this.options.capture) {
-      component.updateWorldMatrix(true, true);
-      this.selection = new THREE.BoxHelper(component, 0xd8e7ad);
+    if (this.selectionObjects().length && !this.options.capture) {
+      this.selection = new THREE.Box3Helper(new THREE.Box3(), 0xd8e7ad);
+      this.updateSelection();
       this.scene.add(this.selection);
     }
     this.invalidate();
@@ -641,6 +754,10 @@ export class StudioViewport {
     this.disposeObject(this.content);
     this.content.clear();
     this.components.clear();
+    this.props.clear();
+    this.plinths.clear();
+    this.propSourcePoses.clear();
+    this.latestSample = null;
   }
 
   clearScene(): void {
@@ -660,6 +777,7 @@ export class StudioViewport {
     if (this.disposed) return;
     this.disposed = true;
     this.setWorldPickEnabled(false);
+    this.setSurfacePickEnabled(false);
     this.loadVersion++;
     this.assetAbort?.abort();
     this.cancelRender();
@@ -680,6 +798,7 @@ export function createViewport(host: HTMLElement, options: {
   onSelect?: (id: string | null) => void;
   onError?: (message: string) => void;
   onWorldPoint?: (point: WorldPointPick) => void;
+  onSurfacePoint?: (point: SurfacePointPick) => void;
   capture?: boolean;
 } = {}) {
   const canvas = document.createElement('canvas');
@@ -716,7 +835,7 @@ export function createViewport(host: HTMLElement, options: {
       latestSample = sample;
       filmAspect = scene.render.width / scene.render.height;
       fitCanvas();
-      await viewport.load(scene);
+      await viewport.load(scene, undefined, latestSample);
       if (request === version && latestSample) await viewport.frame(latestSample);
     },
     setSample(sample: any) {
@@ -728,6 +847,7 @@ export function createViewport(host: HTMLElement, options: {
     },
     setSelected(id: string | null) { viewport.setSelection(id); },
     setWorldPickEnabled(enabled: boolean) { viewport.setWorldPickEnabled(enabled); },
+    setSurfacePickEnabled(enabled: boolean) { viewport.setSurfacePickEnabled(enabled); },
     clearScene() {
       version++;
       latestSample = null;

@@ -208,6 +208,7 @@ def _prepared_scene(source_path, *, name, provenance, template=None, dimensions_
     dimensions = list(measured["dimensionsM"] if dimensions_m is None else dimensions_m)
     validate_product_dimensions(measured, dimensions, bounds_m)
     digest = hashlib.sha256(payload).hexdigest()
+    use_default_template = template is None
     if template is None:
         template = ROOT / "examples" / "bottle.scene.json"
     if isinstance(template, (str, Path)):
@@ -235,6 +236,10 @@ def _prepared_scene(source_path, *, name, provenance, template=None, dimensions_
     plinth = scene["environment"]["plinth"]
     plinth["sizeM"] = [max(dimensions[0] * 1.5, dimensions[2]), max(dimensions) * 0.25, max(dimensions[2] * 1.5, dimensions[0])]
     plinth["translationM"] = [0, -plinth["sizeM"][1] / 2, 0]
+    if use_default_template:
+        plinth["visible"] = False
+        scene["environment"]["floorY"] = 0
+        scene["placement"]["restsOn"] = "floor"
     # Fit the same actual product bounds in every shot, including portrait gates.
     radius = math.sqrt(sum(value * value for value in dimensions)) / 2
     half_vertical = math.atan(36 / (2 * 50))
