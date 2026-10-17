@@ -54,8 +54,22 @@ on:
         description: Recover accepted mesh export operation; also supply world_id or generation operation
         required: false
         type: string
+      cache_key:
+        description: Optional request fingerprint supplied by the editor; checked before any provider work
+        required: false
+        type: string
+      force_new:
+        description: Generate a new paid variation instead of reusing a matching cached world
+        required: false
+        default: false
+        type: boolean
+      existing_artifact_run_id:
+        description: Seed the cache from this successful comparison run without provider access
+        required: false
+        type: string
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -85,12 +99,71 @@ jobs:
       - name: Verify the complete local reconstruction runtime
         run: python -c "from scripts.worldlabs_experiment import preflight_reconstruction; preflight_reconstruction()"
       - name: Verify provider contracts without spending credits
-        run: python -m unittest tests.test_worldlabs tests.test_worldlabs_experiment -v
+        run: python -m unittest tests.test_worldlabs tests.test_worldlabs_experiment tests.test_world_cache tests.test_seed_worldlabs_cache -v
       - name: Verify reconstruction before spending credits
         run: python -m unittest discover -s tests -p test_splat_mesh.py -v
+      - name: Identify the reusable provider request
+        id: world-identity
+        env:
+          WORLDLABS_PROMPT: ${{ inputs.prompt }}
+          WORLDLABS_DEFAULT_ENVIRONMENT: ${{ inputs.default_environment }}
+          WORLDLABS_REFERENCE_IMAGE_URL: ${{ inputs.reference_image_url }}
+          WORLDLABS_MODEL: ${{ inputs.model }}
+          WORLDLABS_EXPECTED_CACHE_KEY: ${{ inputs.cache_key }}
+          WORLDLABS_FORCE_NEW: ${{ inputs.force_new }}
+          WORLDLABS_EXISTING_ARTIFACT_RUN_ID: ${{ inputs.existing_artifact_run_id }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+          from film.world_requests import generation_identity
+
+          identity = generation_identity(
+              prompt=os.environ.get("WORLDLABS_PROMPT", ""),
+              preset=os.environ.get("WORLDLABS_DEFAULT_ENVIRONMENT") or "botanical-studio",
+              model=os.environ.get("WORLDLABS_MODEL") or "marble-1.1",
+              image_url=os.environ.get("WORLDLABS_REFERENCE_IMAGE_URL", ""),
+          )
+          supplied = os.environ.get("WORLDLABS_EXPECTED_CACHE_KEY", "").strip()
+          if supplied and (not re.fullmatch(r"[a-f0-9]{64}", supplied) or supplied != identity["key"]):
+              raise SystemExit("The supplied cache key does not match this World Labs request")
+          run_id = os.environ["GITHUB_RUN_ID"]
+          attempt = os.environ["GITHUB_RUN_ATTEMPT"]
+          if not re.fullmatch(r"[0-9]+", run_id) or not re.fullmatch(r"[0-9]+", attempt):
+              raise SystemExit("Invalid workflow run identity")
+          force_new = os.environ.get("WORLDLABS_FORCE_NEW", "false").lower() == "true"
+          existing_run = os.environ.get("WORLDLABS_EXISTING_ARTIFACT_RUN_ID", "")
+          if existing_run and (not re.fullmatch(r"[0-9]{1,20}", existing_run) or force_new):
+              raise SystemExit("An existing artifact requires a valid run ID and cannot request a new variation")
+          mode = f"fresh-{run_id}" if force_new else "normal"
+          prefix = f"worldlabs-v1-{identity['key']}-{mode}-"
+          key = f"{prefix}{run_id}-{attempt}"
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"cache-key={key}\nrestore-prefix={prefix}\n")
+          PY
+      - name: Restore matching assets and provider recovery journals
+        id: world-cache-restore
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .cache/worldlabs
+          key: ${{ steps.world-identity.outputs.cache-key }}
+          restore-keys: ${{ steps.world-identity.outputs.restore-prefix }}
+          fail-on-cache-miss: false
+      - name: Seed the cache from an existing verified comparison
+        if: inputs.existing_artifact_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORLDLABS_PROMPT: ${{ inputs.prompt }}
+          WORLDLABS_DEFAULT_ENVIRONMENT: ${{ inputs.default_environment }}
+          WORLDLABS_REFERENCE_IMAGE_URL: ${{ inputs.reference_image_url }}
+          WORLDLABS_MODEL: ${{ inputs.model }}
+          WORLDLABS_FORCE_NEW: ${{ inputs.force_new }}
+          WORLDLABS_EXISTING_ARTIFACT_RUN_ID: ${{ inputs.existing_artifact_run_id }}
+        run: python scripts/seed_worldlabs_cache.py --run-id "$WORLDLABS_EXISTING_ARTIFACT_RUN_ID" --cache-dir .cache/worldlabs
       - name: Generate or recover one world and prepare both representations
         env:
-          WORLDLABS_API_KEY: ${{ secrets.WORLDLABS_API_KEY }}
+          WORLDLABS_API_KEY: ${{ (inputs.existing_artifact_run_id == '' && secrets.WORLDLABS_API_KEY) || '' }}
           WORLDLABS_EXPERIMENT_ID: ${{ inputs.experiment_id }}
           WORLDLABS_PROMPT: ${{ inputs.prompt }}
           WORLDLABS_DEFAULT_ENVIRONMENT: ${{ inputs.default_environment }}
@@ -100,7 +173,14 @@ jobs:
           WORLDLABS_WORLD_ID: ${{ inputs.world_id }}
           WORLDLABS_GENERATION_OPERATION_ID: ${{ inputs.generation_operation_id }}
           WORLDLABS_MESH_OPERATION_ID: ${{ inputs.mesh_operation_id }}
-        run: python scripts/worldlabs_experiment.py --output worldlabs-experiment
+          WORLDLABS_FORCE_NEW: ${{ inputs.force_new }}
+        run: python scripts/worldlabs_experiment.py --output worldlabs-experiment --cache-dir .cache/worldlabs
+      - name: Preserve reusable assets and partial provider recovery state
+        if: always() && steps.world-identity.outcome == 'success' && steps.world-cache-restore.outcome == 'success'
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .cache/worldlabs
+          key: ${{ steps.world-identity.outputs.cache-key }}
       - name: Preserve assets and durable recovery state
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

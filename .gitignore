@@ -17,4 +17,5 @@ web/playwright-report/
 !.env.example
 worldlabs-experiment/
 .cache/
+.worldlabs-cache/
 web/*.tsbuildinfo
