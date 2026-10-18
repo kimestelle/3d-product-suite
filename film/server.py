@@ -13,7 +13,7 @@ import uuid
 from urllib.parse import parse_qs, unquote, urlparse
 
 from . import jobs
-from .scene import sample_scene, scene_digest, validate_scene
+from .scene import evaluate, sample_scene, scene_digest, validate_scene
 from .stills import create_still_job, run_still_job
 from .store import ConflictError, ProjectStore, ROOT, identifier, now
 from .worlds import MAX_ASSET_BYTES, import_world, list_worlds
@@ -21,9 +21,11 @@ from .github_worlds import GitHubWorlds
 from .products import create_product_scene
 from .comparison import calibrate_scene, comparison_payload, review_alignment
 from .comparison_jobs import ComparisonJobs
+from .materials import MaterialLibrary
+from .polyhaven import PolyHavenLibrary
 
 ARTIFACTS = {"still.png", "film.mp4", "scene.blend", "contact-sheet.png", "still-01.png", "still-02.png", "still-03.png"}
-ASSET_NAME = re.compile(r"[0-9a-f]{64}\.(?:glb|spz|ply)\Z")
+ASSET_NAME = re.compile(r"[0-9a-f]{64}\.(?:glb|spz|ply|png|hdr)\Z")
 
 
 class RenderQueue:
@@ -201,16 +203,47 @@ class Application:
         self.store.seed_worlds()
         self.port = port
         self.github = GitHubWorlds(self.store.root)
+        self.materials = MaterialLibrary(self.store.root)
+        self.polyhaven = PolyHavenLibrary(self.store.root, material_library=self.materials)
         self.renders = RenderQueue(self.store, base_url=f"http://127.0.0.1:{port}", blender=blender, ffmpeg=ffmpeg)
         self.comparison_renders = ComparisonJobs(self.renders)
+        self._render_capabilities = None
+        self._capabilities_lock = threading.Lock()
+
+    def _render_tool_capabilities(self):
+        # Match the worker's pinned-version check, once per running application.
+        # The lock also avoids duplicate probes from concurrent bootstrap calls.
+        with self._capabilities_lock:
+            if self._render_capabilities is None:
+                result = {}
+                for tool, command, version, label in (
+                    ("blender", self.renders.blender, jobs.BLENDER_VERSION, "Blender"),
+                    ("ffmpeg", self.renders.ffmpeg, jobs.FFMPEG_VERSION, "FFmpeg"),
+                ):
+                    issue = None
+                    if shutil.which(command) is None:
+                        issue = f"{label} {version} required; not found."
+                    else:
+                        try:
+                            jobs._check_tool(command, tool, version)
+                        except RuntimeError as error:
+                            detail = str(error)
+                            if detail.startswith("Expected ") and "; found " in detail:
+                                found = detail.split("; found ", 1)[1].splitlines()[0][:120]
+                                issue = f"{label} {version} required; found {found}."
+                            else:
+                                issue = f"{label} {version} required; the installed command could not run."
+                    result[tool + "Available"] = issue is None
+                    result[tool + "Issue"] = issue
+                self._render_capabilities = result
+            return dict(self._render_capabilities)
 
     def capabilities(self):
         import os
         return {"worldlabsConfigured": bool(os.environ.get("WORLDLABS_API_KEY")),
                 "githubWorldsAvailable": shutil.which("gh") is not None,
                 "githubWorkflowUrl": self.github.url,
-                "blenderAvailable": shutil.which(self.renders.blender) is not None,
-                "ffmpegAvailable": shutil.which(self.renders.ffmpeg) is not None}
+                **self._render_tool_capabilities()}
 
 
 def make_handler(app):
@@ -277,6 +310,15 @@ def make_handler(app):
                 if path == "/api/bootstrap":
                     return self._json({"project": app.store.bootstrap(), "projects": app.store.list(),
                                        "worlds": list_worlds(app.store.root), "capabilities": app.capabilities(), "jobs": app.renders.list()})
+                if path == "/api/polyhaven/assets":
+                    query = parse_qs(parsed.query)
+                    return self._json(app.polyhaven.list_assets(query.get("kind", ["textures"])[0],
+                        query=query.get("q", [""])[0], offset=int(query.get("offset", ["0"])[0]),
+                        limit=int(query.get("limit", ["24"])[0])))
+                if path == "/api/materials":
+                    return self._json(app.materials.list())
+                if len(parts) == 4 and parts[:3] == ["api", "materials", "jobs"]:
+                    return self._json(app.materials.get(parts[3]))
                 if path == "/api/worldlabs/status":
                     return self._json({"configured": app.capabilities()["worldlabsConfigured"]})
                 if path == "/api/github-worlds/runs":
@@ -360,12 +402,23 @@ def make_handler(app):
                     temp.unlink(missing_ok=True)
             body = self._body()
             if self.command == "POST":
+                if path == "/api/polyhaven/import":
+                    return self._json(app.polyhaven.import_asset(body["kind"], body["id"]), 201)
+                if path == "/api/materials/generate":
+                    return self._json(app.materials.create(body), 202)
+                if len(parts) == 5 and parts[:3] == ["api", "materials", "jobs"] and parts[4] == "cancel":
+                    return self._json(app.materials.cancel(parts[3]))
                 if path == "/api/github-worlds/generate":
                     return self._json(app.github.dispatch(body), 202)
                 if len(parts) == 5 and parts[:3] == ["api", "github-worlds", "runs"] and parts[4] == "import":
                     return self._json(app.github.import_run(parts[3]))
                 if path == "/api/evaluate":
                     scene = validate_scene(body["scene"])
+                    if "frame" in body:
+                        # Interactive transforms need only the visible pose. Keep
+                        # the canonical sampler and validation shared with export.
+                        return self._json({"scene": scene, "sample": evaluate(scene, body["frame"]),
+                                           "digest": scene_digest(scene)})
                     result = {**sample_scene(scene), "digest": scene_digest(scene)}
                     payload = comparison_payload(scene) if "comparison" in scene else None
                     if payload:

@@ -56,12 +56,122 @@ def material(name, color, roughness=0.45, metallic=0.0, transmission=0.0, ior=1.
     return result
 
 
-def specified_material(name, specification):
-    return material(name, specification["baseColor"], specification["roughness"], specification["metallic"], specification.get("transmission", 0), specification.get("ior", 1.5))
+def specified_material(name, specification, samples_root=None, *, source_uv_flip=False):
+    result = material(name, specification["baseColor"], specification["roughness"], specification["metallic"], specification.get("transmission", 0), specification.get("ior", 1.5))
+    maps = specification.get("textures", {})
+    if not maps:
+        return result
+    if samples_root is None:
+        raise ValueError("PBR maps require the sampled scene asset bundle")
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from film.material_assets import validate_material_textures, validate_png
+    validate_material_textures(specification)
+    nodes, links = result.node_tree.nodes, result.node_tree.links
+    shader = nodes.get("Principled BSDF")
+    uv = nodes.new("ShaderNodeTexCoord").outputs["UV"]
+    if source_uv_flip:
+        # glTF importer flips V. Restore source UVs for newly applied editor maps.
+        flip = nodes.new("ShaderNodeVectorMath")
+        flip.operation = "MULTIPLY"
+        flip.inputs[1].default_value = (1, -1, 1)
+        links.new(uv, flip.inputs[0])
+        add = nodes.new("ShaderNodeVectorMath")
+        add.operation = "ADD"
+        add.inputs[1].default_value = (0, 1, 0)
+        links.new(flip.outputs["Vector"], add.inputs[0])
+        uv = add.outputs["Vector"]
+    repeat = nodes.new("ShaderNodeVectorMath")
+    repeat.name = "PBR / repeat"
+    repeat.operation = "MULTIPLY"
+    repeat.inputs[1].default_value = (*specification.get("textureRepeat", [1,1]), 1)
+    links.new(uv, repeat.inputs[0])
+    textures = {}
+    for kind, asset in maps.items():
+        path = verified_asset_record(asset, samples_root.resolve(), "Material image")
+        validate_png(path.read_bytes())
+        # Color space is an image property; separate datablocks keep a shared
+        # hash safe when the same PNG is used for color and data channels.
+        image = bpy.data.images.load(str(path), check_existing=False)
+        image.colorspace_settings.name = "sRGB" if kind == "basecolor" else "Non-Color"
+        image.pack()
+        texture = nodes.new("ShaderNodeTexImage")
+        texture.name = "PBR / " + kind
+        texture.image = image
+        texture.extension = "REPEAT"
+        links.new(repeat.outputs["Vector"], texture.inputs["Vector"])
+        textures[kind] = texture
+    if "basecolor" in textures:
+        multiply = nodes.new("ShaderNodeMixRGB")
+        multiply.name = "PBR / color multiplier"
+        multiply.blend_type = "MULTIPLY"
+        multiply.inputs[0].default_value = 1
+        multiply.inputs[2].default_value = specification["baseColor"]
+        links.new(textures["basecolor"].outputs["Color"], multiply.inputs[1])
+        links.new(multiply.outputs["Color"], shader.inputs["Base Color"])
+    for kind, channel, scalar, input_name in (("roughness", "Green", "roughness", "Roughness"),
+                                               ("metalness", "Blue", "metallic", "Metallic")):
+        if kind not in textures:
+            continue
+        separate = nodes.new("ShaderNodeSeparateColor")
+        separate.mode = "RGB"
+        links.new(textures[kind].outputs["Color"], separate.inputs["Color"])
+        multiply = nodes.new("ShaderNodeMath")
+        multiply.name = "PBR / " + kind + " multiplier"
+        multiply.operation = "MULTIPLY"
+        multiply.inputs[1].default_value = specification[scalar]
+        links.new(separate.outputs[channel], multiply.inputs[0])
+        links.new(multiply.outputs["Value"], shader.inputs[input_name])
+    normal = None
+    if "normal" in textures:
+        normal_map = nodes.new("ShaderNodeNormalMap")
+        normal_map.name = "PBR / tangent normal"
+        normal_map.inputs["Strength"].default_value = specification.get("normalScale", 1)
+        links.new(textures["normal"].outputs["Color"], normal_map.inputs["Color"])
+        normal = normal_map.outputs["Normal"]
+    if "height" in textures and specification.get("heightScaleM", 0) > 0:
+        separate = nodes.new("ShaderNodeSeparateColor")
+        separate.mode = "RGB"
+        links.new(textures["height"].outputs["Color"], separate.inputs["Color"])
+        bump = nodes.new("ShaderNodeBump")
+        bump.name = "PBR / height bump"
+        bump.inputs["Distance"].default_value = specification["heightScaleM"]
+        bump.inputs["Strength"].default_value = 1
+        links.new(separate.outputs["Red"], bump.inputs["Height"])
+        if normal is not None:
+            links.new(normal, bump.inputs["Normal"])
+        normal = bump.outputs["Normal"]
+    if normal is not None:
+        links.new(normal, shader.inputs["Normal"])
+    result["gesso_pbr_textures"] = True
+    result["height_policy"] = "Bump only; source geometry is not displaced"
+    return result
+
+
+def textured_primitive(name, shape, size, surface, bevel):
+    """Use the editor's exact procedural surface and UV atlas for PBR materials."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from film.decal_geometry import primitive_triangles
+    points = [point for triangle in primitive_triangles({"shape":shape,"sizeM":size,"bevelM":bevel}) for point in triangle]
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata([blender_position(point[:3]) for point in points], [],
+                     [tuple(range(i,i+3)) for i in range(0,len(points),3)])
+    mesh.update()
+    uv = mesh.uv_layers.new(name="Source UV")
+    for polygon in mesh.polygons:
+        polygon.use_smooth = True
+        for index in polygon.loop_indices:
+            uv.data[index].uv = points[mesh.loops[index].vertex_index][6:8]
+    mesh.normals_split_custom_set_from_vertices([blender_position(point[3:6]) for point in points])
+    mesh.materials.append(surface)
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    return obj
 
 
 def primitive(name, shape, size, surface, bevel=0.0):
     """Create geometry already expressed in Blender local coordinates."""
+    if surface.get("gesso_pbr_textures"):
+        return textured_primitive(name, shape, size, surface, bevel)
     if shape == "box":
         bpy.ops.mesh.primitive_cube_add(size=1)
     elif shape == "cylinder":
@@ -126,6 +236,144 @@ def text_on_label(parent, specification, label_size):
         obj.scale = (scale, scale, scale)
 
 
+def decal_artwork(specification, output_root):
+    """Rasterize pinned Bfont into a packed, opaque decal texture, without OS fonts."""
+    digest = hashlib.sha256(json.dumps({key: specification[key] for key in ("text", "subtitle")},
+                                      sort_keys=True).encode()).hexdigest()[:20]
+    path = output_root / f"decal-artwork-{digest}.png"
+    if not path.exists():
+        artwork = bpy.data.scenes.new("Decal artwork / temporary")
+        artwork.render.engine = "CYCLES"
+        artwork.cycles.samples = 1
+        artwork.cycles.use_denoising = False
+        artwork.render.resolution_x = artwork.render.resolution_y = 1024
+        artwork.render.resolution_percentage = 100
+        artwork.render.image_settings.file_format = "PNG"
+        artwork.render.image_settings.color_mode = "RGBA"
+        artwork.render.filepath = str(path)
+        artwork.view_settings.view_transform = "Standard"
+        artwork.view_settings.look = "None"
+        artwork.view_settings.exposure = 0
+        artwork.view_settings.gamma = 1
+
+        def emission(name, color):
+            result = bpy.data.materials.new(name)
+            result.use_nodes = True
+            nodes = result.node_tree.nodes
+            nodes.clear()
+            output = nodes.new("ShaderNodeOutputMaterial")
+            shader = nodes.new("ShaderNodeEmission")
+            shader.inputs["Color"].default_value = tuple((x/12.92 if x <= .04045 else ((x+.055)/1.055)**2.4)
+                                                         for x in color) + (1,)
+            result.node_tree.links.new(shader.outputs["Emission"], output.inputs["Surface"])
+            return result
+
+        paper = emission("Decal artwork / chalk", (250/255, 249/255, 244/255))
+        ink = emission("Decal artwork / charcoal", (52/255, 64/255, 54/255))
+        mesh = bpy.data.meshes.new("Decal artwork / ground")
+        mesh.from_pydata([(-1,-1,0), (1,-1,0), (1,1,0), (-1,1,0)], [], [(0,1,2,3)])
+        ground = bpy.data.objects.new("Decal artwork / ground", mesh)
+        mesh.materials.append(paper)
+        artwork.collection.objects.link(ground)
+        camera_data = bpy.data.cameras.new("Decal artwork / camera")
+        camera = bpy.data.objects.new("Decal artwork / camera", camera_data)
+        artwork.collection.objects.link(camera)
+        camera.location = (0, 0, 1)
+        camera_data.type = "ORTHO"
+        camera_data.ortho_scale = 1
+        artwork.camera = camera
+        text_objects = []
+        for name, key, vertical, maximum_width, maximum_height in (
+            ("Brand", "text", .13, .84, .24), ("Descriptor", "subtitle", -.23, .85, .065),
+        ):
+            if not specification[key]:
+                continue
+            data = bpy.data.curves.new(f"Decal artwork / {name}", "FONT")
+            data.body = specification[key]
+            data.align_x = "CENTER"
+            data.align_y = "CENTER"
+            data.size = 1
+            data.space_character = 1.15 if name == "Brand" else 1.03
+            data.resolution_u = 10
+            if data.font is None or data.font.filepath != "<builtin>":
+                raise RuntimeError("Expected Blender's bundled default Bfont Regular")
+            obj = bpy.data.objects.new(f"Decal artwork / {name}", data)
+            artwork.collection.objects.link(obj)
+            data.materials.append(ink)
+            obj.location = (0, vertical, .01)
+            text_objects.append((obj, maximum_width, maximum_height))
+        # The temporary scene has its own depsgraph; no live scene camera or rig changes.
+        artwork.view_layers[0].update()
+        for obj, width, height in text_objects:
+            bounds = [Vector(corner) for corner in obj.bound_box]
+            scale = min(width/max(1e-8, max(p.x for p in bounds)-min(p.x for p in bounds)),
+                        height/max(1e-8, max(p.y for p in bounds)-min(p.y for p in bounds)))
+            obj.scale = (scale, scale, scale)
+        artwork.view_layers[0].update()
+        temporary_objects = list(artwork.objects)
+        try:
+            bpy.ops.render.render(write_still=True, scene=artwork.name)
+        finally:
+            bpy.data.scenes.remove(artwork)
+            for obj in temporary_objects:
+                bpy.data.objects.remove(obj, do_unlink=True)
+    image = bpy.data.images.load(str(path), check_existing=True)
+    image.colorspace_settings.name = "sRGB"
+    image.pack()
+    return image
+
+
+def product_decals(source, objects, samples_root, output_root):
+    """Attach UV-clipped relief to the same animated rigid component as its source."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from film.decal_geometry import imported_triangles, primitive_triangles, project_triangle
+    components = {component["id"]: component for component in source["product"]["components"]}
+    details = []
+    for specification in source["product"].get("decals", []):
+        component = components[specification["componentId"]]
+        if component["shape"] == "mesh":
+            asset_path = verified_asset_record(component["asset"], samples_root, "Product decal")
+            triangles = imported_triangles(asset_path.read_bytes(), specification["partId"], component["id"])
+        else:
+            triangles = primitive_triangles(component)
+        positions, normals, uvs = [], [], []
+        for triangle in triangles:
+            for patch in project_triangle(triangle, specification):
+                for point in patch:
+                    # Offset a zero-height print just beyond its source surface for Cycles.
+                    position = [point[axis] + point[axis+3]*.000002 for axis in range(3)]
+                    positions.append(blender_position(position))
+                    normals.append(blender_position(point[3:6]))
+                    uvs.append(point[6:8])
+        if not positions:
+            raise ValueError(f"Decal {specification['id']} does not intersect the selected source UV map")
+        name = f"Decal / {specification['id']}"
+        mesh = bpy.data.meshes.new(name)
+        mesh.from_pydata(positions, [], [tuple(range(i, i+3)) for i in range(0, len(positions), 3)])
+        mesh.update()
+        uv_layer = mesh.uv_layers.new(name="Decal artwork")
+        for polygon in mesh.polygons:
+            polygon.use_smooth = True
+            for loop_index in polygon.loop_indices:
+                uv_layer.data[loop_index].uv = uvs[mesh.loops[loop_index].vertex_index]
+        mesh.normals_split_custom_set_from_vertices(normals)
+        obj = bpy.data.objects.new(name, mesh)
+        bpy.context.collection.objects.link(obj)
+        obj.parent = objects[component["id"]]
+        obj["source_part_id"] = specification["partId"]
+        obj["height_m"] = specification["heightM"]
+        obj["bevel_m"] = specification["bevelM"]
+        surface = material(name + " / surface", (1, 1, 1, 1), .6)
+        texture = surface.node_tree.nodes.new("ShaderNodeTexImage")
+        texture.image = decal_artwork(specification, output_root)
+        surface.node_tree.links.new(texture.outputs["Color"], surface.node_tree.nodes.get("Principled BSDF").inputs["Base Color"])
+        mesh.materials.append(surface)
+        details.append({"id": specification["id"], "componentId": component["id"], "partId": specification["partId"],
+                        "triangles": len(positions)//3, "heightM": specification["heightM"], "bevelM": specification["bevelM"],
+                        "uvSource": "Original source TEXCOORD_0" if component["shape"] == "mesh" else "Editor procedural UV map"})
+    return details
+
+
 def area_light(name, position, target, power, size, color):
     data = bpy.data.lights.new(name, "AREA")
     data.energy = power
@@ -170,20 +418,79 @@ def configure_scene(source, width, height, samples):
     scene.world.use_nodes = True
     background = scene.world.node_tree.nodes.get("Background")
     background.inputs["Color"].default_value = (*source["environment"]["worldColor"], 1)
-    background.inputs["Strength"].default_value = 0.45
+    background.inputs["Strength"].default_value = source.get("lighting", {}).get("ambientStrength", 0.45)
     return scene
 
 
-def environment(source):
+def hdri_lighting(source, samples_root):
+    specification = source.get("lighting", {}).get("hdri")
+    if not specification:
+        return
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from film.material_assets import validate_hdri_asset
+    from film.polyhaven import validate_hdri
+    asset = validate_hdri_asset(specification["asset"])
+    path = verified_asset_record(asset, samples_root.resolve(), "HDRI")
+    validate_hdri(path.read_bytes())
+    image = bpy.data.images.load(str(path), check_existing=False)
+    image.colorspace_settings.name = "Linear Rec.709"
+    image.pack()
+    world = bpy.context.scene.world
+    world.use_nodes = True
+    nodes, links = world.node_tree.nodes, world.node_tree.links
+    background = nodes.get("Background")
+    output = nodes.get("World Output")
+    texture = nodes.new("ShaderNodeTexEnvironment")
+    texture.name = "HDRI / environment"
+    texture.image = image
+    texture.projection = "EQUIRECTANGULAR"
+    coordinates = nodes.new("ShaderNodeTexCoord")
+    mapping = nodes.new("ShaderNodeMapping")
+    mapping.vector_type = "VECTOR"
+    # The editor's positive canonical-Y environment rotation is an inverse
+    # lookup rotation. Canonical Y becomes Blender Z without another handedness flip.
+    mapping.inputs["Rotation"].default_value[2] = -math.radians(specification["rotationDeg"])
+    links.new(coordinates.outputs["Generated"], mapping.inputs["Vector"])
+    links.new(mapping.outputs["Vector"], texture.inputs["Vector"])
+    illuminated = nodes.new("ShaderNodeBackground")
+    illuminated.name = "HDRI / lighting intensity"
+    illuminated.inputs["Strength"].default_value = specification["intensity"]
+    links.new(texture.outputs["Color"], illuminated.inputs["Color"])
+    camera = nodes.new("ShaderNodeLightPath")
+    mix = nodes.new("ShaderNodeMixShader")
+    mix.name = "HDRI / keep authored camera background"
+    links.new(camera.outputs["Is Camera Ray"], mix.inputs[0])
+    links.new(illuminated.outputs["Background"], mix.inputs[1])
+    links.new(background.outputs["Background"], mix.inputs[2])
+    links.new(mix.outputs["Shader"], output.inputs["Surface"])
+    world["hdri_source"] = specification.get("sourceUrl", "")
+    world["hdri_policy"] = "Lighting and reflections only; authored camera background preserved"
+
+
+def environment(source, samples_root=None):
     """Build only explicit near-field geometry plus the common studio lights."""
+    if source.get("lighting", {}).get("hdri"):
+        if samples_root is None:
+            raise ValueError("HDRI requires the sampled scene asset bundle")
+        hdri_lighting(source, samples_root)
     plinth = source["environment"]["plinth"]
-    porcelain = material("Set / warm matte porcelain", (0.56, 0.54, 0.49, 1), 0.58)
-    obj = primitive(plinth["id"], "box", plinth["sizeM"], porcelain, 0.004)
-    obj.location = blender_position(plinth["translationM"])
+    if plinth.get("visible", True):
+        porcelain = specified_material("Set / plinth surface", plinth["material"], samples_root) if "material" in plinth else material("Set / warm matte porcelain", (0.56, 0.54, 0.49, 1), 0.58)
+        obj = primitive(plinth["id"], "box", plinth["sizeM"], porcelain, min(0.004, min(plinth["sizeM"]) / 2))
+        obj.location = blender_position(plinth["translationM"])
     for prop in source["environment"].get("props", []):
         if bpy.data.objects.get(prop["id"]):
             raise ValueError(f"Near-field prop ID collides with an existing object: {prop['id']}")
-        obj = primitive(prop["id"], prop["shape"], prop["sizeM"], specified_material(prop["id"] + " / surface", prop["material"]), prop.get("bevelM", 0))
+        if prop["shape"] == "mesh":
+            if samples_root is None:
+                raise ValueError("Mesh props require the sampled scene asset bundle")
+            intrinsic = prop["asset"]["sourceDimensionsM"]
+            source_component = dict(prop, sizeM=intrinsic)
+            obj, details = product_mesh(source_component, samples_root)
+            sx, sy, sz = [prop["sizeM"][axis]/intrinsic[axis] for axis in range(3)]
+            obj.scale = (sx, sz, sy)
+        else:
+            obj = primitive(prop["id"], prop["shape"], prop["sizeM"], specified_material(prop["id"] + " / surface", prop["material"], samples_root), prop.get("bevelM", 0))
         obj.location = blender_position(prop["translationM"])
         obj.rotation_mode = "QUATERNION"
         obj.rotation_quaternion = blender_rotation(prop["rotationXyzw"])
@@ -205,6 +512,11 @@ def environment(source):
         floor = bpy.data.objects.new("Set / curved studio sweep", mesh)
         bpy.context.collection.objects.link(floor)
         floor.data.materials.append(material("Set / warm gray background", (0.26, 0.28, 0.26, 1), 0.72))
+    if "lighting" in source:
+        for light in source["lighting"]["lights"]:
+            if light["enabled"]:
+                area_light("Studio / " + light["name"], blender_position(light["positionM"]), blender_position(light["targetM"]), light["powerW"], light["diameterM"], light["color"])
+        return
     # Scale illumination with the product, keeping intensity stable for metre units.
     size = max(source["product"]["dimensionsM"])
     scale = size / 0.12
@@ -396,8 +708,13 @@ def product_mesh(component, samples_root):
     meshes = [obj for obj in imported if obj.type == "MESH"]
     override = component.get("materialOverride", False)
     if override:
-        surface = specified_material(component["id"] + " / surface", component["material"])
+        surface = specified_material(component["id"] + " / surface", component["material"], samples_root)
         for obj in meshes:
+            if component["material"].get("textures") and obj.data.uv_layers.active:
+                # Blender flips glTF UV V on import. Restore raw source UVs for
+                # editor-applied maps, including the tangent-space normal basis.
+                for loop in obj.data.uv_layers.active.data:
+                    loop.uv.y = 1 - loop.uv.y
             obj.data.materials.clear()
             obj.data.materials.append(surface)
             for polygon in obj.data.polygons:
@@ -430,6 +747,9 @@ def plate_compositor(source, frames, requested, samples_root, output_root, scene
         raise ValueError("Gaussian capture manifest resolution does not match the render profile")
     if profile.get("colorSpace") != "srgb" or profile.get("toneMapping") != "none" or profile.get("contents") != "gaussian-world-only":
         raise ValueError("Gaussian plate capture must contain only the world, with sRGB output and no tone mapping")
+    if any(sample["camera"].get("depthOfField", {}).get("enabled", False) for sample in frames):
+        if profile.get("depthOfField") != "sampled-camera":
+            raise ValueError("Gaussian plates with optical focus require sampled-camera depth of field capture")
     for frame in required:
         path = (samples_root / "plate" / f"{frame:06d}.png").resolve()
         if not path.is_relative_to(samples_root) or not path.is_file():
@@ -474,6 +794,17 @@ def plate_compositor(source, frames, requested, samples_root, output_root, scene
     return {"directory": "plate", "sequenceRelativeToBlend": image.filepath, "validatedFrames": required, "captureManifestVerified": True, "sourceDigest": digest, "colorSpace": "sRGB plate decoded to linear; AgX applied once after compositing", "captureToneMapping": "none", "sequenceStartFrame": first_frame}
 
 
+def keyframe_camera_optics(camera_data, values, frame):
+    """Apply the sampled optical lens once, inside Cycles rather than in composite."""
+    optics = values.get("depthOfField", {})
+    camera_data.dof.use_dof = optics.get("enabled", False)
+    camera_data.dof.aperture_fstop = optics.get("fStop", 2.8)
+    camera_data.dof.focus_object = None
+    camera_data.dof.focus_distance = optics.get("focusDistanceM", math.dist(values["positionM"], values["targetM"]))
+    for property_name in ("use_dof", "aperture_fstop", "focus_distance"):
+        camera_data.keyframe_insert(data_path=f"dof.{property_name}", frame=frame, group="Sampled optical focus")
+
+
 def animate(source, frames, objects):
     scene = bpy.context.scene
     camera_data = bpy.data.cameras.new("Camera / sampled 36mm vertical gate")
@@ -495,6 +826,9 @@ def animate(source, frames, objects):
         for component_id, obj in objects.items():
             transform = sample["components"][component_id]
             obj.location = blender_position(transform["translationM"])
+            # Pose the rigid component root; GLB hierarchy, label typography and
+            # decals inherit scale without changing their source local geometry.
+            obj.scale = (transform.get("scale", 1),) * 3
             rotation = blender_rotation(transform["rotationXyzw"])
             # Quaternion sign is arbitrary; keep neighbouring samples continuous.
             if component_id in previous_rotations and rotation.dot(previous_rotations[component_id]) < 0:
@@ -504,6 +838,7 @@ def animate(source, frames, objects):
             obj.rotation_quaternion = rotation
             obj.keyframe_insert(data_path="location", frame=frame, group="Sampled world transform")
             obj.keyframe_insert(data_path="rotation_quaternion", frame=frame, group="Sampled world transform")
+            obj.keyframe_insert(data_path="scale", frame=frame, group="Sampled world transform")
         values = sample["camera"]
         camera.location = blender_position(values["positionM"])
         direction = Vector(blender_position(values["targetM"])) - camera.location
@@ -515,6 +850,7 @@ def animate(source, frames, objects):
         previous_camera_rotation = rotation.copy()
         camera.rotation_quaternion = rotation
         camera_data.lens = values["focalLengthMm"]
+        keyframe_camera_optics(camera_data, values, frame)
         camera.keyframe_insert(data_path="location", frame=frame, group="Sampled camera")
         camera.keyframe_insert(data_path="rotation_quaternion", frame=frame, group="Sampled camera")
         camera_data.keyframe_insert(data_path="lens", frame=frame)
@@ -577,16 +913,17 @@ def main():
         if component["shape"] == "mesh":
             obj, details = product_mesh(component, args.samples.parent)
         else:
-            surface = specified_material(component["id"] + " / surface", component["material"])
+            surface = specified_material(component["id"] + " / surface", component["material"], args.samples.parent)
             obj = primitive(component["id"], component["shape"], component["sizeM"], surface, component.get("bevelM", 0))
             details = {"id": component["id"], "shape": component["shape"], "materialSource": "declared"}
         objects[component["id"]] = obj
         product_components.append(details)
     label = source["product"].get("label")
-    if label:
+    if label and not any(decal["componentId"] == label["componentId"] for decal in source["product"].get("decals", [])):
         component = next(item for item in source["product"]["components"] if item["id"] == label["componentId"])
         text_on_label(objects[label["componentId"]], label, component["sizeM"])
-    environment(source)
+    decal_details = product_decals(source, objects, args.samples.parent, args.output)
+    environment(source, args.samples.parent)
     animate(source, frames, objects)
     kind = source["environment"]["kind"]
     world_details = {}
@@ -603,6 +940,7 @@ def main():
             limitations.extend([
                 "Gaussian world is a camera-matched color plate, not native Cycles splat geometry or shading.",
                 "No splat depth: the distant plate cannot occlude product or near-field geometry.",
+                "Optical focus is sampled separately: Spark focuses Gaussian depth in the plate; Cycles focuses foreground geometry. No second blur is applied after compositing, and cross-boundary occlusion remains unavailable.",
                 "No world-plate glass transmission, refraction, reflection, indirect illumination or shadow equivalence; Cycles sees only explicit near-field geometry and the declared world color.",
                 "Keep plate/ with scene.blend: the captured frame sequence remains an external dependency of the saved native scene.",
             ])
@@ -617,6 +955,7 @@ def main():
     scene["source_scene_id"] = source["sceneId"]
     scene["coordinate_conversion"] = "Canonical metres Y-up (x,y,z) -> Blender metres Z-up (x,-z,y)"
     scene["camera_gate"] = "36 mm vertical sensor; sampled position, target, focal length"
+    scene["camera_focus"] = "Per-shot aperture; sampled axial focus distance; circular Cycles aperture; disabled by default"
     scene["interpolation"] = "CONSTANT: all integer frame poses are sampled and keyed"
     render_config = {
         "adapterVersion": 3,
@@ -632,13 +971,17 @@ def main():
         "viewTransform": scene.view_settings.view_transform,
         "look": scene.view_settings.look,
         "cameraGate": {"fit": "VERTICAL", "heightMm": 36},
+        "depthOfField": {"policy": "sampled-camera", "renderer": "cycles-lens", "compositeBlur": False,
+                         "enabledFrames": [sample["frame"] for sample in frames if sample["camera"].get("depthOfField", {}).get("enabled", False)]},
         "typography": {"font": "Bfont Regular", "source": "Blender 4.3.2 builtin"},
         "productComponents": product_components,
+        "decals": decal_details,
         "renderingPath": {"authored": "authored-cycles", "mesh": "visual-glb-cycles", "splat": "gaussian-plate-cycles-foreground"}[kind],
         "limitations": limitations,
         "environment": {"kind": kind, "revisionId": source["environment"]["revisionId"], "asset": source["environment"].get("asset"), "provenance": source["environment"]["provenance"], "fixture": source["environment"].get("fixture", False), "reviewStatus": source["environment"].get("reviewStatus"), "details": world_details},
         "nearField": {"plinth": source["environment"]["plinth"], "props": source["environment"].get("props", [])},
         "coordinateConversion": {"from": "right-handed Y-up metres", "to": "right-handed Z-up metres", "position": "(x,-z,y)"},
+        "lightingSource": source.get("lighting", {"preset": "legacy studio", "ambientStrength": 0.45}),
         "lighting": [
             {"name": obj.name, "positionM": list(obj.location), "powerW": obj.data.energy, "diameterM": obj.data.size, "color": list(obj.data.color)}
             for obj in scene.objects if obj.type == "LIGHT"

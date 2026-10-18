@@ -1,0 +1,38 @@
+/* The camera gate is a measurement of the rendered output, not a second window. */
+.gesso-film-viewport-controls{position:absolute;inset:0;z-index:3;pointer-events:none;font:400 12px/18px var(--gesso-font-text);color:var(--gesso-text-primary)}
+.gesso-film-gate{position:absolute;border:.5px solid #fff9;box-shadow:0 0 0 .5px #0005}
+.gesso-film-gate-corner{position:absolute;width:12px;height:12px;border:solid #fff;border-width:0;filter:drop-shadow(0 .5px .5px #0008)}
+.gesso-film-gate-corner.tl{left:-.5px;top:-.5px;border-left-width:1px;border-top-width:1px}.gesso-film-gate-corner.tr{right:-.5px;top:-.5px;border-right-width:1px;border-top-width:1px}.gesso-film-gate-corner.bl{left:-.5px;bottom:-.5px;border-left-width:1px;border-bottom-width:1px}.gesso-film-gate-corner.br{right:-.5px;bottom:-.5px;border-right-width:1px;border-bottom-width:1px}
+.gesso-film-thirds{position:absolute;inset:0;overflow:hidden}.gesso-film-thirds span::before,.gesso-film-thirds span::after{content:'';position:absolute;background:#fff6;box-shadow:0 0 0 .5px #0003}.gesso-film-thirds span::before{top:0;bottom:0;width:.5px;left:calc(var(--third)*100%/3)}.gesso-film-thirds span::after{left:0;right:0;height:.5px;top:calc(var(--third)*100%/3)}
+.gesso-film-format{position:absolute;pointer-events:auto;z-index:3;max-width:calc(100% - 32px)}
+.gesso-film-format>summary{position:absolute;bottom:0;left:0;display:flex;align-items:center;gap:8px;min-height:22px;padding:1px 6px 3px;background:var(--gesso-surface-action);color:var(--gesso-text-on-action);white-space:nowrap;list-style:none;cursor:pointer;font:400 12px/18px var(--gesso-font-text);border-radius:2px 2px 0 0}
+.gesso-film-format>summary::-webkit-details-marker{display:none}.gesso-film-format>summary:focus-visible{outline-color:var(--gesso-border-control)}
+.gesso-film-format>summary .gesso-film-frame-size{font-size:11px;color:#626262}.gesso-film-format[open]>summary .gesso-ui-icon{transform:rotate(180deg)}
+.gesso-film-format-panel{display:flex;width:306px;max-width:calc(100vw - 64px);padding:16px;gap:8px;background:var(--gesso-surface-chrome);border:1px solid var(--gesso-border-control);border-radius:0 4px 4px 4px;box-shadow:0 4px 12px #0002;animation:gesso-film-guide-in 160ms ease-out}
+.gesso-film-format-panel .gesso-check{padding-left:0;padding-right:0;margin:0}
+.gesso-film-formats{display:flex;gap:4px;margin-bottom:4px}.gesso-film-formats>button{flex:1;min-width:0;min-height:28px;padding:3px 8px 5px;border-color:transparent;color:var(--gesso-text-secondary)}.gesso-film-formats>button[aria-pressed=true]{color:var(--gesso-text-primary);background:var(--gesso-surface-selected)}
+.gesso-film-target{position:absolute;width:0;height:0;color:#fff;filter:drop-shadow(0 1px 1px #0008)}
+.gesso-film-target-handle{position:absolute;left:-24px;top:-24px;width:48px;height:48px;min-height:48px;padding:0;background:transparent!important;border:0;border-radius:50%;pointer-events:auto;touch-action:none;cursor:move;color:#fff;outline-offset:2px}
+.gesso-film-target-handle>span{position:absolute;left:1px;top:1px;width:46px;height:46px;border:1px solid currentColor;border-radius:50%;transition:background-color 160ms ease,border-color 160ms ease}
+.gesso-film-target-handle>i::before,.gesso-film-target-handle>i::after{content:'';position:absolute;left:50%;top:50%;background:currentColor;transform:translate(-50%,-50%)}.gesso-film-target-handle>i::before{width:10px;height:1px}.gesso-film-target-handle>i::after{width:1px;height:10px}
+.gesso-film-target-handle:hover:not(:disabled)>span,.gesso-film-target-handle:focus-visible>span,.is-dragging .gesso-film-target-handle>span{background:#fff1}.gesso-film-target-handle:disabled{color:#fffa;cursor:default;pointer-events:none}
+.gesso-film-target-label{position:absolute;left:23px;top:-9px;display:flex;gap:8px;white-space:nowrap;font:400 11px/16px var(--gesso-font-text)}.gesso-film-target-label>span{color:#fffc}
+.gesso-film-control-rail{position:absolute;left:24px;right:24px;bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;pointer-events:none}
+.gesso-film-control-rail>:not(.gesso-film-target-hint){pointer-events:auto}
+.gesso-film-aim-control{display:flex;align-items:center;gap:8px;height:32px;padding:0 0 0 8px;border-radius:4px;background:var(--gesso-surface-chrome);box-shadow:inset 0 0 0 1px var(--gesso-border-control)}
+.gesso-film-aim-control>label{font-size:12px;color:var(--gesso-text-secondary)}.gesso-film-aim-control>select{width:112px;height:30px;padding:2px 0;border:0;min-width:0;background:transparent;font-size:12px}.gesso-film-aim-control>button{min-height:32px;border-color:transparent;border-left-color:var(--gesso-border-subtle);border-radius:0 4px 4px 0}
+.gesso-film-lens-control{width:196px;gap:0;flex:none;margin-left:auto}.gesso-film-control-rail .gesso-control-row{background:var(--gesso-surface-chrome)}
+.gesso-film-end-controls{display:flex;gap:4px;padding:0 4px;background:var(--gesso-surface-chrome);border-radius:4px;box-shadow:inset 0 0 0 1px var(--gesso-border-control)}.gesso-film-end-controls>button{height:32px;min-height:32px;display:flex;align-items:center;gap:8px;border-color:transparent;padding:3px 8px 5px;color:var(--gesso-text-secondary)}.gesso-film-end-controls>button[aria-pressed=true]{color:var(--gesso-text-primary);background:var(--gesso-surface-selected)}.gesso-film-end-controls>button>span{font-size:11px;color:var(--gesso-text-muted)}
+.gesso-film-target-hint{margin:0;flex:0 0 100%;font:400 11px/16px var(--gesso-font-text);color:#fff;text-shadow:0 1px 2px #000,0 0 5px #0008}.gesso-film-target-hint [role=alert]{color:var(--gesso-signal-error)}
+.gesso-film-viewport-controls[data-compact=true] .gesso-film-control-rail{left:16px;right:16px;gap:4px 8px}.gesso-film-viewport-controls[data-compact=true] .gesso-film-lens-control{width:184px}.gesso-film-viewport-controls[data-compact=true] .gesso-film-end-controls{margin-left:auto}.gesso-film-viewport-controls[data-compact=true] .gesso-film-frame-size{display:none}
+@keyframes gesso-film-guide-in{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.gesso-film-format-panel{animation:none}.gesso-film-target-handle>span{transition:none}}
+
+.gesso-film-focus{position:relative;flex:none;background:var(--gesso-surface-chrome);border-radius:4px;box-shadow:inset 0 0 0 1px var(--gesso-border-control)}
+.gesso-film-focus>summary{display:flex;align-items:center;gap:8px;min-height:32px;padding:3px 8px 5px;font:400 12px/18px var(--gesso-font-text);list-style:none;cursor:pointer}.gesso-film-focus>summary::-webkit-details-marker{display:none}.gesso-film-focus>summary>span:nth-child(2){font-size:11px;color:var(--gesso-text-secondary)}.gesso-film-focus[open]>summary>.gesso-ui-icon{transform:rotate(180deg)}
+.gesso-film-focus-panel{position:absolute;right:0;bottom:calc(100% + 4px);display:flex;width:274px;padding:12px;gap:8px;background:var(--gesso-surface-chrome);border:1px solid var(--gesso-border-control);border-radius:4px;box-shadow:0 4px 12px #0002;animation:gesso-film-guide-in 160ms ease-out}.gesso-film-focus-panel .gesso-check{padding:0;min-height:24px}
+.gesso-film-viewport-controls[data-compact=true] .gesso-film-focus{position:static}
+.gesso-film-viewport-controls[data-compact=true] .gesso-film-focus-panel{right:0;max-width:100%}
+@media(prefers-reduced-motion:reduce){.gesso-film-focus-panel{animation:none}}
+
+.with-film-guides .gesso-view-toolbar{top:16px;bottom:auto;left:24px;right:24px}

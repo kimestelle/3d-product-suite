@@ -155,7 +155,9 @@ class EditorApiTests(unittest.TestCase):
         self.assertEqual(value["digest"], scene_digest(project["scene"]))
         self.assertEqual(len(value["frames"]), 360)
         self.assertEqual(value["frames"][0]["frame"], 1)
-        self.assertEqual(value["frames"][0]["camera"], project["scene"]["shots"][0]["camera"]["from"])
+        pose = project["scene"]["shots"][0]["camera"]["from"]
+        self.assertEqual({key: value["frames"][0]["camera"][key] for key in pose}, pose)
+        self.assertFalse(value["frames"][0]["camera"]["depthOfField"]["enabled"])
         self.assertEqual(value["frames"][-1]["frame"], 360)
 
     def test_world_import_validates_bytes_and_exposes_only_hash_named_assets(self):

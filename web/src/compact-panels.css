@@ -1,0 +1,52 @@
+/* Shared rails keep the selected object and ordinary controls visible together. */
+.gesso-vector-inline .gesso-vector-values{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
+.gesso-vector-inline .gesso-control-compact{grid-template-columns:13px minmax(0,1fr);gap:2px;padding:0 5px;position:relative}
+.gesso-vector-inline .gesso-control-label{font-size:11px;color:var(--muted)}
+.gesso-panel .gesso-vector-inline input.gesso-control-value{font-size:12px;appearance:auto;min-width:0;width:100%;text-align:right}
+.gesso-vector-inline .gesso-control-unit{position:absolute;clip-path:inset(50%);height:1px;width:1px;overflow:hidden}
+.gesso-vector-inline .gesso-control-value::-webkit-inner-spin-button,.gesso-vector-inline .gesso-control-value::-webkit-outer-spin-button{appearance:auto;margin:0}
+.gesso-compact-panel{gap:12px}
+.gesso-panel .gesso-inline-field{display:grid;grid-template-columns:42px minmax(0,1fr);align-items:center;gap:6px}
+.gesso-inline-field>span{font-size:12px}
+.gesso-compact-panel .gesso-control-row:not(.gesso-control-compact){grid-template-columns:minmax(0,1fr) 58px 36px 24px 24px;padding-left:8px}
+.gesso-compact-panel .gesso-control-step{width:24px}
+.gesso-compact-panel .gesso-button-row{gap:4px}
+.gesso-compact-panel .gesso-button-row>button{font-size:12px;white-space:nowrap;gap:5px}
+.gesso-compact-details>summary{font-size:12px;line-height:18px;min-height:24px;padding:3px 0;color:var(--muted)}
+.gesso-compact-details[open]>summary{margin-bottom:4px}
+.gesso-compact-details>.gesso-section{padding:2px 0 6px}
+.gesso-bounded-shot-list{max-height:96px;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;margin:0}
+.gesso-bounded-shot-list>button{flex:0 0 auto;min-height:28px;gap:8px;font-size:12px;padding:3px 8px}
+.gesso-bounded-shot-list>button>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gesso-bounded-shot-list small{white-space:nowrap;flex:0 0 auto}
+.gesso-bounded-jobs{max-height:200px;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.gesso-camera-scope{padding-bottom:4px}
+.gesso-camera-scope button[aria-pressed=true],.gesso-lens-presets button[aria-pressed=true]{color:#fff;background:#414141}
+@media (max-height:800px){.gesso-compact-panel{gap:8px}.gesso-bounded-shot-list{max-height:64px}}
+
+.gesso-section-toolbar{gap:4px;min-height:28px}.gesso-section-toolbar>span{flex:1;min-width:0}.gesso-section-toolbar>button{font-size:12px;flex:0 0 auto}
+
+/* Film uses the same bounded section rail as Product; its headers and export action stay visible. */
+.gesso-panel.gesso-film-panel{display:flex;flex-direction:column;min-height:0;flex:1;gap:6px}
+.gesso-film-panel>.gesso-film-scope,.gesso-film-panel>.gesso-film-render,.gesso-film-panel>.gesso-render-jobs,.gesso-film-panel>.gesso-error{flex-shrink:0}
+.gesso-film-panel .gesso-film-scope .gesso-field{margin-bottom:0}
+.gesso-film-panel .gesso-section-body>.gesso-panel{flex-shrink:0}
+.gesso-camera-embedded{gap:6px}
+.gesso-camera-embedded .gesso-field{margin-bottom:0}
+.gesso-camera-aimrow{display:grid;grid-template-columns:minmax(0,1fr) 42px;align-items:center;gap:5px}
+.gesso-camera-aimrow>.gesso-inline-field{grid-template-columns:28px minmax(0,1fr)}
+.gesso-camera-aimrow>button{padding:3px 5px;font-size:12px}
+.gesso-camera-embedded .gesso-vector-inline{display:flex;flex-direction:column;gap:3px;align-items:stretch}
+.gesso-camera-embedded .gesso-vector-inline>.gesso-section-heading{font-size:12px;line-height:16px;display:flex;white-space:nowrap}
+.gesso-camera-embedded .gesso-vector-inline>.gesso-section-heading>span{font-size:11px;color:var(--muted)}
+.gesso-camera-embedded .gesso-vector-values{gap:3px}
+.gesso-camera-embedded .gesso-vector-inline .gesso-control-compact{padding:0 3px;grid-template-columns:10px minmax(0,1fr);gap:1px}
+.gesso-camera-embedded .gesso-vector-inline .gesso-control-value{font-size:12px}
+.gesso-camera-options>summary{display:flex;align-items:center;justify-content:space-between;gap:5px}
+.gesso-camera-options>summary>span{font-size:10px;color:var(--muted)}
+.gesso-camera-edit-scope{font-size:11px;line-height:15px}
+.gesso-film-render{padding-top:5px}
+.gesso-film-render-button{width:100%;min-height:34px}
+.gesso-film-panel .gesso-bounded-jobs{max-height:min(160px,24vh)}
+
+@media(max-height:740px){.gesso-film-panel .gesso-control-section,.gesso-film-panel .gesso-control-section.is-open{min-height:32px}.gesso-film-panel .gesso-control-section>.gesso-section-toggle{min-height:32px;padding-top:6px;padding-bottom:6px}}

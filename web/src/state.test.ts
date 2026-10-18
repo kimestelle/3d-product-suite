@@ -85,3 +85,6 @@ describe('scene document history', () => {
     }
   });
 });
+
+import { equalJson } from './state';
+it('ignores server key ordering without ignoring array order or values',()=>{expect(equalJson({product:{name:'a'},editorHierarchy:{version:1}},{editorHierarchy:{version:1},product:{name:'a'}})).toBe(true);expect(equalJson([1,2],[2,1])).toBe(false);expect(equalJson({a:1},{a:2})).toBe(false);expect(equalJson({a:null},{})).toBe(false)});

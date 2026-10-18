@@ -40,6 +40,25 @@ class SceneTests(unittest.TestCase):
         self.assertEqual(self.scene["shots"][-1]["endFrame"], 360)
         self.assertEqual(self.scene["render"]["fps"], 24)
 
+    def test_hidden_plinth_preserves_support_placement(self):
+        self.scene["environment"]["plinth"].update(translationM=[.2, -.115, .3], sizeM=[.4, .07, .4])
+        visible = evaluate(self.scene, 1)
+        self.scene["environment"]["plinth"]["visible"] = False
+        self.assertIs(validate_scene(self.scene), self.scene)
+        self.assertEqual(evaluate(self.scene, 1), visible)
+        self.assertAlmostEqual(visible["components"]["bottle-body"]["translationM"][1],
+                               self.component("bottle-body")["assembly"]["translationM"][1] - .08)
+        self.scene["environment"]["plinth"]["visible"] = True
+        self.assertIs(validate_scene(self.scene), self.scene)
+        self.assertEqual(evaluate(self.scene, 1), visible)
+
+    def test_plinth_visibility_must_be_a_boolean(self):
+        for value in (None, 0, 1, "false", [], {}):
+            with self.subTest(value=value):
+                self.scene["environment"]["plinth"]["visible"] = value
+                with self.assertRaisesRegex(ValueError, "Plinth visible must be boolean"):
+                    validate_scene(self.scene)
+
     def test_digest_is_canonical_and_detects_revision_changes(self):
         reordered = dict(reversed(list(self.scene.items())))
         self.assertEqual(scene_digest(self.scene), scene_digest(reordered))
@@ -131,13 +150,13 @@ class SceneTests(unittest.TestCase):
                 with self.subTest(frame=frame):
                     sample = evaluate(self.scene, frame)
                     self.assertEqual(sample["shotId"], shot["id"])
-                    self.assertEqual(sample["camera"], shot["camera"][endpoint])
+                    self.assertEqual({key: sample["camera"][key] for key in shot["camera"][endpoint]}, shot["camera"][endpoint])
         self.assertNotEqual(evaluate(self.scene, 120)["camera"], evaluate(self.scene, 121)["camera"])
 
     def test_single_frame_shot_uses_from_camera(self):
         shot = self.short_shot(frames=1)
         validate_scene(self.scene)
-        self.assertEqual(evaluate(self.scene, 1)["camera"], shot["camera"]["from"])
+        self.assertEqual({key: evaluate(self.scene, 1)["camera"][key] for key in shot["camera"]["from"]}, shot["camera"]["from"])
 
     def test_invalid_frame_numbers_are_rejected(self):
         for frame in (0, -1, 361, 1.0, True, None, "1"):

@@ -136,14 +136,22 @@ assert abs(shader.inputs["IOR"].default_value-1.47)<1e-6
         with tempfile.TemporaryDirectory() as directory:
             temporary = Path(directory)
             payload = self.world_payload(temporary, "ply")
+            optics = {"enabled": True, "fStop": 1.4, "focusDistanceM": .5}
+            payload["scene"]["shots"][0]["camera"]["depthOfField"] = optics
+            payload["frames"][0]["camera"]["depthOfField"] = optics
             samples = self.write_samples(temporary, payload)
             arguments = ("--python", ROOT / "scripts/blender_scene.py", "--", "--samples", samples,
                          "--output", temporary, "--frames", "1,240", "--width", 72, "--height", 128, "--samples-per-pixel", 2)
             self.run_blender(*arguments, error="require plate/capture-manifest.json")
-            self.write_plate_manifest(temporary, payload, {1: (120, 25, 10), 240: (10, 25, 120)})
+            manifest = self.write_plate_manifest(temporary, payload, {1: (120, 25, 10), 240: (10, 25, 120)})
+            self.run_blender(*arguments, error="require sampled-camera depth of field capture")
+            manifest["profile"]["depthOfField"] = "sampled-camera"
+            (temporary / "plate/capture-manifest.json").write_text(json.dumps(manifest))
             self.png(temporary / "plate/000240.png", (10, 25, 120), width=74)
             self.run_blender(*arguments, error="plate resolution must match")
-            self.write_plate_manifest(temporary, payload, {1: (120, 25, 10), 240: (10, 25, 120)})
+            manifest = self.write_plate_manifest(temporary, payload, {1: (120, 25, 10), 240: (10, 25, 120)})
+            manifest["profile"]["depthOfField"] = "sampled-camera"
+            (temporary / "plate/capture-manifest.json").write_text(json.dumps(manifest))
             self.run_blender(*arguments)
             config = json.loads((temporary / "render-config.json").read_text())
             self.assertEqual(config["renderingPath"], "gaussian-plate-cycles-foreground")
@@ -175,7 +183,11 @@ assert pixel[2]>pixel[0], pixel
 ''', temporary / "frames")
 
     def test_saved_scene_preserves_every_sampled_pose(self):
-        payload = sample_scene(load_scene(ROOT / "examples" / "bottle.scene.json"))
+        source = load_scene(ROOT / "examples" / "bottle.scene.json")
+        source["shots"][0]["camera"]["depthOfField"] = {"enabled": True, "fStop": 1.4}
+        source["shots"][1]["camera"]["depthOfField"] = {"enabled": True, "fStop": 5.6, "focusDistanceM": .5}
+        # The third shot deliberately omits optics: reopening must restore sharp.
+        payload = sample_scene(source)
         with tempfile.TemporaryDirectory() as temporary:
             temporary = Path(temporary)
             samples = temporary / "samples.json"
@@ -237,6 +249,11 @@ for sample in payload["frames"]:
     forward = scene.camera.matrix_world.to_quaternion() @ Vector((0, 0, -1))
     assert (forward - (target - position).normalized()).length < 1e-6, sample["frame"]
     assert abs(scene.camera.data.lens - camera["focalLengthMm"]) < 1e-4, sample["frame"]
+    optics = camera["depthOfField"]
+    assert scene.camera.data.dof.use_dof == optics["enabled"], sample["frame"]
+    assert scene.camera.data.dof.focus_object is None
+    assert abs(scene.camera.data.dof.focus_distance - optics["focusDistanceM"]) < 1e-6, sample["frame"]
+    assert abs(scene.camera.data.dof.aperture_fstop - optics["fStop"]) < 1e-6, sample["frame"]
 for action in bpy.data.actions:
     for curve in action.fcurves:
         assert all(key.interpolation == "CONSTANT" for key in curve.keyframe_points)

@@ -426,12 +426,26 @@ def verify_scene_assets(scene, source_dir):
     for component in scene.get("product", {}).get("components", []):
         if component.get("shape") == "mesh":
             references.append((validate_product_asset_record(component.get("asset")), component))
+    for prop in environment.get("props", []):
+        if prop.get("shape") == "mesh":
+            asset = validate_product_asset_record(prop.get("asset"))
+            references.append((asset, {"sizeM": asset.get("sourceDimensionsM")}))
+    from .material_assets import iter_material_assets, validate_png, validate_hdri_asset
+    hdri = scene.get("lighting", {}).get("hdri")
+    if hdri:
+        references.append((validate_hdri_asset(hdri.get("asset")), "hdri"))
+    references.extend((asset, "material-image") for asset in iter_material_assets(scene))
     records = {}
     for asset, component in references:
         path = safe_asset_path(source_dir, asset["path"])
         payload = _read_asset(path)
         _require(hashlib.sha256(payload).hexdigest() == asset["sha256"], "Asset hash does not match the immutable scene revision")
-        if component is None:
+        if component == "material-image":
+            metadata = validate_png(payload)
+        elif component == "hdri":
+            from .polyhaven import validate_hdri
+            metadata = validate_hdri(payload)
+        elif component is None:
             metadata = _validate_content(payload, asset["format"])
         else:
             from .products import inspect_product_glb, validate_product_dimensions

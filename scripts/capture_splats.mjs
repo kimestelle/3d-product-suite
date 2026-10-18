@@ -132,6 +132,13 @@ export function requestedFrames(sampled, input) {
       || !Number.isFinite(item.camera.focalLengthMm) || item.camera.focalLengthMm < 1) {
       throw new Error(`Frame ${item.frame} has no valid sampled camera`);
     }
+    const optics = item.camera.depthOfField;
+    if (optics !== undefined && (!optics || typeof optics.enabled !== 'boolean'
+      || !Number.isFinite(optics.fStop) || optics.fStop < .7 || optics.fStop > 32
+      || !Number.isFinite(optics.focusDistanceM) || optics.focusDistanceM <= 0
+      || (optics.enabled && optics.focusDistanceM <= item.camera.focalLengthMm / 1000))) {
+      throw new Error(`Frame ${item.frame} has no valid sampled optical focus`);
+    }
   }
   if (input === undefined) return [...available].sort((a, b) => a - b);
   if (!/^\d+(,\d+)*$/.test(input)) throw new Error('--frames must be comma-separated frame numbers');
@@ -169,7 +176,7 @@ export async function prepareCapture(options) {
     profile: {
       width: options.width, height: options.height, frameNumbers: frames,
       renderer: 'spark', runtimeDigest: await runtimeFingerprint(),
-      colorSpace: 'srgb', toneMapping: 'none', contents: 'gaussian-world-only',
+      colorSpace: 'srgb', toneMapping: 'none', contents: 'gaussian-world-only', depthOfField: 'sampled-camera',
     },
     limitations: ['Background color plates only; no near-field occlusion, reflections, or glass transmission.'],
   };
@@ -343,6 +350,10 @@ export async function capture(options) {
     const response = await page.goto(`${options.origin}/capture`, { waitUntil: 'domcontentloaded', timeout: options.timeout });
     if (!response?.ok()) throw new Error(`Capture route returned HTTP ${response?.status() ?? 'unknown'}. Build web/dist and start python -m film serve.`);
     await page.waitForFunction(() => typeof window.productSuiteCapture?.load === 'function' && typeof window.productSuiteCapture?.frame === 'function');
+    if (sampled.frames.some(item => item.camera.depthOfField?.enabled)
+        && await page.evaluate(() => window.productSuiteCapture.depthOfField) !== 'sampled-camera') {
+      throw new Error('The capture renderer does not support sampled optical focus. Rebuild web/dist and reload the server.');
+    }
     await withTimeout(page.evaluate((payload) => window.productSuiteCapture.load(payload), {
       scene: sampled.scene, frames: sampled.frames, width: options.width, height: options.height, assetUrl: options.assetUrl,
     }), options.timeout, 'Gaussian world load');

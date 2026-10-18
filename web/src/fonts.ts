@@ -11,3 +11,13 @@ export async function loadStudioFonts() {
     document.fonts.add(await face.load());
   }));
 }
+
+// Local Halyard is the interface face; product artwork keeps its packaged font.
+export async function loadInterfaceFonts() {
+  await Promise.allSettled([
+    document.fonts.load('400 13px "Halyard Text"'),
+    document.fonts.load('500 14px "Halyard Text"'),
+    document.fonts.load('500 32px "Halyard Display"'),
+  ]);
+  await document.fonts.ready;
+}

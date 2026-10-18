@@ -1,0 +1,9 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Icon / unavailable">
+<mask id="stroke0_0_6" fill="white">
+<path d="M6 10.5C8.48528 10.5 10.5 8.48528 10.5 6C10.5 3.51472 8.48528 1.5 6 1.5C3.51472 1.5 1.5 3.51472 1.5 6C1.5 8.48528 3.51472 10.5 6 10.5Z"/>
+</mask>
+<path id="Vector" d="M10.5 6C10.5 8.48528 8.48528 10.5 6 10.5C3.51472 10.5 1.5 8.48528 1.5 6C1.5 3.51472 3.51472 1.5 6 1.5C8.48528 1.5 10.5 3.51472 10.5 6Z" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" stroke="#626262" mask="url(#stroke0_0_6)"/>
+<path id="Vector_2" d="M2.8 2.8L9.2 9.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke="#626262"/>
+</g>
+</svg>

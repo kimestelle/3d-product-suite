@@ -1,0 +1,32 @@
+/* Figma Field: 32 high, 4 / 8 padding, 8 gap, one-pixel label/value baseline offset. */
+.gesso-studio .gesso-number-control{min-width:0;flex-shrink:0}
+.gesso-studio .gesso-control-row{display:flex;align-items:center;gap:8px;min-width:0;height:var(--gesso-control-height,32px);padding:4px 8px;border:0;border-radius:var(--gesso-radius-control,4px);background:var(--gesso-surface-field,#242424);box-shadow:inset 0 0 0 1px var(--gesso-border-control,#626262)}
+.gesso-studio .gesso-control-main{display:flex;align-items:center;flex:1 1 0;min-width:0;gap:8px;padding-bottom:1px}
+.gesso-studio .gesso-control-label{display:flex;align-items:center;flex:1 1 0;min-width:0;height:20px;color:var(--gesso-text-secondary,#aaa9a7);font:400 12px/18px var(--gesso-font-text,'Halyard Text',sans-serif);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.gesso-studio .gesso-panel input.gesso-control-value{flex:0 0 56px;width:56px;min-width:0;height:18px;padding:0;border:0;border-radius:0;outline:none;box-shadow:none;background:transparent;color:var(--gesso-text-primary,#f5f5f3);text-align:right;appearance:textfield;font:400 13px/18px var(--gesso-font-text,'Halyard Text',sans-serif);font-variant-numeric:tabular-nums}
+.gesso-studio .gesso-control-unit{position:static;flex:0 0 20px;width:20px;height:16px;padding:0;color:var(--gesso-text-muted,#858585);font:400 11px/16px var(--gesso-font-text,'Halyard Text',sans-serif);overflow:visible;clip-path:none}
+.gesso-studio .gesso-control-tools{display:flex;align-items:center;justify-content:center;gap:8px;flex:0 0 40px;width:40px;height:20px;color:var(--gesso-text-secondary,#aaa9a7)}
+.gesso-studio .gesso-control-step{display:grid;place-items:center;position:relative;width:12px;min-width:12px;flex:0 0 12px;height:20px;min-height:20px;padding:0;border:0;border-radius:2px;background:transparent;box-shadow:none;color:var(--gesso-text-secondary,#aaa9a7)}
+.gesso-studio .gesso-control-step::before{content:'';position:absolute;inset:-2px -4px}
+.gesso-studio .gesso-control-step:hover:not(:disabled){background:transparent;color:var(--gesso-text-primary,#f5f5f3)}
+.gesso-studio .gesso-control-step:disabled{opacity:1;color:var(--gesso-text-disabled,#626262)}
+.gesso-studio .gesso-control-row:hover:not([data-state=readonly]):not([data-state=disabled]):not(:has(input:disabled)){background:var(--gesso-surface-hover,#2c2c2c)}
+.gesso-studio .gesso-control-row:focus-within{box-shadow:inset 0 0 0 2px var(--gesso-border-focus,#f5f5f3)}
+.gesso-studio .gesso-control-row[data-state=invalid]{box-shadow:inset 0 0 0 1px var(--gesso-signal-error,#ff968b)}
+.gesso-studio .gesso-control-row[data-state=invalid]:focus-within{box-shadow:inset 0 0 0 2px var(--gesso-signal-error,#ff968b)}
+.gesso-studio .gesso-control-row[data-state=invalid] .gesso-control-tools{color:var(--gesso-signal-error,#ff968b)}
+.gesso-studio .gesso-control-error{margin:4px 8px 0;color:var(--gesso-signal-error,#ff968b);font:400 11px/16px var(--gesso-font-text,'Halyard Text',sans-serif)}
+.gesso-studio .gesso-control-row[data-state=readonly]{background:transparent}
+.gesso-studio .gesso-control-row[data-state=readonly] input.gesso-control-value{color:var(--gesso-text-secondary,#aaa9a7)}
+.gesso-studio .gesso-control-row[data-state=disabled],.gesso-studio fieldset:disabled .gesso-control-row{background:transparent;box-shadow:inset 0 0 0 1px var(--gesso-border-subtle,#343434)}
+.gesso-studio .gesso-control-row[data-state=disabled] :is(.gesso-control-label,.gesso-control-value,.gesso-control-unit,.gesso-control-tools),.gesso-studio fieldset:disabled .gesso-control-row :is(.gesso-control-label,.gesso-control-value,.gesso-control-unit,.gesso-control-tools){color:var(--gesso-text-disabled,#626262)}
+.gesso-studio .gesso-vector-inline .gesso-control-compact{display:flex;gap:0;padding:4px 8px;position:relative}
+.gesso-studio .gesso-vector-inline .gesso-control-compact .gesso-control-label{flex:0 0 12px;font-size:12px}
+.gesso-studio .gesso-vector-inline .gesso-control-compact .gesso-control-main{gap:4px;width:100%}
+.gesso-studio .gesso-vector-inline .gesso-control-compact input.gesso-control-value{flex:1 1 0;width:100%;font-size:13px;appearance:textfield}
+.gesso-studio .gesso-vector-inline .gesso-control-unit{position:absolute;clip-path:inset(50%);height:1px;width:1px;overflow:hidden}
+.gesso-studio .gesso-control-value::-webkit-inner-spin-button,.gesso-studio .gesso-control-value::-webkit-outer-spin-button{appearance:none;margin:0}
+.gesso-studio .gesso-tree-toggle{display:grid;place-items:center}
+.gesso-studio .gesso-section-toggle>.gesso-ui-icon{margin-left:auto;flex-shrink:0}
+.gesso-studio .gesso-polyhaven-heading>.gesso-text-button{display:flex;align-items:center;gap:8px}
+.gesso-studio .gesso-uv-heading>button{display:grid;place-items:center}

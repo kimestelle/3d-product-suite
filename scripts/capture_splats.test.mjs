@@ -49,7 +49,7 @@ async function temporary(t) {
 function identity() {
   return {
     schemaVersion: 1, sourceDigest: 'a'.repeat(64), samplesDigest: 'b'.repeat(64), assetSha256: 'c'.repeat(64), assetFormat: 'ply',
-    profile: { width: 2, height: 2, frameNumbers: [1, 2], renderer: 'spark', runtimeDigest: 'd'.repeat(64), colorSpace: 'srgb', toneMapping: 'none', contents: 'gaussian-world-only' },
+    profile: { width: 2, height: 2, frameNumbers: [1, 2], renderer: 'spark', runtimeDigest: 'd'.repeat(64), colorSpace: 'srgb', toneMapping: 'none', contents: 'gaussian-world-only', depthOfField: 'sampled-camera' },
     limitations: ['Background color plates only; no near-field occlusion, reflections, or glass transmission.'],
   };
 }
@@ -127,4 +127,25 @@ test('a directory containing unknown frames cannot establish a new manifest', as
   const directory = await temporary(t);
   await atomicWrite(path.join(directory, '000001.png'), png());
   await assert.rejects(openManifest(directory, identity()), /without a manifest/);
+});
+
+
+test('sampled optical focus validates the physical lens and accepts legacy sharp cameras', () => {
+  const withOptics = optics => ({frames: [{frame: 1, camera: {...camera, depthOfField: optics}}]});
+  assert.deepEqual(requestedFrames(withOptics({enabled: true, fStop: .7, focusDistanceM: .5})), [1]);
+  assert.deepEqual(requestedFrames(withOptics({enabled: false, fStop: 32, focusDistanceM: .5})), [1]);
+  assert.deepEqual(requestedFrames(sampled), [1, 2, 3]);
+  for (const optics of [null, {}, {enabled: 1, fStop: 2.8, focusDistanceM: .5},
+    {enabled: true, fStop: NaN, focusDistanceM: .5}, {enabled: true, fStop: .69, focusDistanceM: .5},
+    {enabled: true, fStop: 33, focusDistanceM: .5}, {enabled: true, fStop: 2.8, focusDistanceM: .05},
+    {enabled: true, fStop: 2.8, focusDistanceM: .03}, {enabled: false, fStop: 2.8, focusDistanceM: Infinity}]) {
+    assert.throws(() => requestedFrames(withOptics(optics)), /optical focus/);
+  }
+});
+
+test('resume refuses a sharp-only capture identity for the optical camera profile', async t => {
+  const directory = await temporary(t), expected = identity();
+  await openManifest(directory, expected);
+  const sharp = structuredClone(expected); delete sharp.profile.depthOfField;
+  await assert.rejects(openManifest(directory, sharp), /differs/);
 });
