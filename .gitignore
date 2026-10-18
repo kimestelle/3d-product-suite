@@ -11,6 +11,7 @@ work/
 workspace-data/
 web/node_modules/
 web/dist/
+web/public/demo/
 web/test-results/
 web/playwright-report/
 .env*

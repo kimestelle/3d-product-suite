@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import type { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
 import { labelGeometry, labelImageDimensions, labelTemplateSvg, type LabelMapping } from './labelMapping';
+import { assetUrl as runtimeAssetUrl } from './runtime';
 
 export type SurfacePointPick = {
   worldPoint: [number, number, number];
@@ -310,7 +311,7 @@ export class StudioViewport {
         || !Number.isInteger(asset.widthPx) || !Number.isInteger(asset.heightPx)) {
       throw new Error('The label must reference a content-addressed PNG or JPEG image.');
     }
-    const response = await fetch(`/api/assets/${asset.sha256}.${asset.format}`, { signal, credentials: 'same-origin' });
+    const response = await fetch(runtimeAssetUrl(asset.path), { signal, credentials: 'same-origin' });
     if (!response.ok) throw new Error(`Could not load label image (${response.status}).`);
     const limit = 8 * 1024 * 1024;
     const declared = response.headers.get('Content-Length');
@@ -766,7 +767,7 @@ export class StudioViewport {
   private assetUrl(asset: any): string {
     const filename = String(asset?.path || '').split('/').pop();
     if (!filename || !/^[a-f0-9]{64}\.(glb|ply|spz)$/.test(filename)) throw new Error('The world asset path is invalid.');
-    return `/api/assets/${filename}`;
+    return runtimeAssetUrl(`assets/${filename}`);
   }
 
   async frame(sample: any): Promise<void> {

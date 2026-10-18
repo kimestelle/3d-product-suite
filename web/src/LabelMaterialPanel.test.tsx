@@ -10,9 +10,9 @@ import LabelMaterialPanel, {
 const asset: TextureAsset = { format: 'png', path: 'assets/' + 'a'.repeat(64) + '.png', sha256: 'a'.repeat(64), widthPx: 1200, heightPx: 600 };
 const file = { name: 'label.png', type: 'image/png', size: 1024 };
 function scene(): any { return structuredClone(fixture); }
-function markup(current: any, selected: string | null = 'product-root') {
+function markup(current: any, selected: string | null = 'product-root', uploadAvailable?: boolean) {
   return renderToStaticMarkup(<LabelMaterialPanel scene={current} selected={selected} onSelect={() => {}}
-    onChange={() => {}} onUpload={async () => asset} onTemplate={() => {}}/>);
+    onChange={() => {}} onUpload={async () => asset} onTemplate={() => {}} uploadAvailable={uploadAvailable}/>);
 }
 function artworkScene() {
   const current = scene();
@@ -153,5 +153,27 @@ describe('material finish controls', () => {
     expect(html).toContain('/api/' + asset.path);
     expect(html).not.toContain('Label transmission');
     expect(JSON.stringify(current)).toBe(before);
+  });
+
+  it('disables backend uploads in the static demo while preserving sample artwork editing and guide downloads', () => {
+    const html = markup(artworkScene(), 'bottle-body', false);
+    const uploadInput = html.match(/<input[^>]*aria-label="Label artwork file"[^>]*>/)?.[0];
+    expect(uploadInput).toContain('disabled=""');
+    expect(uploadInput).toContain('aria-disabled="true"');
+    expect(uploadInput).toContain('aria-describedby=');
+    expect(html).toContain('Image uploads need a connected backend. Try the sample artwork and placement controls.');
+    expect(html).toContain('aria-label="Label placement preview"');
+    expect(html).toMatch(/<select aria-label="Artwork mapping">/);
+    expect(html).toMatch(/<fieldset class="label-controls" aria-label="Artwork placement and finish">/);
+    expect(html).toMatch(/<button type="button" class="wide">Download UV guide<\/button>/);
+    expect(html).toContain('aria-label="Surface roughness"');
+  });
+
+  it('keeps uploads available by default for connected editors', () => {
+    const html = markup(artworkScene(), 'bottle-body');
+    const uploadInput = html.match(/<input[^>]*aria-label="Label artwork file"[^>]*>/)?.[0];
+    expect(uploadInput).not.toContain('disabled=""');
+    expect(uploadInput).toContain('aria-disabled="false"');
+    expect(html).not.toContain('Image uploads need a connected backend.');
   });
 });

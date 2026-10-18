@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { assetUrl } from './runtime';
 import './labelMaterials.css';
 
 export type TextureAsset = { format: 'png' | 'jpg'; path: string; sha256: string; widthPx: number; heightPx: number };
@@ -10,6 +11,7 @@ export type LabelMapping = {
 type SurfaceMaterial = { baseColor: number[]; roughness: number; metallic: number; transmission?: number; ior?: number };
 type Props = {
   scene: any; selected: string | null; onSelect: (id: string) => void;
+  uploadAvailable?: boolean;
   onChange: (edit: (scene: any) => void) => void;
   onUpload: (file: File) => Promise<TextureAsset>;
   onTemplate: (componentId: string, mapping: LabelMapping) => void;
@@ -113,7 +115,7 @@ function finishKey(material: SurfaceMaterial, finishes: Record<string, { roughne
     && (finish.transmission === undefined || Math.abs((material.transmission || 0) - finish.transmission) < .0001))?.[0] || 'custom';
 }
 
-export default function LabelMaterialPanel({ scene, selected, onSelect, onChange, onUpload, onTemplate }: Props) {
+export default function LabelMaterialPanel({ scene, selected, onSelect, onChange, onUpload, onTemplate, uploadAvailable = true }: Props) {
   const component = labelTarget(scene, selected);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -148,6 +150,7 @@ export default function LabelMaterialPanel({ scene, selected, onSelect, onChange
   const [planeW, planeH] = mappingDimensions(component, mapping);
   const planeAspect = planeW / planeH;
   const upload = async (file: File) => {
+    if (!uploadAvailable || busy) return;
     const invalid = labelUploadError(file);
     if (invalid) { setError(invalid); return; }
     setError(''); setBusy(true);
@@ -167,8 +170,10 @@ export default function LabelMaterialPanel({ scene, selected, onSelect, onChange
     <div className="label-editor-group" aria-label="Label artwork">
       <h3>Label artwork</h3>
       <p className="small-copy">Add your label as PNG or JPEG. Transparent PNG keeps the product surface visible around the artwork.</p>
-      <label className="field"><span>{label ? 'Replace artwork' : 'Upload artwork'}</span><input aria-label="Label artwork file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" disabled={busy}
+      <label className="field"><span>{label ? 'Replace artwork' : 'Upload artwork'}</span><input aria-label="Label artwork file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" disabled={busy || !uploadAvailable}
+        aria-disabled={busy || !uploadAvailable} aria-describedby={!uploadAvailable ? `${tintFilterId}-upload-status` : undefined}
         onChange={event => { const file = event.target.files?.[0]; if (file) void upload(file); event.target.value = ''; }}/></label>
+      {!uploadAvailable && <p className="small-copy" role="status" id={`${tintFilterId}-upload-status`}>Image uploads need a connected backend. Try the sample artwork and placement controls.</p>}
       {busy && <p className="small-copy" role="status">Uploading artwork…</p>}
       {error && <p className="message error" role="alert">{error}</p>}
       <Field label="Map artwork onto"><select aria-label="Artwork mapping" value={mapping.mode} disabled={busy} onChange={event => {
@@ -195,7 +200,7 @@ export default function LabelMaterialPanel({ scene, selected, onSelect, onChange
           }} onPointerUp={event => { drag.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
           onPointerCancel={() => { drag.current = null; }} onLostPointerCapture={() => { drag.current = null; }}>
           <span className="label-map-axis label-map-axis-x"/><span className="label-map-axis label-map-axis-y"/>
-          <img draggable={false} alt="Your label artwork" src={'/api/' + label.asset.path} style={{ ...labelPreviewStyle(mapping, planeAspect), opacity: finish.baseColor[3] ?? 1, filter: `url(#${tintFilterId})` }}/>
+          <img draggable={false} alt="Your label artwork" src={assetUrl(label.asset.path)} style={{ ...labelPreviewStyle(mapping, planeAspect), opacity: finish.baseColor[3] ?? 1, filter: `url(#${tintFilterId})` }}/>
         </div></div>
         <p className="small-copy">Drag to position. The rectangle shows the mapped area; check the 3D view for the final fit.{mapping.mode === 'uv' ? ' Existing UVs use the mesh’s original layout; seams may split the artwork.' : mapping.mode === 'cylindrical' ? ' Cylinder wrap runs around the vertical axis.' : ''}</p>
         <label className="label-check"><input type="checkbox" checked={aspectLocked} onChange={event => setAspectLocked(event.target.checked)}/>Lock artwork proportions</label>

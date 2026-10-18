@@ -1,5 +1,10 @@
 # 3d-product-suite
 
+The browser demo supports sample labels, materials and playback. Uploads,
+persistent saves, generation and final rendering need the backend and are disabled
+in the demo. The GitHub Pages workflow and Vercel configuration are ready; see
+[static hosting and deployment setup](docs/static-demo.md).
+
 A local editor and repeatable render pipeline for editable product films. Import prepared product GLBs or OBJ/STL/PLY meshes, or explore the fictional **MORA** bottle fixture with its confirmed cap movement and label/color controls. Shared Python scene evaluation drives both browser playback and Blender/Cycles.
 
 The fixture produces a 15-second, 24 fps sequence: **360 frames**, with native final settings of **1080 × 1920**. A successful render exports an MP4, three stills, a contact sheet covering the sequence, and a reopenable `.blend` scene. Generated outputs are local and are not committed.
