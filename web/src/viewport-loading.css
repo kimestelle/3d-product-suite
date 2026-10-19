@@ -1,0 +1,13 @@
+.gesso-viewport-loading{position:absolute;inset:0;z-index:8;display:grid;place-items:center;overflow:hidden;border-radius:inherit;pointer-events:none;opacity:0;visibility:hidden;transition:opacity 160ms ease,visibility 0s 160ms}
+.gesso-viewport-loading[data-loading="true"]{opacity:1;visibility:visible;transition:opacity 160ms ease 120ms,visibility 0s 120ms}
+.gesso-viewport-loading-veil{position:absolute;inset:0;background:#111;opacity:.56}
+.gesso-viewport-loading-label{position:relative;color:#fff;font:var(--gesso-type-body);white-space:nowrap}
+.gesso-viewport-loading-dots{display:inline-flex;width:12px;margin-left:2px}
+.gesso-viewport-loading-dots>span{flex:1;opacity:.28}
+.gesso-viewport-loading[data-loading="true"] .gesso-viewport-loading-veil{animation:viewport-loading-pulse 1800ms ease-in-out infinite}
+.gesso-viewport-loading[data-loading="true"] .gesso-viewport-loading-dots>span{animation:viewport-loading-dot 1200ms ease-in-out infinite}
+.gesso-viewport-loading[data-loading="true"] .gesso-viewport-loading-dots>span:nth-child(2){animation-delay:160ms}
+.gesso-viewport-loading[data-loading="true"] .gesso-viewport-loading-dots>span:nth-child(3){animation-delay:320ms}
+@keyframes viewport-loading-pulse{0%,100%{opacity:.56}50%{opacity:.64}}
+@keyframes viewport-loading-dot{0%,70%,100%{opacity:.28}30%,45%{opacity:1}}
+@media(prefers-reduced-motion:reduce){.gesso-viewport-loading{transition:none}.gesso-viewport-loading[data-loading="true"]{transition:visibility 0s 120ms}.gesso-viewport-loading[data-loading="true"] .gesso-viewport-loading-veil,.gesso-viewport-loading[data-loading="true"] .gesso-viewport-loading-dots>span{animation:none}.gesso-viewport-loading-dots>span{opacity:1}}

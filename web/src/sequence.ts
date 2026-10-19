@@ -1,3 +1,4 @@
+import {cameraBaseForSharedMotion, filmCameraPoseAtFrame, retimeMotions, validateFilmMotions} from './filmMotion';
 export type Shot = {id: string; name: string; startFrame: number; endFrame: number; camera: any; [key: string]: any};
 
 export function shotFrames(shot: Shot): number { return shot.endFrame - shot.startFrame + 1; }
@@ -31,7 +32,7 @@ export function checkActionCoverage(scene: any, totalFrames: number, fps = scene
     const end = action.startSeconds + action.durationSeconds;
     if (end > lastTime) {
       const minimumFrames = Math.ceil(end * fps) + 1;
-      throw new Error(`${action.componentId} movement ends at ${Number(end.toFixed(3))} s. Keep at least ${minimumFrames} frames, or shorten the movement in Product / Animation first.`);
+      throw new Error(`${action.componentId} movement ends at ${Number(end.toFixed(3))} s. Keep at least ${minimumFrames} frames, or shorten the movement in Film / Animation first.`);
     }
   }
 }
@@ -46,7 +47,7 @@ export function checkKeyframeCoverage(scene: any, totalFrames: number) {
   }
   if (last && last.frame > totalFrames) {
     const target = last.componentId === '$product' ? 'Product' : last.componentId;
-    throw new Error(`${target} ${last.property} has its last key at frame ${last.frame}. Keep at least ${last.frame} frames, or move or remove that key in Product / Animation first.`);
+    throw new Error(`${target} ${last.property} has its last key at frame ${last.frame}. Keep at least ${last.frame} frames, or move or remove that key in Film / Animation first.`);
   }
 }
 
@@ -54,6 +55,7 @@ function commitShots(scene: any, shots: Shot[]) {
   const next = arranged(shots);
   checkActionCoverage(scene, next.at(-1)!.endFrame);
   checkKeyframeCoverage(scene, next.at(-1)!.endFrame);
+  validateFilmMotions({...scene, shots: next});
   scene.shots = next;
 }
 
@@ -74,6 +76,21 @@ export function setShotFrames(scene: any, id: string, frames: number) {
   positiveInteger(frames, 'Shot length');
   const index = shotIndex(scene, id);
   const shots = structuredClone(scene.shots) as Shot[];
+  if (frames !== shotFrames(shots[index])) shots[index].camera.durationFrames ??= shotFrames(shots[index]);
+  shots[index].endFrame = shots[index].startFrame + frames - 1;
+  commitShots(scene, shots);
+}
+
+/** Stretch the authored performance explicitly; ordinary shot length edits only trim. */
+export function stretchShotFrames(scene: any, id: string, frames: number) {
+  positiveInteger(frames, 'Shot length');
+  const index = shotIndex(scene, id), previous = shotFrames(scene.shots[index]);
+  if (frames < 2 || previous < 2) throw new Error('Stretching needs at least two frames in both durations.');
+  const shots = structuredClone(scene.shots) as Shot[];
+  const motions = retimeMotions(shots[index].motions, (frames - 1) / (previous - 1));
+  if (motions) shots[index].motions = motions;
+  const cameraDuration = shots[index].camera.durationFrames ?? previous;
+  shots[index].camera.durationFrames = Math.round((cameraDuration - 1) * (frames - 1) / (previous - 1)) + 1;
   shots[index].endFrame = shots[index].startFrame + frames - 1;
   commitShots(scene, shots);
 }
@@ -82,9 +99,11 @@ export function addShot(scene: any, afterId: string): string {
   const index = shotIndex(scene, afterId);
   const previous = scene.shots[index];
   const id = newId(scene);
-  const pose = previous.camera.to;
-  const shot: Shot = {id, name: `Shot ${scene.shots.length + 1}`, startFrame: 1, endFrame: scene.render.fps * 3,
-    camera: {from: structuredClone(pose), to: structuredClone(pose)}};
+  const endpoint = filmCameraPoseAtFrame(scene, previous, previous.endFrame);
+  const pose = cameraBaseForSharedMotion(scene, previous.endFrame + 1, endpoint);
+  const camera = {...structuredClone(previous.camera), from: structuredClone(pose), to: structuredClone(pose)};
+  delete camera.durationFrames;
+  const shot: Shot = {id, name: `Shot ${scene.shots.length + 1}`, startFrame: 1, endFrame: scene.render.fps * 3, camera};
   const shots = [...scene.shots];
   shots.splice(index + 1, 0, shot);
   commitShots(scene, shots);
@@ -96,6 +115,12 @@ export function duplicateShot(scene: any, id: string): string {
   const copy = structuredClone(scene.shots[index]);
   copy.id = newId(scene);
   copy.name = `${copy.name || 'Shot'} copy`;
+  const motionIds = new Set([...(scene.motions ?? []), ...scene.shots.flatMap((shot: Shot) => shot.motions ?? [])].map((motion: any) => motion.id));
+  for (const motion of copy.motions ?? []) {
+    let index = 1;
+    while (motionIds.has(`motion-${index}`)) index++;
+    motion.id = `motion-${index}`; motionIds.add(motion.id);
+  }
   const shots = [...scene.shots];
   shots.splice(index + 1, 0, copy);
   commitShots(scene, shots);
@@ -124,7 +149,9 @@ export function setFrameRate(scene: any, fps: number) {
   let boundary = 0;
   const shots = scene.shots.map((shot: Shot) => {
     const nextBoundary = Math.max(boundary + 1, Math.round(shot.endFrame * ratio));
-    const result = {...shot, startFrame: boundary + 1, endFrame: nextBoundary};
+    const result: Shot = {...structuredClone(shot), startFrame: boundary + 1, endFrame: nextBoundary};
+    if (shot.motions) result.motions = retimeMotions(shot.motions, ratio);
+    if (shot.camera.durationFrames !== undefined) result.camera.durationFrames = Math.round((shot.camera.durationFrames - 1) * ratio) + 1;
     boundary = nextBoundary;
     return result;
   });
@@ -141,17 +168,20 @@ export function setFrameRate(scene: any, fps: number) {
       if (sourceFrame === sequenceEnd(scene) && frame === totalFrames + 1) frame = totalFrames;
       if (frame <= previous) {
         const target = track.componentId === '$product' ? 'Product' : track.componentId;
-        throw new Error(`${target} ${track.property} keys would overlap at frame ${frame} at ${fps} fps. Keep a higher frame rate, or separate those keys in Product / Animation first.`);
+        throw new Error(`${target} ${track.property} keys would overlap at frame ${frame} at ${fps} fps. Keep a higher frame rate, or separate those keys in Film / Animation first.`);
       }
       previous = frame;
       key.frame = frame;
     }
   }
+  const motions = retimeMotions(scene.motions, ratio);
   checkActionCoverage(scene, totalFrames, fps);
   checkKeyframeCoverage({...scene, animation}, totalFrames);
+  validateFilmMotions({...scene, shots: next, motions});
   scene.render.fps = fps;
   scene.shots = next;
   if (animation) scene.animation = animation;
+  if (motions) scene.motions = motions;
 }
 
 export function setOutputDimensions(scene: any, width: number, height: number) {

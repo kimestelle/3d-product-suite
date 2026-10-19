@@ -13,6 +13,7 @@ import uuid
 from urllib.parse import parse_qs, unquote, urlparse
 
 from . import jobs
+from .export_formats import FORMATS, job_format, primary_artifact, validate_format
 from .scene import evaluate, sample_scene, scene_digest, validate_scene
 from .stills import create_still_job, run_still_job
 from .store import ConflictError, ProjectStore, ROOT, identifier, now
@@ -24,8 +25,26 @@ from .comparison_jobs import ComparisonJobs
 from .materials import MaterialLibrary
 from .polyhaven import PolyHavenLibrary
 
-ARTIFACTS = {"still.png", "film.mp4", "scene.blend", "contact-sheet.png", "still-01.png", "still-02.png", "still-03.png"}
+ARTIFACTS = {"scene.blend", "contact-sheet.png", "still-01.png", "still-02.png", "still-03.png"} | {item[1] for item in FORMATS.values()}
 ASSET_NAME = re.compile(r"[0-9a-f]{64}\.(?:glb|spz|ply|png|hdr)\Z")
+
+
+def export_filename(value):
+    """A filename stem, never a path or a response-header fragment."""
+    if not isinstance(value, str):
+        raise ValueError("Export filename must be text")
+    value = re.sub(r"\.(?:png|jpe?g|webp|mp4|mov|zip|blend)$", "", value.strip(), flags=re.I)
+    value = re.sub(r"[^a-zA-Z0-9 _.-]+", "-", value).strip(" .-")[:80].strip(" .-")
+    return value or "gesso"
+
+
+def artifact_download_name(request, name, job):
+    stem = export_filename(request.get("filename", "gesso"))
+    if name == primary_artifact(job):
+        return stem + Path(name).suffix
+    if name == "scene.blend":
+        return stem + ".blend"
+    return stem + "-" + name
 
 
 class RenderQueue:
@@ -68,11 +87,15 @@ class RenderQueue:
         still = request["kind"] == "still"
         artifacts = []
         if state == "succeeded":
-            artifacts = [{"name": name, "url": f"/api/jobs/{job_id}/files/{name}"}
-                         for name in job.get("artifacts", {}) if name in ARTIFACTS]
+            artifacts = [{"name": name, "url": f"/api/jobs/{job_id}/files/{name}",
+                          "downloadName": artifact_download_name(request, name, job),
+                          "bytes": record.get("bytes", 0)}
+                         for name, record in job.get("artifacts", {}).items() if name in ARTIFACTS]
         errors = job.get("errors", [])
         return {"id": job_id, "kind": request["kind"], "state": state, "stage": request.get("stage"),
                 "frame": request.get("frame"), "sourceDigest": job["sceneDigest"],
+                "format": job_format(job), "filename": request.get("filename", "gesso"),
+                "fps": job["renderProfile"]["fps"], "samples": job["renderProfile"]["samples"],
                 "width": job["renderProfile"]["width"], "height": job["renderProfile"]["height"],
                 "completedFrames": min(count, 1) if still else count,
                 "totalFrames": 1 if still else job["renderProfile"]["frameCount"],
@@ -93,6 +116,8 @@ class RenderQueue:
         kind = data.get("kind", "still")
         if kind not in ("still", "reel"):
             raise ValueError("Render kind must be still or reel")
+        export_format = validate_format(kind, data.get("format"))
+        filename = export_filename(data.get("filename", "gesso"))
         job_id = uuid.uuid4().hex
         output = self.directory(job_id)
         source = self.store.scene_source(scene)
@@ -102,11 +127,12 @@ class RenderQueue:
         frame = data.get("frame", 1)
         try:
             if kind == "still":
-                create_still_job(source, output, frame=frame, **profile)
+                create_still_job(source, output, frame=frame, export_format=export_format, **profile)
             else:
-                jobs.create_job(source, output, **profile)
+                jobs.create_job(source, output, export_format=export_format, **profile)
             jobs._atomic_json(output / "request.json", {"id": job_id, "kind": kind, "frame": frame if kind == "still" else None,
-                              "createdAt": now(), "pipelineState": "queued", "stage": "queued", "prepared": not enqueue})
+                              "createdAt": now(), "pipelineState": "queued", "stage": "queued", "prepared": not enqueue,
+                              "format": export_format, "filename": filename})
         except BaseException:
             shutil.rmtree(output, ignore_errors=True)
             raise
@@ -284,7 +310,7 @@ def make_handler(app):
             self.end_headers()
             self.wfile.write(payload)
 
-        def _file(self, path, *, immutable=False):
+        def _file(self, path, *, immutable=False, download_name=None):
             if not path.is_file():
                 raise FileNotFoundError("File not found")
             self.send_response(200)
@@ -294,8 +320,8 @@ def make_handler(app):
             self.send_header("Content-Length", str(path.stat().st_size))
             self.send_header("Cache-Control", "public,max-age=31536000,immutable" if immutable else "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
-            if path.suffix == ".blend":
-                self.send_header("Content-Disposition", 'attachment; filename="scene.blend"')
+            if download_name or path.suffix == ".blend":
+                self.send_header("Content-Disposition", f'attachment; filename="{download_name or "scene.blend"}"')
             self.end_headers()
             with path.open("rb") as handle:
                 shutil.copyfileobj(handle, self.wfile)
@@ -344,7 +370,16 @@ def make_handler(app):
                 if len(parts) == 5 and parts[:2] == ["api", "jobs"] and parts[3] == "files":
                     if parts[4] not in ARTIFACTS or app.renders.summary(parts[2])["state"] != "succeeded":
                         raise ValueError("Artifact is not available from a successful job")
-                    return self._file(app.renders.directory(parts[2]) / parts[4])
+                    directory = app.renders.directory(parts[2])
+                    job = jobs._read_job(directory)
+                    record = job.get("artifacts", {}).get(parts[4])
+                    artifact = directory / parts[4]
+                    if (not record or artifact.is_symlink() or not artifact.is_file()
+                            or artifact.stat().st_size != record.get("bytes") or jobs._sha256(artifact) != record.get("sha256")):
+                        raise ValueError("Artifact changed or is unavailable; resume the job to rebuild it")
+                    request = app.renders._request(parts[2])
+                    return self._file(artifact, download_name=artifact_download_name(request, parts[4], job)
+                                      if parse_qs(parsed.query).get("download") == ["1"] else None)
                 if len(parts) == 3 and parts[:2] == ["api", "assets"]:
                     if not ASSET_NAME.fullmatch(parts[2]):
                         raise ValueError("Invalid immutable asset name")

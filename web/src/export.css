@@ -1,0 +1,81 @@
+.gesso-export-dialog{position:fixed;inset:var(--gesso-space-16) var(--gesso-space-16) var(--gesso-space-16) auto;margin:0;width:408px;max-width:calc(100vw - var(--gesso-space-32));height:calc(100dvh - var(--gesso-space-32));max-height:760px;padding:0;overflow:hidden;border:1px solid var(--gesso-border-subtle);border-radius:20px;background:var(--gesso-surface-chrome);color:var(--gesso-text-primary);font:400 13px/18px var(--gesso-font-text);box-shadow:0 12px 48px #0003}
+.gesso-export-dialog[open]{display:flex;flex-direction:column;animation:gesso-export-enter 220ms ease-out}
+.gesso-export-dialog::backdrop{background:#0003}
+.gesso-export-dialog button,.gesso-export-dialog input,.gesso-export-dialog select{font-family:var(--gesso-font-text)}
+.gesso-export-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--gesso-space-16);flex:none;padding:var(--gesso-space-24) var(--gesso-space-24) var(--gesso-space-16);border-bottom:1px solid var(--gesso-border-subtle)}
+.gesso-export-heading h2{font:400 18px/24px var(--gesso-font-text);margin:0;outline:0}
+.gesso-export-heading p{font-size:11px;line-height:16px;color:var(--gesso-text-secondary);margin:var(--gesso-space-4) 0 0;max-width:290px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+.gesso-export-heading>button{font-size:21px;line-height:24px;min-width:32px;min-height:32px;border:0;padding:0;color:var(--gesso-text-secondary)}
+.gesso-export-body{padding:var(--gesso-space-16) var(--gesso-space-24);flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.gesso-export-form{display:flex;flex-direction:column;gap:var(--gesso-space-16)}
+.gesso-export-dialog fieldset{border:0;padding:0;margin:0;min-width:0}
+.gesso-export-dialog legend{padding:0;margin-bottom:var(--gesso-space-8);color:var(--gesso-text-secondary);font:400 11px/16px var(--gesso-font-text)}
+.gesso-export-mode{display:grid;grid-template-columns:1fr 1fr;gap:var(--gesso-space-4);background:var(--gesso-surface-field);padding:var(--gesso-space-4)!important;border-radius:4px}
+.gesso-export-mode label{position:relative;min-width:0}
+.gesso-export-mode input{position:absolute;inset:0;opacity:0;width:100%;height:100%;margin:0;cursor:pointer}
+.gesso-export-mode span{display:block;text-align:center;padding:var(--gesso-space-4) var(--gesso-space-12);color:var(--gesso-text-secondary);border-radius:2px}
+.gesso-export-mode input:checked+span{color:var(--gesso-text-primary);background:var(--gesso-surface-selected)}
+.gesso-export-mode input:focus-visible+span{outline:2px solid var(--gesso-border-focus);outline-offset:var(--gesso-space-2)}
+.gesso-export-formats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--gesso-space-8)}
+.gesso-export-formats label{display:flex;align-items:center;gap:var(--gesso-space-8);padding:var(--gesso-space-8);border:1px solid var(--gesso-border-subtle);border-radius:4px;cursor:pointer}
+.gesso-export-formats label.is-selected{border-color:var(--gesso-border-control);background:var(--gesso-surface-field)}
+.gesso-export-formats input{accent-color:var(--gesso-text-primary);width:12px;height:12px;margin:0;flex:none}
+.gesso-export-formats strong{display:block;white-space:nowrap;font-size:12px;line-height:18px;font-weight:400}
+.gesso-export-format-detail{grid-column:1/-1;font-size:11px;line-height:16px;color:var(--gesso-text-secondary);margin:0}
+.gesso-export-formats small{display:block;font-size:11px;line-height:16px;color:var(--gesso-text-secondary)}
+.gesso-export-composition{display:flex;align-items:center;justify-content:space-between;gap:var(--gesso-space-12);padding-top:var(--gesso-space-2)}
+.gesso-export-composition>div{display:flex;flex-direction:column;gap:var(--gesso-space-2)}
+.gesso-export-composition span{font-size:11px;line-height:16px;color:var(--gesso-text-secondary)}
+.gesso-export-composition strong{font-size:13px;line-height:18px;font-weight:400;font-variant-numeric:tabular-nums}
+.gesso-export-composition button{border:0;min-height:28px;padding:var(--gesso-space-2) 0;font-size:11px;color:var(--gesso-text-secondary)}
+.gesso-export-two{display:grid;grid-template-columns:1fr 1fr;gap:var(--gesso-space-12)}
+.gesso-export-field{display:flex;flex-direction:column;gap:var(--gesso-space-4);min-width:0}
+.gesso-export-field>span,.gesso-export-filename>span{font-size:11px;line-height:16px;color:var(--gesso-text-secondary)}
+.gesso-export-field select{width:100%;height:32px;padding:var(--gesso-space-4) var(--gesso-space-8);font-size:12px;border:1px solid var(--gesso-border-control);background:var(--gesso-surface-field);color:var(--gesso-text-primary);border-radius:4px}
+.gesso-export-spec{display:flex;flex-wrap:wrap;justify-content:space-between;gap:var(--gesso-space-4) var(--gesso-space-12);font-size:11px;line-height:16px;font-variant-numeric:tabular-nums;margin-top:calc(-1 * var(--gesso-space-8))}
+.gesso-export-note,.gesso-export-status p{font-size:11px;line-height:16px;color:var(--gesso-text-secondary);margin:0}
+.gesso-export-form>.gesso-export-note{margin-top:calc(-1 * var(--gesso-space-8))}
+.gesso-export-filename{display:flex;flex-direction:column;gap:var(--gesso-space-4)}
+.gesso-export-filename>div{display:flex;align-items:center;border:1px solid var(--gesso-border-control);background:var(--gesso-surface-field);border-radius:4px;padding:0 var(--gesso-space-8)}
+.gesso-export-filename input{width:100%;min-width:0;height:32px;border:0;padding:var(--gesso-space-4) 0;background:transparent;color:var(--gesso-text-primary);font-size:12px;outline:0}
+.gesso-export-filename>div:focus-within{outline:2px solid var(--gesso-border-focus);outline-offset:var(--gesso-space-2)}
+.gesso-export-filename>div>span{color:var(--gesso-text-muted);font-size:12px}
+.gesso-export-error{color:var(--gesso-signal-error)!important;font-size:11px;line-height:16px;margin:0;overflow-wrap:anywhere;white-space:pre-wrap}
+.gesso-export-form>.gesso-export-error{max-height:66px;overflow:auto}
+.gesso-export-body>.gesso-export-error{margin-top:var(--gesso-space-12)}
+.gesso-export-footer{flex:none;border-top:1px solid var(--gesso-border-subtle);padding:var(--gesso-space-16) var(--gesso-space-24) var(--gesso-space-20);display:flex;flex-direction:column;gap:var(--gesso-space-12);background:var(--gesso-surface-chrome)}
+.gesso-export-summary{display:flex;flex-direction:column;gap:var(--gesso-space-2)}
+.gesso-export-summary>span{font-size:12px;line-height:18px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.gesso-export-summary>small{font-size:11px;line-height:16px;color:var(--gesso-text-secondary)}
+.gesso-export-dialog .gesso-export-primary{display:flex;align-items:center;justify-content:space-between;gap:var(--gesso-space-16);min-height:44px;padding:var(--gesso-space-12) var(--gesso-space-16);background:var(--gesso-surface-action);color:var(--gesso-text-on-action);border:1px solid var(--gesso-surface-action);border-radius:4px;text-decoration:none;font-size:13px;line-height:18px;text-align:left}
+.gesso-export-primary>span{font-size:11px;white-space:nowrap}
+.gesso-export-dialog .gesso-export-primary:disabled{background:transparent;color:var(--gesso-text-disabled);border-color:var(--gesso-border-subtle)}
+.gesso-export-dialog .gesso-export-text-button{padding:var(--gesso-space-4) 0;border:0;min-height:26px;color:var(--gesso-text-secondary);font-size:12px;text-align:left}
+.gesso-export-result{display:flex;flex-direction:column;gap:var(--gesso-space-16)}
+.gesso-export-result-title{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--gesso-space-12)}
+.gesso-export-result-title>h3{font-size:14px;line-height:20px;font-weight:400;overflow-wrap:anywhere;margin:0}
+.gesso-export-result-title>span{font-size:11px;color:var(--gesso-text-secondary);white-space:nowrap}
+.gesso-export-result>.gesso-export-note{margin-top:calc(-1 * var(--gesso-space-8))}
+.gesso-export-status{display:flex;flex-direction:column;gap:var(--gesso-space-12);padding:var(--gesso-space-16) 0;border-top:1px solid var(--gesso-border-subtle);border-bottom:1px solid var(--gesso-border-subtle)}
+.gesso-export-status-line{display:flex;justify-content:space-between;gap:var(--gesso-space-8);font-size:12px}
+.gesso-export-status-line>span:last-child{color:var(--gesso-text-secondary);font-variant-numeric:tabular-nums}
+.gesso-export-status progress{width:100%;height:3px;appearance:none;border:0;background:var(--gesso-surface-selected);border-radius:0}
+.gesso-export-status progress::-webkit-progress-bar{background:var(--gesso-surface-selected)}
+.gesso-export-status progress::-webkit-progress-value{background:var(--gesso-text-primary)}
+.gesso-export-status progress::-moz-progress-bar{background:var(--gesso-text-primary)}
+.gesso-export-secondary-links{display:flex;flex-direction:column;gap:var(--gesso-space-8)}
+.gesso-export-secondary-links>a{display:flex;align-items:center;justify-content:space-between;padding:var(--gesso-space-4) 0;font-size:12px;line-height:18px;text-decoration:none;color:var(--gesso-text-secondary)}
+.gesso-export-history{margin-top:var(--gesso-space-16);border-top:1px solid var(--gesso-border-subtle);padding-top:var(--gesso-space-12)}
+.gesso-export-history>summary{font-size:11px;line-height:20px;color:var(--gesso-text-secondary);cursor:pointer}
+.gesso-export-history>summary>span{float:right;color:var(--gesso-text-muted)}
+.gesso-export-history>div{max-height:180px;overflow:auto;padding-top:var(--gesso-space-8)}
+.gesso-export-history article{display:flex;align-items:center;gap:var(--gesso-space-8);border-bottom:1px solid var(--gesso-border-subtle)}
+.gesso-export-history article>button{display:flex;flex-direction:column;align-items:flex-start;gap:var(--gesso-space-2);min-width:0;flex:1;border:0;padding:var(--gesso-space-8) 0;text-align:left;background:transparent}
+.gesso-export-history article>button>span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.gesso-export-history small{color:var(--gesso-text-muted);font-size:11px}
+.gesso-export-history article>a{display:grid;place-items:center;width:32px;height:32px;text-decoration:none;color:var(--gesso-text-secondary)}
+.gesso-export-sr{position:absolute!important;width:1px;height:1px;padding:0!important;margin:-1px!important;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@keyframes gesso-export-enter{from{opacity:0;transform:translateX(var(--gesso-space-12))}to{opacity:1;transform:translateX(0)}}
+@media(max-height:760px){.gesso-export-dialog{inset:var(--gesso-space-12) var(--gesso-space-12) var(--gesso-space-12) auto;height:calc(100dvh - var(--gesso-space-24))}.gesso-export-heading{padding:var(--gesso-space-16) var(--gesso-space-20) var(--gesso-space-12)}.gesso-export-body{padding:var(--gesso-space-16) var(--gesso-space-20)}.gesso-export-form{gap:var(--gesso-space-12)}.gesso-export-formats label{padding:var(--gesso-space-6) var(--gesso-space-8)}.gesso-export-footer{padding:var(--gesso-space-12) var(--gesso-space-20) var(--gesso-space-16)}}
+@media(max-width:480px){.gesso-export-dialog{inset:var(--gesso-space-8);width:calc(100vw - var(--gesso-space-16));max-width:none;height:calc(100dvh - var(--gesso-space-16));border-radius:16px}.gesso-export-heading,.gesso-export-body,.gesso-export-footer{padding-left:var(--gesso-space-16);padding-right:var(--gesso-space-16)}}
+@media(prefers-reduced-motion:reduce){.gesso-export-dialog[open]{animation:none}}

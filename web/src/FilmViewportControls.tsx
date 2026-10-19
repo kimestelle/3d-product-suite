@@ -1,8 +1,9 @@
 import {useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent} from 'react';
 import {NumberControl} from './EditorControls';
 import {UiIcon} from './UiIcon';
-import {partName} from './hierarchy';
+import {displayPartName} from './hierarchy';
 import {shotAtFrame} from './sequence';
+import {cameraSourceEndFrame} from './cameraFraming';
 import type {FilmGuideProjection} from './filmGuides';
 
 export interface FilmViewportControlsProps {
@@ -13,6 +14,7 @@ export interface FilmViewportControlsProps {
   end: 'from' | 'to';
   editing: boolean;
   disabled: boolean;
+  cameraMotionDriven?: boolean;
   error?: string;
   dragging?: boolean;
   targetId?: string;
@@ -41,7 +43,7 @@ const formats = [
 ];
 
 /** UI stays attached to the render gate; the scene receives every other pointer event. */
-export default function FilmViewportControls({guide, scene, frame, mode, end, editing, disabled, error, dragging = false, targetId, onTargetChange,
+export default function FilmViewportControls({guide, scene, frame, mode, end, editing, disabled, cameraMotionDriven = false, error, dragging = false, targetId, onTargetChange,
   onEndChange, onAspectChange, onFocalLengthChange, onDepthOfFieldChange, onAim, onTargetPointerDown, onTargetKeyDown}: FilmViewportControlsProps) {
   const [thirds, setThirds] = useState(false);
   const [localTarget, setLocalTarget] = useState('');
@@ -61,8 +63,12 @@ export default function FilmViewportControls({guide, scene, frame, mode, end, ed
   const {gate, inspecting} = guide;
   const width = scene.render.width, height = scene.render.height;
   const ratio = filmAspectLabel(width, height);
-  const isEndpoint = mode === 'still' || frame === (end === 'from' ? shot.startFrame : shot.endFrame);
+  const sourceEnd = cameraSourceEndFrame(shot), trimmedEnd = sourceEnd > shot.endFrame, heldCamera = sourceEnd === shot.startFrame;
+  const isEndpoint = mode === 'still' || frame === (end === 'from' ? shot.startFrame : sourceEnd) && !(end === 'to' && heldCamera);
+  const clippedLensEdit = trimmedEnd && frame === shot.endFrame;
   const cameraDisabled = disabled || !isEndpoint || inspecting;
+  const poseDisabled = cameraDisabled || cameraMotionDriven;
+  const lensDisabled = disabled || inspecting || !isEndpoint && !clippedLensEdit;
   const fStop = depthOfField?.fStop ?? 2.8;
   const followTarget = depthOfField?.focusDistanceM == null;
   const focusDistanceM = followTarget ? guide.distanceM : depthOfField.focusDistanceM;
@@ -73,7 +79,7 @@ export default function FilmViewportControls({guide, scene, frame, mode, end, ed
     event.preventDefault(); event.stopPropagation(); event.currentTarget.open = false;
     event.currentTarget.querySelector('summary')?.focus();
   };
-  const hint = inspecting ? 'Return to shot to edit' : !isEndpoint ? 'Choose Start or End to edit' : dragging ? 'Release to aim · Esc cancel' : 'Drag target · arrows to nudge';
+  const hint = cameraMotionDriven ? 'Camera motion controls position. Select its motion to edit.' : inspecting ? 'Return to shot to edit' : trimmedEnd && !isEndpoint ? 'Camera source end is trimmed. Extend the shot to edit it.' : !isEndpoint ? 'Choose Start or End to edit' : dragging ? 'Release to aim · Esc cancel' : 'Drag target · arrows to nudge';
   return <div className={`gesso-film-viewport-controls${editing ? ' is-editing' : ''}${inspecting ? ' is-inspecting' : ''}${dragging ? ' is-dragging' : ''}`} data-compact={guide.viewportWidth < 720} aria-label="Film viewport guides" onPointerDown={event => event.stopPropagation()}>
     {!inspecting && <div className="gesso-film-gate" aria-hidden="true" style={{left: gate.x, top: gate.y, width: gate.width, height: gate.height}}>
       {['tl', 'tr', 'bl', 'br'].map(corner => <i key={corner} className={`gesso-film-gate-corner ${corner}`}/>)}
@@ -89,16 +95,16 @@ export default function FilmViewportControls({guide, scene, frame, mode, end, ed
       </div>
     </details>}
     {editing && guide.target.visible && <div className="gesso-film-target" style={{left: guide.target.x, top: guide.target.y}}>
-      <button type="button" className="gesso-film-target-handle" aria-label="Camera target" aria-describedby={`${id}-target-hint`} title="Drag camera target; arrow keys nudge, Shift + arrow moves farther" disabled={cameraDisabled} onPointerDown={onTargetPointerDown} onKeyDown={onTargetKeyDown}><span/><i/></button>
+      <button type="button" className="gesso-film-target-handle" aria-label="Camera target" aria-describedby={`${id}-target-hint`} title={cameraMotionDriven ? hint : "Drag camera target; arrow keys nudge, Shift + arrow moves farther"} disabled={poseDisabled} onPointerDown={onTargetPointerDown} onKeyDown={onTargetKeyDown}><span/><i/></button>
       <span className="gesso-film-target-label">Target <span>{distance}</span></span>
     </div>}
     {editing && <div className="gesso-film-control-rail">
       <div className="gesso-film-aim-control">
         <label htmlFor={`${id}-target`}>Target</label>
-        <select id={`${id}-target`} aria-label="Viewport camera target" disabled={cameraDisabled} value={target} onChange={event => chooseTarget(event.target.value)}><option value="">Whole product</option>{parts.map(part => <option key={part.id} value={part.id}>{part.name || partName(part.id)}</option>)}</select>
-        <button type="button" disabled={cameraDisabled} onClick={() => onAim(target)}>Aim</button>
+        <select id={`${id}-target`} aria-label="Viewport camera target" disabled={poseDisabled} value={target} onChange={event => chooseTarget(event.target.value)}><option value="">Whole product</option>{parts.map(part => <option key={part.id} value={part.id}>{displayPartName(scene, part.id, part.name)}</option>)}</select>
+        <button type="button" disabled={poseDisabled} onClick={() => onAim(target)}>Aim</button>
       </div>
-      <div className="gesso-film-lens-control gesso-panel"><NumberControl label="Lens" ariaLabel="Viewport focal length" value={guide.focalLengthMm} min={1} max={1000} unit="mm" disabled={cameraDisabled} onChange={onFocalLengthChange}/></div>
+      <div className="gesso-film-lens-control gesso-panel"><NumberControl label="Lens" ariaLabel="Viewport focal length" value={guide.focalLengthMm} min={1} max={1000} unit="mm" disabled={lensDisabled} onChange={onFocalLengthChange}/></div>
       <details className="gesso-film-focus" ref={focusRef} open={focusEnabled || undefined} onKeyDown={closeFormat}>
         <summary><span>Focus</span><span>{focusEnabled ? `${focusMillimetres} mm · f/${fStop}` : 'Off'}</span><UiIcon name="down" size={14}/></summary>
         <div className="gesso-film-focus-panel gesso-panel" aria-label="Viewport depth of field">
@@ -110,7 +116,7 @@ export default function FilmViewportControls({guide, scene, frame, mode, end, ed
       </details>
       {mode === 'video' && <div className="gesso-film-end-controls" aria-label="Viewport camera endpoint">
         <button type="button" aria-pressed={isEndpoint && end === 'from'} disabled={disabled} onClick={() => onEndChange('from')}>Start <span>{shot.startFrame}</span></button>
-        <button type="button" aria-pressed={isEndpoint && end === 'to'} disabled={disabled} onClick={() => onEndChange('to')}>End <span>{shot.endFrame}</span></button>
+        <button type="button" aria-pressed={isEndpoint && end === 'to'} disabled={disabled || trimmedEnd || heldCamera} title={trimmedEnd ? "Source end is outside this shot" : heldCamera ? "This camera holds its starting pose" : undefined} onClick={() => onEndChange('to')}>{trimmedEnd ? 'Source end · trimmed' : heldCamera ? 'Held camera' : 'End'} <span>{sourceEnd}</span></button>
       </div>}
       <p className="gesso-film-target-hint" id={`${id}-target-hint`}>{error ? <span role="alert">{error}</span> : hint}{!guide.target.visible && !error && <span> · target outside view</span>}</p>
     </div>}

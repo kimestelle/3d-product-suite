@@ -1,12 +1,11 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import {createComponentGeometry, loadVerifiedGlb, prepareImportedMesh, disposeSceneObject, sceneAssetUrl} from './sceneObjects';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import type { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
 import { hasUvOverlap, projectDecalTriangle, uvBarycentricWeights, type ProductDecal, type SurfaceTriangle, type UvLayout } from './decals';
-import { createSurfaceMaterial, disposeSurfaceMaterial, loadMaterialTextures, type MaterialPreview, type MaterialSpecification } from './materials';
+import { createSurfaceMaterial, disposeSurfaceMaterial, loadMaterialTextures, type MaterialHover, type MaterialPreview, type MaterialSpecification } from './materials';
 import { createTransformPointerGesture, type TransformGesture, type TransformPointer } from './transformPointer';
 import type { TransformTarget } from './transforms';
 import {DepthOfFieldPreview} from './DepthOfFieldPreview';
@@ -40,6 +39,10 @@ export type ViewportOptions = {
   onParts?: (parts: ViewportPart[]) => void;
   onError?: (message: string) => void;
   onReady?: () => void;
+  /** Once per load, after a complete sampled frame has reached the canvas. */
+  onPresented?: () => void;
+  /** Remains busy until the first sampled frame is displayed, including GPU sorting. */
+  onLoading?: (loading: boolean) => void;
   onWorldPoint?: (point: WorldPointPick) => void;
   onInteract?: () => void;
   onFilmGuide?: (guide: FilmGuideProjection | null) => void;
@@ -77,6 +80,7 @@ export class StudioViewport {
   private surfaceSpecifications = new WeakMap<THREE.MeshPhysicalMaterial, MaterialSpecification>();
   private hiddenParts = new Set<string>();
   private focusPartIds: string[] = [];
+  private materialHover: MaterialHover | null = null;
   private partFocus = false;
   private framedSelection = false;
   private framedWorldObjectId: string | null = null;
@@ -108,6 +112,8 @@ export class StudioViewport {
   private dirty = false;
   private pendingRender = 0;
   private loadVersion = 0;
+  private unpresentedLoadVersion: number | null = null;
+  private sampledLoadVersion = -1;
   private loading = false;
   private loadFailed = false;
   private awaitingSample = false;
@@ -260,6 +266,7 @@ export class StudioViewport {
 
   private onContextLost = (event: Event) => {
     event.preventDefault();
+    this.options.onLoading?.(false);
     this.options.onError?.('The 3D graphics context was lost. Reopen this project to restore the preview.');
   };
 
@@ -415,7 +422,10 @@ export class StudioViewport {
       this.pendingRender = 0;
       const version = this.loadVersion;
       void this.render(false).catch(error => {
-        if (!this.disposed && version === this.loadVersion) this.options.onError?.(String(error?.message || error));
+        if (!this.disposed && version === this.loadVersion) {
+          this.options.onLoading?.(false);
+          this.options.onError?.(String(error?.message || error));
+        }
       });
     });
   }
@@ -453,45 +463,7 @@ export class StudioViewport {
   }
 
   private geometry(shape: string, size: number[], bevel = 0): THREE.BufferGeometry {
-    const radius = Math.min(bevel, Math.min(...size) * 0.45);
-    if (shape === 'box') {
-      const geometry = radius > 0
-        ? new RoundedBoxGeometry(size[0], size[1], size[2], 5, radius)
-        : new THREE.BoxGeometry(size[0], size[1], size[2]);
-      // A true six-island atlas prevents one UV placement stamping every face.
-      // Three's group order is +X, -X, +Y, -Y, +Z (front), -Z.
-      const uv = geometry.getAttribute('uv');
-      geometry.groups.forEach((group, face) => {
-        const visited = new Set<number>();
-        for (let i = group.start; i < group.start + group.count; i++) {
-          const index = geometry.index?.getX(i) ?? i;
-          if (visited.has(index)) continue;
-          visited.add(index);
-          uv.setXY(index, (uv.getX(index) + face % 3) / 3, (uv.getY(index) + Math.floor(face / 3)) / 2);
-        }
-      });
-      return geometry;
-    }
-    if (shape !== 'cylinder') throw new Error(`Unsupported component shape: ${shape}`);
-    // Lathe is Y-up. Keep the exact declared dimensions, including elliptical
-    // cylinders, and apply bevel to geometry rather than changing the pose.
-    const halfHeight = size[1] / 2;
-    const r = size[0] / 2;
-    const b = Math.min(radius, r * 0.9);
-    const profile = [new THREE.Vector2(0, -halfHeight), new THREE.Vector2(r - b, -halfHeight)];
-    for (let step = 0; step <= 5; step++) {
-      const angle = step * Math.PI / 10;
-      profile.push(new THREE.Vector2(r - b + b * Math.sin(angle), -halfHeight + b - b * Math.cos(angle)));
-    }
-    profile.push(new THREE.Vector2(r, halfHeight - b));
-    for (let step = 0; step <= 5; step++) {
-      const angle = step * Math.PI / 10;
-      profile.push(new THREE.Vector2(r - b + b * Math.cos(angle), halfHeight - b + b * Math.sin(angle)));
-    }
-    profile.push(new THREE.Vector2(0, halfHeight));
-    const geometry = new THREE.LatheGeometry(profile, 128);
-    geometry.scale(1, 1, size[2] / size[0]);
-    return geometry;
+    return createComponentGeometry(shape, size, bevel);
   }
 
   private async makeProduct(source: any, version: number, signal: AbortSignal): Promise<void> {
@@ -511,7 +483,8 @@ export class StudioViewport {
         const imported = await this.loadVerifiedGlb(specification.asset, signal);
         if (version !== this.loadVersion || this.disposed) { this.disposeObject(imported); return; }
         this.prepareImportedMesh(imported);
-        if (specification.materialOverride === true) this.overrideMaterial(imported, specification.material);
+        try { this.applyProductMaterials(imported, specification, source.product.materialPresets || []); }
+        catch (error) { this.disposeObject(imported); throw error; }
         // Mesh coordinates are already centered and measured in meters. Keep
         // every imported node transform and never resize geometry to sizeM.
         group.add(imported);
@@ -602,29 +575,15 @@ export class StudioViewport {
       for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
         if (materials.has(material)) continue;
         const index = material.userData.gessoSourceMaterial ?? materials.size;
-        materials.set(material, { id: `${componentId}::material:${index}`, name: material.name || `Material ${Number(index) + 1}` });
+        materials.set(material, { id: `${componentId}::material:${index}`,
+          name: material.userData.gessoSourceMaterialName || material.name || `Material ${Number(index) + 1}` });
       }
     });
-    return [...materials.values()];
+    return [...new Map([...materials.values()].map(slot => [slot.id, slot])).values()];
   }
 
   private prepareImportedMesh(root: THREE.Object3D): void {
-    const excluded: THREE.Object3D[] = [];
-    let meshes = 0;
-    root.traverse(object => {
-      if (object instanceof THREE.Camera || object instanceof THREE.Light) excluded.push(object);
-      if (object instanceof THREE.Mesh) { object.castShadow = true; object.receiveShadow = true; meshes++; }
-    });
-    root.updateMatrixWorld(true);
-    for (const object of excluded) {
-      // A glTF camera/light node can also parent real product geometry. Remove
-      // its authored illumination/camera while retaining those child transforms.
-      const parent = object.parent;
-      if (parent) for (const child of [...object.children]) parent.attach(child);
-      object.removeFromParent();
-      this.disposeObject(object);
-    }
-    if (!meshes) { this.disposeObject(root); throw new Error('The GLB contains no visible mesh geometry.'); }
+    prepareImportedMesh(root);
   }
 
   private overrideMaterial(root: THREE.Object3D, specification: any): void {
@@ -645,66 +604,83 @@ export class StudioViewport {
     materials.forEach(material => material.dispose());
   }
 
-  private async loadVerifiedGlb(asset: any, signal: AbortSignal, url?: string): Promise<THREE.Group> {
-    const path = asset?.path;
-    if (asset?.format !== 'glb' || asset?.sourceUp !== 'Y' || !/^[a-f0-9]{64}$/.test(asset?.sha256 || '')
-        || typeof path !== 'string' || /[\\:\0]/.test(path) || path.startsWith('/')
-        || path.split('/').some((part: string) => !part || part === '.' || part === '..')
-        || path.split('/').at(-1) !== `${asset.sha256}.glb`) {
-      throw new Error('The mesh asset must declare a safe, content-addressed Y-up GLB.');
-    }
-    const response = await fetch(url || this.assetUrl(asset), { signal, credentials: 'same-origin' });
-    if (!response.ok) throw new Error(`Could not load mesh asset (${response.status}).`);
-    const limit = 128 * 1024 * 1024;
-    const declared = response.headers.get('Content-Length');
-    if (declared && (!/^\d+$/.test(declared) || Number(declared) > limit)) throw new Error('The mesh asset exceeds the 128 MiB limit.');
-    const bytes = await response.arrayBuffer();
-    if (bytes.byteLength < 20 || bytes.byteLength > limit) throw new Error('The mesh asset is empty, truncated, or exceeds 128 MiB.');
-    const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), value => value.toString(16).padStart(2, '0')).join('');
-    if (digest !== asset.sha256) throw new Error('The mesh asset SHA-256 does not match its immutable scene revision.');
-    const header = new DataView(bytes);
-    if (header.getUint32(0, true) !== 0x46546c67 || header.getUint32(4, true) !== 2
-        || header.getUint32(8, true) !== bytes.byteLength) throw new Error('Expected a complete GLB version 2 mesh asset.');
-    const jsonLength = header.getUint32(12, true);
-    if (header.getUint32(16, true) !== 0x4e4f534a || jsonLength % 4 || jsonLength > 16 * 1024 * 1024
-        || 20 + jsonLength > bytes.byteLength) throw new Error('The mesh GLB JSON chunk is invalid.');
-    const document = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(bytes, 20, jsonLength)));
-    if (document?.asset?.version !== '2.0') throw new Error('The mesh asset must declare glTF version 2.0.');
-    const embeddedOnly = (value: any, depth = 0): void => {
-      if (depth > 80) throw new Error('The mesh GLB JSON nesting exceeds the limit.');
-      if (Array.isArray(value)) { value.forEach(child => embeddedOnly(child, depth + 1)); return; }
-      if (value && typeof value === 'object') {
-        for (const [key, child] of Object.entries(value)) {
-          if (['script', 'scripts', 'javascript'].includes(key.toLowerCase())) throw new Error('Scripts are forbidden in mesh assets.');
-          if (['uri', 'url', 'href'].includes(key.toLowerCase())
-              && (typeof child !== 'string' || !/^data:(?:application\/(?:octet-stream|gltf-buffer)|image\/(?:png|jpeg|webp));base64,[a-z0-9+/]*={0,2}$/i.test(child))) {
-            throw new Error('Mesh GLBs must be self-contained; external asset references are forbidden.');
-          }
-          embeddedOnly(child, depth + 1);
-        }
-      } else if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('Mesh GLB values must be finite.');
-    };
-    embeddedOnly(document);
-    if (signal.aborted) throw new DOMException('Mesh loading was superseded.', 'AbortError');
-    // Parsing verified bytes, rather than loadAsync(url), prevents a second
-    // fetch or a change between hash verification and the rendered hierarchy.
-    const gltf = await new GLTFLoader().parseAsync(bytes, '');
-    // Index against immutable glTF node indices, never UUIDs or sanitized Three
-    // names. Repeated mesh instances retain distinct node handles on reload.
-    gltf.scene.traverse(object => {
-      delete object.userData.gessoSourceNode;
-      const association = gltf.parser.associations.get(object);
-      if (association?.nodes !== undefined) {
-        const index = association.nodes;
-        object.userData.gessoSourceNode = { index, name: document.nodes?.[index]?.name || `Node ${index + 1}` };
+  /** Apply section bindings once, against original glTF node handles. A child
+   * binding wins over its parent; untouched siblings retain their native slots. */
+  private applyProductMaterials(root: THREE.Object3D, component: any, presets: any[]): void {
+    const bindings = new Map<number, string>();
+    const materialsByPreset = new Map<string, MaterialSpecification>(presets.map(preset => [preset.id, preset.material]));
+    const nodes = new Set<number>();
+    root.traverse(object => {
+      const index = object.userData.gessoSourceNode?.index;
+      if (Number.isInteger(index)) nodes.add(index);
+    });
+    // Resolve every binding before replacing anything, including hidden nodes.
+    for (const binding of component.materialBindings || []) {
+      if (!Number.isInteger(binding.nodeIndex) || !nodes.has(binding.nodeIndex)) {
+        throw new Error(`The material section nodes[${binding.nodeIndex}] is missing from ${component.id}.`);
       }
-      if (object instanceof THREE.Mesh) for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
-        delete material.userData.gessoSourceMaterial;
-        const materialAssociation = gltf.parser.associations.get(material);
-        if (materialAssociation?.materials !== undefined) material.userData.gessoSourceMaterial = materialAssociation.materials;
+      if (!materialsByPreset.has(binding.materialPresetId)) {
+        throw new Error(`The material preset ${binding.materialPresetId} is missing.`);
+      }
+      if (bindings.has(binding.nodeIndex)) throw new Error(`The material section nodes[${binding.nodeIndex}] has more than one assignment.`);
+      bindings.set(binding.nodeIndex, binding.materialPresetId);
+    }
+    const originals = new Set<THREE.Material>();
+    const replacements = new Map<MaterialSpecification, Map<THREE.Material, THREE.Material>>();
+    const replace = (original: THREE.Material, specification: MaterialSpecification) => {
+      let bySource = replacements.get(specification);
+      if (!bySource) { bySource = new Map(); replacements.set(specification, bySource); }
+      let replacement = bySource.get(original);
+      if (!replacement) {
+        replacement = this.surface(specification);
+        if (original.userData.gessoSourceMaterial !== undefined) replacement.userData.gessoSourceMaterial = original.userData.gessoSourceMaterial;
+        replacement.userData.gessoSourceMaterialName = original.userData.gessoSourceMaterialName || original.name;
+        bySource.set(original, replacement);
+      }
+      originals.add(original);
+      return replacement;
+    };
+    const visit = (object: THREE.Object3D, inherited: MaterialSpecification | undefined) => {
+      if (object.userData.gessoArtwork) return;
+      delete object.userData.gessoMaterialBindingPresetId;
+      const presetId = bindings.get(object.userData.gessoSourceNode?.index);
+      const material = presetId === undefined ? inherited : materialsByPreset.get(presetId);
+      if (presetId !== undefined) object.userData.gessoMaterialBindingPresetId = presetId;
+      if (material && object instanceof THREE.Mesh) {
+        object.material = Array.isArray(object.material)
+          ? object.material.map(original => replace(original, material))
+          : replace(object.material, material);
+      }
+      for (const child of object.children) visit(child, material);
+    };
+    visit(root, component.materialOverride === true ? component.material : undefined);
+    // Imported meshes can share one material or texture. Replacing a section
+    // must not dispose a resource that a sibling still uses.
+    const retained = new Set<THREE.Material>(), retainedTextures = new Set<THREE.Texture>();
+    root.traverse(object => {
+      if (!(object instanceof THREE.Mesh)) return;
+      for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+        retained.add(material);
+        for (const value of Object.values(material)) if (value instanceof THREE.Texture) retainedTextures.add(value);
       }
     });
-    return gltf.scene;
+    const disposedTextures = new Set<THREE.Texture>();
+    for (const material of originals) {
+      if (retained.has(material)) continue;
+      for (const value of Object.values(material)) {
+        if (value instanceof THREE.Texture && !retainedTextures.has(value)) disposedTextures.add(value);
+      }
+      material.dispose();
+    }
+    const retainedImages = new Set(Array.from(retainedTextures, texture => texture.image));
+    for (const texture of disposedTextures) texture.dispose();
+    for (const image of new Set(Array.from(disposedTextures, texture => texture.image))) {
+      if (!retainedImages.has(image) && typeof ImageBitmap !== 'undefined' && image instanceof ImageBitmap) image.close();
+    }
+  }
+
+  private async loadVerifiedGlb(asset: any, signal: AbortSignal, url?: string): Promise<THREE.Group> {
+    return loadVerifiedGlb(asset, signal, url);
   }
 
   private addLabel(parent: THREE.Group, specification: any, size: number[]): void {
@@ -1236,15 +1212,17 @@ export class StudioViewport {
         if (!current()) return;
         const meshes = new Set<THREE.Mesh>();
         for (const id of new Set(descriptor.componentIds)) {
-          const root = this.components.get(id);
-          if (!root || root.userData.gessoPrimitiveShape === 'mesh' && !root.userData.gessoMaterialOverride) continue;
-          root.traverse(object => {
-            if (!(object instanceof THREE.Mesh)) return;
-            for (let ancestor: THREE.Object3D | null = object; ancestor && ancestor !== root; ancestor = ancestor.parent) {
-              if (ancestor.userData.gessoArtwork) return;
-            }
-            meshes.add(object);
-          });
+          const component = this.components.get(id);
+          const root = component || this.parts.get(id);
+          if (!root || component && root.userData.gessoPrimitiveShape === 'mesh' && !root.userData.gessoMaterialOverride) continue;
+          const visit = (object: THREE.Object3D) => {
+            if (object.userData.gessoArtwork) return;
+            const boundPreset = object.userData.gessoMaterialBindingPresetId;
+            if (object !== root && boundPreset && boundPreset !== descriptor.presetId) return;
+            if (object instanceof THREE.Mesh) meshes.add(object);
+            for (const child of object.children) visit(child);
+          };
+          visit(root);
         }
         if (!meshes.size) throw new Error('Select an editable product part to preview this material.');
         // Focus/probe clones wrap the material draft, never become its source.
@@ -1300,8 +1278,10 @@ export class StudioViewport {
     const assetAbort = new AbortController();
     this.assetAbort = assetAbort;
     const version = ++this.loadVersion;
+    this.unpresentedLoadVersion = version;
     this.frameRequest++;
     this.loading = true;
+    this.options.onLoading?.(true);
     this.loadFailed = false;
     this.awaitingSample = !this.options.capture;
     this.cancelRender();
@@ -1379,6 +1359,7 @@ export class StudioViewport {
       if (version !== this.loadVersion || this.disposed) return;
       this.loading = false;
       this.loadFailed = true;
+      this.options.onLoading?.(false);
       this.materialPreviewState?.pending?.reject(error);
       if (this.materialPreviewState) this.materialPreviewState.pending = null;
       this.worldReady = false;
@@ -1389,9 +1370,7 @@ export class StudioViewport {
   }
 
   private assetUrl(asset: any): string {
-    const filename = String(asset?.path || '').split('/').pop();
-    if (!filename || !/^[a-f0-9]{64}\.(glb|ply|spz|png|hdr)$/.test(filename)) throw new Error('The world asset path is invalid.');
-    return `/api/assets/${filename}`;
+    return sceneAssetUrl(asset);
   }
 
   async frame(sample: any): Promise<void> {
@@ -1436,12 +1415,17 @@ export class StudioViewport {
       this.selection?.update();
       const firstSample = this.awaitingSample;
       this.awaitingSample = false;
+      this.sampledLoadVersion = version;
       if (firstSample) this.updateControlsEnabled();
       if (!this.loading && (this.options.capture || (!document.hidden && this.visible))) await this.render(!!this.spark);
       else this.dirty = true;
     });
-    this.frameQueue = task;
-    return task;
+    const result = task.catch(error => {
+      if (!this.disposed && version === this.loadVersion) this.options.onLoading?.(false);
+      throw error;
+    });
+    this.frameQueue = result;
+    return result;
   }
 
   private render(settle: boolean): Promise<void> {
@@ -1541,6 +1525,13 @@ export class StudioViewport {
       this.options.onFilmGuide?.(filmGuide);
     }
     if (settle) this.renderer.getContext().finish();
+    // Asset readiness does not imply a displayed image: wait for its sampled
+    // camera/pose and every async sort, then notify only once for this load.
+    if (this.unpresentedLoadVersion === version && this.sampledLoadVersion === version) {
+      this.unpresentedLoadVersion = null;
+      this.options.onLoading?.(false);
+      this.options.onPresented?.();
+    }
   }
 
   setSelection(id: string | null): void {
@@ -1566,6 +1557,31 @@ export class StudioViewport {
     this.partFocus = !!enabled && !!this.options.studioMode && !this.options.capture;
     this.applyPartPreview();
     this.invalidate();
+  }
+
+  setMaterialHover(hover: MaterialHover | null): void {
+    this.materialHover = hover ? {presetId: hover.presetId, partIds: [...new Set(hover.partIds)]} : null;
+    this.applyPartPreview();
+    this.invalidate();
+  }
+
+  /** Resolve actual source assignments, stopping at a different section finish.
+   * Explicit same-preset descendant roots can re-enter an overridden subtree. */
+  private materialHoverMeshes(): Set<THREE.Mesh> {
+    const meshes = new Set<THREE.Mesh>();
+    const hover = this.materialHover;
+    if (!hover) return meshes;
+    const visit = (object: THREE.Object3D) => {
+      const binding = object.userData.gessoMaterialBindingPresetId;
+      if (binding && binding !== hover.presetId) return;
+      if (object instanceof THREE.Mesh) meshes.add(object);
+      for (const child of object.children) visit(child);
+    };
+    for (const id of hover.partIds) {
+      const root = this.parts.get(id) || this.components.get(id);
+      if (root) visit(root);
+    }
+    return meshes;
   }
 
   setHiddenParts(ids: string[]): void {
@@ -1611,7 +1627,8 @@ export class StudioViewport {
     }
     const selectedRoots = this.focusedRoots();
     const probeRoot = this.uvProbePartId ? this.parts.get(this.uvProbePartId) : null;
-    if ((!this.partFocus || !selectedRoots.length) && !probeRoot) return;
+    const materialMeshes = this.materialHoverMeshes();
+    if ((!this.partFocus || !selectedRoots.length) && !probeRoot && !materialMeshes.size) return;
     const selectedMeshes = new Set<THREE.Object3D>(), probeMeshes = new Set<THREE.Object3D>();
     selectedRoots.forEach(root => root.traverse(object => selectedMeshes.add(object)));
     probeRoot?.traverse(object => probeMeshes.add(object));
@@ -1629,7 +1646,8 @@ export class StudioViewport {
     };
     for (const component of this.components.values()) component.traverse(object => {
       if (!(object instanceof THREE.Mesh)) return;
-      const opacity = probeMeshes.has(object) ? .72 : this.partFocus && selectedRoots.length && !selectedMeshes.has(object) ? .18 : 1;
+      const opacity = materialMeshes.size ? (materialMeshes.has(object) ? 1 : .18)
+        : probeMeshes.has(object) ? .72 : this.partFocus && selectedRoots.length && !selectedMeshes.has(object) ? .18 : 1;
       if (opacity === 1) return;
       this.focusMaterials.set(object, { material: object.material, castShadow: object.castShadow });
       object.material = Array.isArray(object.material) ? object.material.map(material => faded(material, opacity)) : faded(object.material, opacity);
@@ -1747,28 +1765,7 @@ export class StudioViewport {
   }
 
   private disposeObject(root: THREE.Object3D): void {
-    const textures = new Set<THREE.Texture>();
-    const materials = new Set<THREE.Material>();
-    const geometries = new Set<THREE.BufferGeometry>();
-    const skeletons = new Set<THREE.Skeleton>();
-    root.traverse(object => {
-      const mesh = object as THREE.Mesh;
-      if (object instanceof THREE.SkinnedMesh) skeletons.add(object.skeleton);
-      if (mesh.geometry) geometries.add(mesh.geometry);
-      const values = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      for (const material of values) {
-        if (!material) continue;
-        materials.add(material);
-        for (const value of Object.values(material)) if (value instanceof THREE.Texture) textures.add(value);
-      }
-      if (object instanceof THREE.DirectionalLight) object.shadow.dispose();
-    });
-    textures.forEach(texture => texture.dispose());
-    const images = new Set(Array.from(textures, texture => texture.image));
-    images.forEach(image => { if (typeof ImageBitmap !== 'undefined' && image instanceof ImageBitmap) image.close(); });
-    skeletons.forEach(skeleton => skeleton.dispose());
-    materials.forEach(material => material.dispose());
-    geometries.forEach(geometry => geometry.dispose());
+    disposeSceneObject(root);
   }
 
   private clearContent(preserveInspection = false): void {
@@ -1817,10 +1814,14 @@ export class StudioViewport {
     this.materialPreviewState?.pending?.resolve();
     if (this.materialPreviewState) { this.materialPreviewState.pending = null; this.materialPreviewState.descriptor = null; }
     this.loadVersion++;
+    this.unpresentedLoadVersion = null;
+    this.materialHover = null;
+    this.sampledLoadVersion = -1;
     this.frameRequest++;
     this.assetAbort?.abort();
     this.assetAbort = null;
     this.loading = false;
+    this.options.onLoading?.(false);
     this.loadFailed = false;
     this.awaitingSample = false;
     this.cancelRender();
@@ -1837,6 +1838,7 @@ export class StudioViewport {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.options.onLoading?.(false);
     this.depthOfFieldPreview?.dispose(); this.depthOfFieldPreview = null;
     this.presentedFilm = null;
     this.options.onFilmGuide?.(null);
@@ -1923,6 +1925,7 @@ export function createViewport(host: HTMLElement, options: Omit<ViewportOptions,
     setProductPreview(enabled: boolean) { viewport.setProductPreview(enabled); },
     setMaterialPreview(preview: MaterialPreview | null) { return viewport.setMaterialPreview(preview); },
     setFocusParts(ids: string[]) { viewport.setFocusParts(ids); },
+    setMaterialHover(hover: MaterialHover | null) { viewport.setMaterialHover(hover); },
     setHiddenParts(ids: string[]) { viewport.setHiddenParts(ids); },
     frameSelection() { viewport.frameSelection(); },
     freezeSelectionFraming() { viewport.freezeSelectionFraming(); },

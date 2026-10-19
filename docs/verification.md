@@ -2,7 +2,24 @@
 
 This record distinguishes engineering checks from visual approval, real-asset validation and observed user-study outcomes. Local fixture success does not pass those proposal gates.
 
-## 16 October 2026 — current A/B engineering record
+## 19 October 2026 — gesso editor and site checkpoint
+
+Local checks before pushing the current editor, marketing pages, and shared frame system:
+
+- `npm test --prefix web`: **824 tests passed across 68 files**.
+- `python3 -B -m unittest discover -s tests -q`: **357 discovered, 343 passed, 14 skipped**. Optional Blender, numerical reconstruction, and Linux-only checks were not all available in this run.
+- `node scripts/capture_splats.test.mjs`: **9 tests passed**.
+- `npm run build --prefix web`: TypeScript and Vite production build passed; the existing large-bundle advisory remains.
+- `python3 -B -m film validate examples/bottle.scene.json`: fixture validation passed.
+- `npm run dev --prefix web -- --port 5173 --strictPort`: the real editor loaded through the Vite proxy with saved campaign data, evaluated scene, and no browser errors. The proxy forwards the backend Host while preserving the server’s origin checks.
+
+These local commands used macOS, Python **3.14.6** and Node **22.23.2**. The declared Python target and CI configuration remain **3.12.14**, with Node **24.19.0** in CI; the local pass is not a substitute for that environment or optional render integrations.
+
+Browser checks used the running local application: one playhead inside the duration-weighted Film shot row; pointer scrubbing and keyboard seeking across cuts; playback following the active shot; custom keyframes remaining open across cuts; synchronized shot headers in both sidebars; film-wide output heading; section dividers inside the sidebars; Form + Light navigation and title. These were behavior checks, not a user study or approval of final render quality. Existing campaigns and scene geometry were not changed for these checks.
+
+The [design decision log](design-decisions.md) records the accepted design direction and its implementation limits.
+
+## 16 October 2026 — A/B engineering record (historical)
 
 The API and browser now support saved world calibration, locked A/B comparison and paired render exports. Both sides share the exact product, actions, sampled cameras, render settings, explicit plinth/props and ambient colour. Calibration records raw-GLB floor/measurement picks, metric scale and yaw adjustments. Saved placement review becomes draft when world alignment, contact geometry, product geometry/assembly, actions or time sampling change; camera framing and ambient edits are tracked separately by the shared scene digest.
 

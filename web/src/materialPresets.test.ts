@@ -1,7 +1,8 @@
 import {describe, expect, it} from 'vitest';
 import fixture from '../../examples/bottle.scene.json';
 import {MATERIAL_PRESETS} from './materials';
-import {assignMaterialPreset, campaignMaterialPresets, materialTypes, presetPartIds, saveMaterialPreset, type SavedMaterialPreset} from './materialPresets';
+import {assignMaterialPreset, attachMaterialParts, campaignMaterialPresets, materialOwner, materialTargets, materialTypes, presetPartIds, saveMaterialPreset, type SavedMaterialPreset} from './materialPresets';
+import {sceneParts, type HierarchyPart} from './hierarchy';
 import {commitHistory, createHistory, redoHistory, undoHistory} from './state';
 
 const scene = (): any => structuredClone(fixture);
@@ -160,5 +161,68 @@ describe('campaign material presets', () => {
     expect(() => assignMaterialPreset(source, 'missing-preset', 'neck')).toThrow(/saved material preset/);
     expect(() => assignMaterialPreset(source, material.id, 'missing')).toThrow(/product components/);
     expect(source).toEqual(before);
+  });
+});
+
+describe('material library assignments', () => {
+  const imported = () => {
+    const source = scene();
+    const component = source.product.components[0];
+    component.shape = 'mesh';component.materialOverride = false;
+    const parts:HierarchyPart[] = [...sceneParts(source),
+      {id:component.id+'::node:0',componentId:component.id,name:'Housing',sourceName:'housing',source:'glb',parentId:component.id,sourcePath:'nodes[0]',materialSlots:[{id:'slot0',name:'Paint'}]},
+      {id:component.id+'::node:1',componentId:component.id,name:'Shade',sourceName:'shade',source:'glb',parentId:component.id+'::node:0',sourcePath:'nodes[1]',materialSlots:[{id:'slot0',name:'Paint'}]},
+      {id:component.id+'::node:2',componentId:component.id,name:'Base',sourceName:'base',source:'glb',parentId:component.id,sourcePath:'nodes[2]',materialSlots:[{id:'slot1',name:'Chrome'}]},
+    ];
+    return {source,component,parts};
+  };
+  it('attaches a source section without replacing sibling or original component materials', () => {
+    const {source,parts} = imported(); const original=structuredClone(source.product.components[0]);
+    saveMaterialPreset(source,preset());
+    attachMaterialParts(source,preset().id,['bottle-body::node:1'],parts);
+    expect(source.product.components[0]).toEqual({...original,materialBindings:[{nodeIndex:1,materialPresetId:preset().id}]});
+    expect(presetPartIds(source,preset())).toEqual(['bottle-body::node:1']);
+    expect(materialOwner(source,parts,'bottle-body::node:1')).toBe(preset().id);
+    expect(materialOwner(source,parts,'bottle-body::node:2')).toBeNull();
+  });
+  it('moves sections between presets and inherits through source ancestors', () => {
+    const {source,parts} = imported();const second={...preset(),id:'second'};
+    saveMaterialPreset(source,preset());saveMaterialPreset(source,second);
+    attachMaterialParts(source,preset().id,['bottle-body::node:0'],parts);
+    expect(materialOwner(source,parts,'bottle-body::node:1')).toBe(preset().id);
+    attachMaterialParts(source,second.id,['bottle-body::node:1'],parts);
+    expect(presetPartIds(source,second)).toEqual(['bottle-body::node:1']);
+    expect(materialOwner(source,parts,'bottle-body::node:0')).toBe(preset().id);
+    attachMaterialParts(source,second.id,['bottle-body::node:0'],parts);
+    expect(source.product.components[0].materialBindings).toEqual([{nodeIndex:0,materialPresetId:second.id}]);
+    expect(presetPartIds(source,preset())).toEqual([]);
+  });
+  it('attaches the whole imported object explicitly, replacing its section assignments', () => {
+    const {source,parts} = imported();saveMaterialPreset(source,preset());
+    attachMaterialParts(source,preset().id,['bottle-body::node:1'],parts);
+    attachMaterialParts(source,preset().id,['bottle-body'],parts);
+    expect(source.product.components[0].materialOverride).toBe(true);
+    expect(source.product.components[0].materialBindings).toBeUndefined();
+    expect(presetPartIds(source,preset())).toEqual(['bottle-body']);
+  });
+  it('materializes legacy materials and reassigns several parts atomically', () => {
+    const source=scene(),parts=sceneParts(source),oldCap=structuredClone(source.product.components[2].material);
+    const virtual=campaignMaterialPresets(source)[0];
+    attachMaterialParts(source,virtual.id,['cap','neck'],parts);
+    expect(presetPartIds(source,virtual)).toEqual(['bottle-body','neck','cap']);
+    expect(campaignMaterialPresets(source).find(item=>item.id==='component:cap')?.material).toEqual(oldCap);
+    const before=structuredClone(source);
+    expect(()=>attachMaterialParts(source,virtual.id,['label','missing'],parts)).toThrow(/available/);
+    expect(source).toEqual(before);
+  });
+  it('preserves assignment identities and material linkage through save, undo and redo', () => {
+    const {source,parts}=imported();const before=structuredClone(source);saveMaterialPreset(source,preset());
+    attachMaterialParts(source,preset().id,['bottle-body::node:1'],parts);
+    saveMaterialPreset(source,{...preset(),material:{...preset().material,roughness:.75}});
+    expect(materialOwner(source,parts,'bottle-body::node:1')).toBe(preset().id);
+    const history=commitHistory(createHistory(before),JSON.parse(JSON.stringify(source)));
+    expect(undoHistory(history).present).toEqual(before);
+    expect(redoHistory(undoHistory(history)).present).toEqual(source);
+    expect(materialTargets(source,parts).some(part=>part.id==='bottle-body::node:1')).toBe(true);
   });
 });

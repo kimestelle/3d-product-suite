@@ -10,6 +10,7 @@ import uuid
 import zipfile
 
 from . import jobs
+from .export_formats import validate_format
 from .comparison import comparison_payload
 from .scene import scene_digest, validate_scene
 from .store import identifier, now
@@ -88,6 +89,9 @@ class ComparisonJobs:
         kind = data.get("kind", "still")
         if kind not in ("still", "reel"):
             raise ValueError("Render kind must be still or reel")
+        export_format = validate_format(kind, data.get("format"))
+        if export_format != ("png" if kind == "still" else "mp4"):
+            raise ValueError("Comparison exports currently support PNG stills or MP4 video only")
         pair_id = uuid.uuid4().hex
         directory = self.directory(pair_id)
         created = []

@@ -138,6 +138,147 @@ def _validate_depth_of_field(camera):
              "Camera focus target must remain beyond the focal length throughout the shot")
 
 
+def _motion_channels(motion):
+    kind = motion['kind']
+    if kind in ('orbit', 'dolly'):
+        return {'camera.position'}
+    if kind == 'mechanical':
+        return {'motion'} | {f'{prop}.{axis}' for prop in ('position', 'rotation') for axis in 'xyz'}
+    return {'scale'} if kind == 'scale' else {f"{'position' if kind == 'move' else 'rotation'}.{motion['axis']}"}
+
+
+def _effective_motions(scene, shot):
+    """A shot owner replaces a conflicting shared action as a whole."""
+    local = [motion for motion in shot.get('motions', []) if motion['enabled']]
+    owned = {(motion['target'], channel) for motion in local for channel in _motion_channels(motion)}
+    shared = [motion for motion in scene.get('motions', []) if motion['enabled'] and
+              not any((motion['target'], channel) in owned for channel in _motion_channels(motion))]
+    return [(motion, False) for motion in shared] + [(motion, True) for motion in local]
+
+
+def _validate_film_motions(scene, component_ids, moving, motion_parents):
+    if 'motions' not in scene and not any('motions' in shot for shot in scene['shots']):
+        return
+    _require(not {'$camera', '$product'} & component_ids, 'Reserved Film target ID')
+    for source in [scene, *scene['shots']]:
+        motions = source.get('motions', [])
+        _require(isinstance(motions, list), 'Film motions must be a list')
+        ids, owners = set(), set()
+        for motion in motions:
+            _require(isinstance(motion, dict), 'Film motion must be an object')
+            identifier = motion.get('id')
+            _require(isinstance(identifier, str) and 0 < len(identifier.strip()) <= 120 and identifier not in ids,
+                     'Film motion IDs must be nonempty, bounded and unique within their scope')
+            ids.add(identifier)
+            target, kind = motion.get('target'), motion.get('kind')
+            _require(isinstance(target, str) and (target in component_ids or target in ('$camera', '$product')),
+                     'Film motion target does not exist')
+            _require(kind in ('move', 'rotate', 'scale', 'mechanical', 'orbit', 'dolly'), 'Unsupported Film motion')
+            _require((target == '$camera') == (kind in ('orbit', 'dolly')), 'Camera actions require a camera target')
+            _require(kind != 'mechanical' or target in moving, 'Mechanism requires an existing confirmed action')
+            _require(target not in motion_parents, 'Cannot animate a part used as another mechanism reference')
+            _require(motion.get('axis') in ('x', 'y', 'z'), 'Film motion axis must be x, y or z')
+            _require(kind != 'orbit' or motion['axis'] == 'y', 'Orbit uses the vertical Y axis')
+            _number(motion.get('amount'), 'Film motion amount',
+                    minimum=.01 if kind == 'scale' else 0 if kind == 'mechanical' else None,
+                    maximum=100 if kind == 'scale' else 1 if kind == 'mechanical' else None)
+            for field, minimum in (('startFrame', 1), ('durationFrames', 2)):
+                _require(type(motion.get(field)) is int and minimum <= motion[field] <= 9007199254740991,
+                         f'Film motion {field} must be an integer at least {minimum}')
+            _require(motion.get('easing') in ('linear', 'ease', 'hold'), 'Unsupported Film motion easing')
+            _require(type(motion.get('enabled')) is bool, 'Film motion enabled must be boolean')
+            if 'keys' in motion:
+                keys = motion['keys']
+                _require(isinstance(keys, list) and keys, 'Film motion curve needs at least one key')
+                previous = 0
+                for key in keys:
+                    _require(isinstance(key, dict), 'Film motion key must be an object')
+                    frame = key.get('frame')
+                    _require(type(frame) is int and previous < frame <= motion['durationFrames'],
+                             'Film motion keys must be ordered, distinct and inside the motion')
+                    previous = frame
+                    _number(key.get('value'), 'Film motion progress', minimum=0, maximum=1)
+                    _require(key.get('interpolation') in ('linear', 'ease', 'hold'), 'Unsupported Film curve interpolation')
+            if motion['enabled']:
+                channels = {(target, channel) for channel in _motion_channels(motion)}
+                _require(not channels & owners, 'Film motion channels have competing owners within one scope')
+                owners.update(channels)
+    shared_ids = {motion['id'] for motion in scene.get('motions', [])}
+    for shot in scene['shots']:
+        _require(not shared_ids & {motion['id'] for motion in shot.get('motions', [])},
+                 'Local and across-cuts motions need distinct IDs in the same shot')
+        for motion, _ in _effective_motions(scene, shot):
+            if motion['kind'] in ('dolly', 'orbit'):
+                camera = shot['camera']
+                distance = math.dist(camera['from']['positionM'], camera['from']['targetM'])
+                # Progress is bounded [0,1], so the minimum occurs at an endpoint.
+                remaining = distance - (max(0, motion['amount']) if motion['kind'] == 'dolly' else 0)
+                optics = camera.get('depthOfField', {})
+                minimum = max(camera['from']['focalLengthMm'], camera['to']['focalLengthMm']) / 1000 if optics.get('enabled') and 'focusDistanceM' not in optics else 1e-5
+                _require(remaining > minimum, 'Camera motion must stop before its target and focus plane')
+
+
+def _motion_progress(motion, frame):
+    local = frame - motion['startFrame'] + 1
+    if motion.get('keys'):
+        return _track_value(motion, local)
+    progress = max(0., min(1., (local - 1) / (motion['durationFrames'] - 1)))
+    if motion['easing'] == 'ease':
+        return _smooth(progress)
+    if motion['easing'] == 'hold':
+        return 1. if progress >= 1 else 0.
+    return progress
+
+
+def _film_values(scene, shot, frame, animated):
+    """Evaluate authored actions into the same canonical component channels."""
+    components = {part['id']: part for part in scene['product']['components']}
+    for motion, local in _effective_motions(scene, shot):
+        target = motion['target']
+        if target == '$camera':
+            continue
+        clock = frame - shot['startFrame'] + 1 if local else frame
+        progress = _motion_progress(motion, clock)
+        value, kind, axis = motion['amount'] * progress, motion['kind'], motion['axis']
+        pose = scene['placement'] if target == '$product' else components[target]['assembly']
+        values = animated.setdefault(target, {})
+        if kind in ('move', 'rotate') and any(action['componentId'] == target for action in scene['actions']):
+            # An explicit spatial owner must not secretly resume the legacy
+            # mechanism after replacing a shared mechanical action.
+            values['motion'] = 0
+        if kind == 'move':
+            values[f'position.{axis}'] = pose['translationM']['xyz'.index(axis)] + value
+        elif kind == 'rotate':
+            rotation = [0, 0, 0] if target == '$product' else _euler_xyz_degrees(pose['rotationXyzw'])
+            values[f'rotation.{axis}'] = rotation['xyz'.index(axis)] + value
+        elif kind == 'scale':
+            values['scale'] = pose.get('scale', 1) * (1 + (motion['amount'] - 1) * progress)
+        elif kind == 'mechanical':
+            for index, component_axis in enumerate('xyz'):
+                values[f'position.{component_axis}'] = pose['translationM'][index]
+                values[f'rotation.{component_axis}'] = _euler_xyz_degrees(pose['rotationXyzw'])[index]
+            values['motion'] = value
+
+
+def _film_camera(scene, shot, frame, camera):
+    for motion, local in _effective_motions(scene, shot):
+        if motion['target'] != '$camera':
+            continue
+        clock = frame - shot['startFrame'] + 1 if local else frame
+        value = motion['amount'] * _motion_progress(motion, clock)
+        start = shot['camera']['from']
+        offset = [position-target for position, target in zip(start['positionM'], start['targetM'])]
+        if motion['kind'] == 'orbit':
+            angle = math.radians(value)
+            quaternion = [0, math.sin(angle/2), 0, math.cos(angle/2)]
+            offset = _rotate(quaternion, offset)
+        else:
+            radius = math.sqrt(sum(value*value for value in offset))
+            offset = [component * (1 - value/radius) for component in offset]
+        camera['positionM'] = _add(start['targetM'], offset)
+        camera['targetM'] = list(start['targetM'])
+
+
 def validate_scene(scene):
     """Reject unsupported state rather than guessing mechanics or coordinates."""
     try:
@@ -197,6 +338,22 @@ def validate_scene(scene):
                          "Mesh material preset requires materialOverride")
                 _require(c["material"] == presets_by_id[preset_id]["material"],
                          "Component material must match its referenced preset")
+            if "materialBindings" in c:
+                _require(c["shape"] == "mesh", "Material section bindings require an imported mesh")
+                bindings = c["materialBindings"]
+                _require(isinstance(bindings, list) and len(bindings) <= 100000,
+                         "Material section bindings must be a bounded list")
+                bound_nodes = set()
+                for binding in bindings:
+                    _require(isinstance(binding, dict) and set(binding) == {"nodeIndex", "materialPresetId"},
+                             "Material section binding must contain nodeIndex and materialPresetId")
+                    node_index = binding["nodeIndex"]
+                    _require(type(node_index) is int and 0 <= node_index < 100000 and node_index not in bound_nodes,
+                             "Material section node indices must be nonnegative and unique")
+                    bound_nodes.add(node_index)
+                    preset_id = binding["materialPresetId"]
+                    _require(isinstance(preset_id, str) and preset_id in presets_by_id,
+                             "Material section preset does not exist")
             _number(c.get("bevelM", 0), "bevelM", minimum=0, maximum=min(c["sizeM"])/2)
         if "label" in p:
             _require(p["label"]["componentId"] in ids, "Label component does not exist")
@@ -343,6 +500,9 @@ def validate_scene(scene):
                 delta = [x-y for x,y in zip(pose["positionM"], pose["targetM"])]
                 _require(sum(x*x for x in delta) > 1e-10 and delta[0]**2 + delta[2]**2 > 1e-10, "Camera must have a nonvertical viewing direction")
                 _number(pose["focalLengthMm"], "focal length", minimum=1)
+            if 'durationFrames' in shot['camera']:
+                _require(type(shot['camera']['durationFrames']) is int and 1 <= shot['camera']['durationFrames'] <= 9007199254740991,
+                         'Camera source duration must be a positive integer')
             _validate_depth_of_field(shot["camera"])
             # The interpolated viewing vector must remain valid throughout the move.
             start, end = shot["camera"]["from"], shot["camera"]["to"]
@@ -357,6 +517,7 @@ def validate_scene(scene):
         if "animation" in scene:
             _validate_animation(scene["animation"], ids, moving,
                                 {action["relativeTo"] for action in scene["actions"]}, next_frame - 1)
+        _validate_film_motions(scene, ids, moving, {action['relativeTo'] for action in scene['actions']})
         if "comparison" in scene:
             from .comparison import validate_comparison
             validate_comparison(scene)
@@ -436,16 +597,20 @@ def evaluate(scene, frame):
     assembly scale acts around its own origin, including local action pivots and
     travel. Neither scale rewrites source dimensions, geometry, or action values.
     Enabled tracks replace base placement/assembly values before local actions;
-    a motion track replaces the action's timed progress. Keys use one reel clock.
+    a motion track replaces the action's timed progress. Legacy keys keep one reel
+    clock. Bounded Film motions own selected channels; shot-local owners replace
+    shared motions on those channels. Their untouched source survives trimming.
     """
     total = scene["shots"][-1]["endFrame"]
     _require(type(frame) is int and 1 <= frame <= total, f"Frame must be in 1..{total}")
     t = (frame-1) / scene["render"]["fps"]
+    shot = next(s for s in scene["shots"] if s["startFrame"] <= frame <= s["endFrame"])
     components = {}
     animated = {}
     for track in scene.get("animation", {}).get("tracks", []):
         if track["enabled"]:
             animated.setdefault(track["componentId"], {})[track["property"]] = _track_value(track, frame)
+    _film_values(scene, shot, frame, animated)
     # Product placement is relative to the top-center of its explicit support.
     # The baseline plinth top-center is [0,0,0], preserving original poses.
     plinth = scene["environment"]["plinth"]
@@ -455,6 +620,8 @@ def evaluate(scene, frame):
     placement = _add([product_values.get(f"position.{axis}", value)
                       for axis, value in zip("xyz", scene["placement"]["translationM"])], contact_origin)
     product_scale = product_values.get("scale", scene["placement"].get("scale", 1))
+    product_rotation = (_quaternion_from_xyz_degrees([product_values.get(f'rotation.{axis}', 0) for axis in 'xyz'])
+                        if any(f'rotation.{axis}' in product_values for axis in 'xyz') else None)
     for c in scene["product"]["components"]:
         pose = c["assembly"]
         values = animated.get(c["id"], {})
@@ -466,8 +633,8 @@ def evaluate(scene, frame):
                 for axis, value in zip("xyz", _euler_xyz_degrees(rotation))
             ])
         components[c["id"]] = {
-            "translationM": _add([x * product_scale for x in position], placement),
-            "rotationXyzw": rotation,
+            "translationM": _add(_rotate(product_rotation, [x * product_scale for x in position]) if product_rotation else [x * product_scale for x in position], placement),
+            "rotationXyzw": _mul(product_rotation, rotation) if product_rotation else rotation,
             "scale": product_scale * values.get("scale", pose.get("scale", 1)),
         }
     for a in scene["actions"]:
@@ -483,10 +650,12 @@ def evaluate(scene, frame):
         pose["translationM"] = _add(pose["translationM"], _rotate(pose["rotationXyzw"],offset))
         pose["rotationXyzw"] = _mul(pose["rotationXyzw"],q)
     shot = next(s for s in scene["shots"] if s["startFrame"] <= frame <= s["endFrame"])
-    u = _smooth((frame-shot["startFrame"])/max(1,shot["endFrame"]-shot["startFrame"]))
+    camera_duration = shot['camera'].get('durationFrames', shot['endFrame'] - shot['startFrame'] + 1)
+    u = _smooth((frame-shot["startFrame"])/(camera_duration-1)) if camera_duration > 1 else 0.
     before, after = shot["camera"]["from"], shot["camera"]["to"]
     camera = {key: [x+(y-x)*u for x,y in zip(before[key],after[key])] for key in ("positionM","targetM")}
     camera["focalLengthMm"] = before["focalLengthMm"] + (after["focalLengthMm"]-before["focalLengthMm"])*u
+    _film_camera(scene, shot, frame, camera)
     optics = shot["camera"].get("depthOfField", {})
     camera["depthOfField"] = {
         "enabled": optics.get("enabled", False),

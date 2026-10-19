@@ -11,7 +11,7 @@ describe('film sequence editing', () => {
     const scene = source(); const actions = structuredClone(scene.actions); const cameras = scene.shots.map((shot: any) => structuredClone(shot.camera));
     setShotFrames(scene, scene.shots[0].id, 72);
     expect(ranges(scene)).toEqual([[1, 72], [73, 192], [193, 312]]);
-    expect(scene.shots.map((shot: any) => shot.camera)).toEqual(cameras);
+    expect(scene.shots.map((shot: any) => shot.camera)).toEqual(cameras.map((camera: any, index: number) => index === 0 ? {...camera, durationFrames: 120} : camera));
     expect(scene.actions).toEqual(actions); expect(scene.render.fps).toBe(24);
   });
 
@@ -47,7 +47,7 @@ describe('film sequence editing', () => {
   it('moves a shot with its camera and duration, leaving global movement timing alone', () => {
     const scene = source(); const id = scene.shots[1].id; const camera = structuredClone(scene.shots[1].camera); const actions = structuredClone(scene.actions);
     setShotFrames(scene, id, 90); moveShot(scene, id, -1);
-    expect(scene.shots[0].id).toBe(id); expect(scene.shots[0].camera).toEqual(camera);
+    expect(scene.shots[0].id).toBe(id); expect(scene.shots[0].camera).toEqual({...camera, durationFrames: 120});
     expect(ranges(scene)).toEqual([[1, 90], [91, 210], [211, 330]]); expect(scene.actions).toEqual(actions);
     const before = structuredClone(scene); moveShot(scene, id, -1); expect(scene).toEqual(before);
   });

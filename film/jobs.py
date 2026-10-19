@@ -20,7 +20,9 @@ import tempfile
 import time
 import uuid
 import zlib
+import zipfile
 
+from .export_formats import FORMATS, artifact_names, job_format, primary_artifact
 from .scene import load_scene, sample_scene, scene_digest
 from .worlds import bundle_assets, verify_scene_assets
 
@@ -28,6 +30,7 @@ BLENDER_VERSION = "4.3.2"
 FFMPEG_VERSION = "7.1.5"
 BATCH_SIZE = 12
 _RENDERER = Path(__file__).resolve().parents[1] / "scripts" / "blender_scene.py"
+_RENDERER_DEPENDENCIES = {"decal_geometry.py": Path(__file__).with_name("decal_geometry.py")}
 
 
 def _now():
@@ -86,32 +89,37 @@ def _save_job(output, job):
         _atomic_json(output / "job.json", job)
 
 
-def _profile(scene, sampled, width, height, samples):
+def _profile(scene, sampled, width, height, samples, export_format=None):
     settings = scene["render"]
     width = settings["width"] if width is None else width
     height = settings["height"] if height is None else height
     samples = settings["samples"] if samples is None else samples
     for name, value in (("width", width), ("height", height)):
         if type(value) is not int or value < 2 or value > 16384 or value % 2:
-            raise ValueError(f"{name} must be an even integer from 2 to 16384 for H.264")
+            raise ValueError(f"{name} must be an even integer from 2 to 16384 for rendering")
     if type(samples) is not int or not 1 <= samples <= 65536:
         raise ValueError("samples must be an integer from 1 to 65536")
     if settings["blenderVersion"] != BLENDER_VERSION or settings["ffmpegVersion"] != FFMPEG_VERSION:
         raise ValueError(f"Render tools must be pinned to Blender {BLENDER_VERSION} and FFmpeg {FFMPEG_VERSION}")
-    return {"width": width, "height": height, "samples": samples,
+    if export_format is not None and (not isinstance(export_format, str) or export_format not in FORMATS):
+        raise ValueError("Unknown export format")
+    return {**({"format": export_format} if export_format is not None else {}),
+            "width": width, "height": height, "samples": samples,
             "fps": settings["fps"], "frameCount": len(sampled["frames"]),
             "engine": settings["engine"], "seed": settings["seed"],
             "blenderVersion": BLENDER_VERSION, "ffmpegVersion": FFMPEG_VERSION}
 
 
-def create_job(scene_path, output_dir, *, width=None, height=None, samples=None):
+def create_job(scene_path, output_dir, *, width=None, height=None, samples=None, export_format=None):
     """Snapshot a scene. Reusing an output directory requires identical inputs."""
     scene = load_scene(scene_path)
     sampled = sample_scene(scene)
-    profile = _profile(scene, sampled, width, height, samples)
+    profile = _profile(scene, sampled, width, height, samples, export_format)
     digest = scene_digest(scene)
     renderer_source = _RENDERER.read_bytes()
     renderer_digest = hashlib.sha256(renderer_source).hexdigest()
+    dependencies = {name: path.read_bytes() for name, path in _RENDERER_DEPENDENCIES.items()}
+    dependency_digests = {name: hashlib.sha256(source).hexdigest() for name, source in dependencies.items()}
     output = Path(output_dir).resolve()
     output.mkdir(parents=True, exist_ok=True)
     with _lock(output, ".manifest.lock"):
@@ -128,8 +136,8 @@ def create_job(scene_path, output_dir, *, width=None, height=None, samples=None)
         job = {"schemaVersion": 1, "jobId": str(uuid.uuid4()), "state": "queued",
                "createdAt": timestamp, "updatedAt": timestamp,
                "sceneDigest": digest, "sourceScene": "scene.json", "samples": "samples.json",
-               "rendererScript": "renderer.py", "rendererDigest": renderer_digest,
-               "renderProfile": profile, "completedRanges": [], "frameDigests": {}, "attempts": [],
+               "rendererScript": "renderer.py", "rendererDigest": renderer_digest, "rendererDependencies": dependency_digests,
+               "renderProfile": profile, "renderProfileDigest": scene_digest(profile), "completedRanges": [], "frameDigests": {}, "attempts": [],
                "errors": [], "tools": {}, "artifacts": {}, "assets": assets, "cancellationRequested": False,
                "renderingPath": {"authored": "authored-cycles", "mesh": "mesh-cycles", "splat": "camera-matched-splat-plate"}[scene["environment"]["kind"]]}
         if scene["environment"]["kind"] == "splat":
@@ -138,6 +146,11 @@ def create_job(scene_path, output_dir, *, width=None, height=None, samples=None)
             handle.write(renderer_source)
             handle.flush()
             os.fsync(handle.fileno())
+        for name, source in dependencies.items():
+            with (output / name).open("wb") as handle:
+                handle.write(source)
+                handle.flush()
+                os.fsync(handle.fileno())
         _atomic_json(output / "scene.json", scene)
         _atomic_json(output / "samples.json", sampled)
         _atomic_json(output / "job.json", job)
@@ -149,6 +162,13 @@ def _verify_snapshots(output, job):
         raise ValueError("Renderer implementation changed after job creation; create a new job directory")
     if job["rendererDigest"] != _sha256(output / "renderer.py"):
         raise ValueError("Renderer snapshot was modified after job creation; create a new job directory")
+    expected_dependencies = {name: _sha256(path) for name, path in _RENDERER_DEPENDENCIES.items()}
+    if job.get("rendererDependencies") != expected_dependencies:
+        raise ValueError("Renderer dependency implementation changed after job creation; create a new job directory")
+    for name, expected_digest in expected_dependencies.items():
+        dependency = output / name
+        if not dependency.is_file() or _sha256(dependency) != expected_digest:
+            raise ValueError("Renderer dependency snapshot was modified or is missing; create a new job directory")
     scene = load_scene(output / "scene.json")
     if scene_digest(scene) != job.get("sceneDigest"):
         raise ValueError("Source revision was modified after job creation; create a new job directory")
@@ -163,7 +183,9 @@ def _verify_snapshots(output, job):
     if actual != expected:
         raise ValueError("Sample snapshot does not match the immutable source revision")
     profile = job["renderProfile"]
-    if profile != _profile(scene, expected, profile["width"], profile["height"], profile["samples"]):
+    if job.get("renderProfileDigest") is not None and scene_digest(profile) != job["renderProfileDigest"]:
+        raise ValueError("Job render profile was modified after creation")
+    if profile != _profile(scene, expected, profile["width"], profile["height"], profile["samples"], profile.get("format")):
         raise ValueError("Job render profile is inconsistent with its source revision")
     return scene
 
@@ -377,12 +399,12 @@ def _blend_needs_rebuild(output, job):
 def _outputs_valid(output, job, complete):
     profile = job["renderProfile"]
     artifacts = job.get("artifacts", {})
-    if (len(complete) != profile["frameCount"] or len(artifacts) != 6
+    if (len(complete) != profile["frameCount"] or set(artifacts) != set(artifact_names(job))
             or not _blend_valid(output / "scene.blend")):
         return False
     if job.get("frameSequenceDigest") != _frame_digest(output, profile["frameCount"]):
         return False
-    for name in ("film.mp4", "scene.blend", "still-01.png", "still-02.png", "still-03.png", "contact-sheet.png"):
+    for name in artifact_names(job):
         path = output / name
         record = artifacts.get(name, {})
         try:
@@ -444,7 +466,7 @@ def _run_process(command, output, log_name, *, worker_fd=None):
 
 
 def _render_command(blender, output, profile, frames):
-    command = [blender, "--background", "--factory-startup", "--python", str(output / "renderer.py"), "--",
+    command = [blender, "--background", "--factory-startup", "--python-exit-code", "1", "--python", str(output / "renderer.py"), "--",
                "--samples", str(output / "samples.json"), "--output", str(output),
                "--width", str(profile["width"]), "--height", str(profile["height"]),
                "--samples-per-pixel", str(profile["samples"])]
@@ -462,14 +484,16 @@ def _encode(output, job, scene, ffmpeg, *, worker_fd=None):
         raise RuntimeError("Frame sequence is incomplete, changed or corrupt; refusing to encode")
     source_sequence_digest = _frame_digest(output, count)
     common = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y"]
-    temporary = output / ".film.partial.mp4"
+    name = primary_artifact(job)
+    temporary = output / (".film.partial.mov" if job_format(job) == "prores" else ".film.partial.mp4")
+    codec = (["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le"]
+             if job_format(job) == "prores" else ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart"])
     _run_process(common + ["-framerate", str(profile["fps"]), "-start_number", "1",
-                          "-i", str(output / "frames" / "%06d.png"), "-frames:v", str(count),
-                          "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-                          str(temporary)], output, "ffmpeg.log", worker_fd=worker_fd)
+                          "-i", str(output / "frames" / "%06d.png"), "-frames:v", str(count)] + codec +
+                          [str(temporary)], output, "ffmpeg.log", worker_fd=worker_fd)
     if not temporary.exists() or temporary.stat().st_size == 0:
         raise RuntimeError("FFmpeg returned without a film")
-    os.replace(temporary, output / "film.mp4")
+    os.replace(temporary, output / name)
     shots = scene["shots"]
     still_frames = ([(shot["startFrame"] + shot["endFrame"]) // 2 for shot in shots]
                     if len(shots) == 3 else [1, (count + 1) // 2, count])
@@ -498,9 +522,40 @@ def _encode(output, job, scene, ffmpeg, *, worker_fd=None):
     _record_frame_digests(output, job, range(1, count + 1))
     job["artifacts"] = {name: {"bytes": (output / name).stat().st_size,
                                      "sha256": _sha256(output / name)}
-                        for name in ("film.mp4", "scene.blend", "still-01.png", "still-02.png",
-                                     "still-03.png", "contact-sheet.png")}
+                        for name in artifact_names(job)}
 
+
+def _archive_frames(output, job):
+    """Lossless rendered frames and timing, without an intermediate video codec."""
+    profile = job["renderProfile"]
+    count = profile["frameCount"]
+    if len(_verified_frames(output, job)) != count:
+        raise RuntimeError("Frame sequence is incomplete, changed or corrupt; refusing to archive")
+    source_digest = _frame_digest(output, count)
+    temporary = output / ".frames.partial.zip"
+    try:
+        with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_STORED) as archive:
+            manifest = {"schemaVersion": 1, "fps": profile["fps"], "firstFrame": 1,
+                        "frameCount": count, "width": profile["width"], "height": profile["height"],
+                        "pattern": "frames/%06d.png", "sourceDigest": job["sceneDigest"]}
+            archive.writestr("sequence.json", json.dumps(manifest, indent=2) + "\n")
+            for number in range(1, count + 1):
+                _check_cancel(output)
+                path = output / "frames" / f"{number:06d}.png"
+                with path.open("rb") as source, archive.open("frames/" + path.name, "w", force_zip64=True) as destination:
+                    while chunk := source.read(1024 * 1024):
+                        _check_cancel(output)
+                        destination.write(chunk)
+        _check_cancel(output)
+        if _frame_digest(output, count) != source_digest:
+            raise RuntimeError("Frame sequence changed during export; refusing to mark succeeded")
+        os.replace(temporary, output / "frames.zip")
+    finally:
+        temporary.unlink(missing_ok=True)
+    job["frameSequenceDigest"] = source_digest
+    _record_frame_digests(output, job, range(1, count + 1))
+    job["artifacts"] = {name: {"bytes": (output / name).stat().st_size, "sha256": _sha256(output / name)}
+                        for name in artifact_names(job)}
 
 def run_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cancellation=True):
     """Render missing/invalid frames, then assemble all requested deliverables.
@@ -525,6 +580,7 @@ def run_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cancellatio
         try:
             _check_cancel(output)
             scene = _verify_snapshots(output, job)
+            export_format = job_format(job)
             profile = job["renderProfile"]
             validate_plate_inputs(output, job, range(1, profile["frameCount"] + 1))
             completed = _verified_frames(output, job)
@@ -540,8 +596,10 @@ def run_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cancellatio
             job["attempts"].append(attempt)
             job["state"] = "running"
             _save_job(output, job)
-            for tool, command, version in (("blender", blender, BLENDER_VERSION),
-                                           ("ffmpeg", ffmpeg, FFMPEG_VERSION)):
+            tools = [("blender", blender, BLENDER_VERSION)]
+            if export_format != "png-sequence":
+                tools.append(("ffmpeg", ffmpeg, FFMPEG_VERSION))
+            for tool, command, version in tools:
                 _check_cancel(output)
                 job["tools"][tool] = _check_tool(command, tool, version)
                 attempt["tools"][tool] = job["tools"][tool]
@@ -567,7 +625,10 @@ def run_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cancellatio
                              worker_fd=worker_lock.fileno())
             if not _blend_valid(output / "scene.blend"):
                 raise RuntimeError("Renderer did not produce a reopenable scene.blend")
-            _encode(output, job, scene, ffmpeg, worker_fd=worker_lock.fileno())
+            if export_format == "png-sequence":
+                _archive_frames(output, job)
+            else:
+                _encode(output, job, scene, ffmpeg, worker_fd=worker_lock.fileno())
             job["state"] = attempt["state"] = "succeeded"
             attempt["endedAt"] = _now()
             _save_job(output, job)

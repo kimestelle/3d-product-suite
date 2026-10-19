@@ -1,0 +1,117 @@
+/* Keep the cover's seven-column Figma grid. Each principle occupies one
+   composition; the persistent frame morphs between the same 64 cubic anchors. */
+.gesso-shape-light {
+  --shape-paper: var(--gesso-surface-chalk);
+  --shape-ground: #4e2d97; /* Violet ground brightens toward orchid, as the cover shifts red to orange. */
+  --shape-halo: #a546dc;
+  --shape-gutter: var(--site-margin);
+  --shape-light: var(--gesso-surface-chalk);
+  --shape-specimen: #d9d9d9;
+  --shape-column: var(--site-column);
+  --shape-header-height: var(--gesso-space-96);
+  position: relative;
+  isolation: isolate;
+  height: 100dvh;
+  overflow-y: auto;
+  overflow-x: clip;
+  scrollbar-width: none;
+  background: var(--shape-ground);
+  color: var(--shape-paper);
+  color-scheme: dark;
+  font: var(--gesso-type-body);
+  scroll-padding-top: var(--shape-header-height);
+  overflow-anchor: none;
+}
+.gesso-shape-light::-webkit-scrollbar { display: none; }
+.gesso-shape-light :is(h1,h2,p) { margin: 0; }
+.gesso-shape-light a { color: inherit; }
+.gesso-shape-light :is(a,button):focus-visible { outline: 2px solid var(--shape-paper); outline-offset: var(--gesso-space-6); }
+.gesso-shape-light :is(main,section):focus { outline: none; }
+.shape-light-header { position: sticky; top: 0; z-index: 4; height: var(--shape-header-height); margin: 0 var(--shape-gutter); isolation: isolate; }
+/* The navigation stays crisp while scrolling content fades beneath it. */
+.shape-light-header::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0 calc(-1 * var(--shape-gutter)) auto;
+  height: calc(var(--shape-header-height) + 56px);
+  background: var(--shape-ground);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 28%, rgb(0 0 0 / .94) 42%, rgb(0 0 0 / .6) 60%, rgb(0 0 0 / .18) 80%, transparent 100%);
+  pointer-events: none;
+}
+.gesso-shape-light .shape-light-wordmark { color: var(--shape-light); }
+.shape-light-skip { position: absolute; top: var(--gesso-space-16); left: var(--site-margin); z-index: 5; transform: translateY(-180%); padding: var(--gesso-space-8) var(--gesso-space-16); background: var(--shape-ground); }
+.shape-light-skip:focus { transform: none; }
+.gesso-shape-light > main { position: relative; margin: 0 var(--shape-gutter); }
+.shape-light-intro { position: relative; height: calc(100dvh - 140px); min-height: 620px; }
+.shape-light-dictionary { position: absolute; top: var(--gesso-space-72); left: calc(var(--shape-column) + var(--gesso-space-20)); width: calc(2 * var(--shape-column) + 20px); }
+.shape-light-index { font: var(--gesso-type-caption); opacity: 1; }
+.gesso-shape-light h1 { margin-top: var(--gesso-space-8); font: 500 clamp(32px, 3.75vw, 48px)/1.083333 var(--gesso-font-display); letter-spacing: -.4px; }
+.gesso-shape-light .shape-light-bridge { margin-top: var(--gesso-space-24); font: var(--gesso-type-body); }
+.shape-light-chapter { position: relative; height: max(620px, calc(100dvh - var(--shape-header-height))); padding: var(--gesso-space-64) 0 104px; display: flex; align-items: center; }
+.shape-light-chapter-copy { flex: none; width: calc(3 * var(--shape-column) + 40px); }
+.shape-light-chapter-copy[data-flow-side="right"] { margin-left: calc(4 * (var(--shape-column) + var(--gesso-space-20))); }
+.shape-light-chapter-copy[data-flow-side="left"] { margin-left: calc(var(--shape-column) + var(--gesso-space-20)); }
+.gesso-shape-light .shape-light-chapter h2 { margin-top: var(--gesso-space-20); font: 500 clamp(34px, 3.75vw, 52px)/1.08 var(--gesso-font-display); letter-spacing: -.5px; text-wrap: balance; }
+.shape-light-chapter .shape-light-copy { max-width: 42ch; padding-top: var(--gesso-space-32); }
+.shape-light-contents { display: grid; width: max-content; max-width: 100%; gap: var(--gesso-space-12); margin-top: var(--gesso-space-40); font: var(--gesso-type-body); }
+.shape-light-contents a { display: flex; align-items: baseline; gap: var(--gesso-space-24); width: fit-content; }
+.shape-light-contents a span { opacity: 1; font: var(--gesso-type-caption); }
+.shape-light-contents a:hover { color: var(--shape-light); }
+.shape-light-interface { align-items: flex-end; padding-bottom: 104px; padding-bottom: max(104px, round(nearest, 14vh, var(--gesso-space-4))); }
+.shape-light-person { align-items: flex-start; padding-top: var(--gesso-space-88); padding-top: max(var(--gesso-space-88), round(nearest, 12vh, var(--gesso-space-4))); }
+.shape-light-copy { padding-top: var(--gesso-space-32); font: var(--gesso-type-body); }
+.shape-light-copy > p + p { margin-top: var(--gesso-space-16); }
+.shape-light-mobile-shape, .shape-light-mobile-specimen { display: none; }
+@media (max-width: 900px) {
+  .gesso-shape-light [data-frame-outside] { clip-path: none !important; }
+  .gesso-shape-light { --shape-header-height: var(--gesso-space-88); }
+  .shape-light-intro { height: auto; min-height: 0; padding: var(--gesso-space-48) 0 var(--gesso-space-56); display: flex; flex-direction: column; gap: var(--gesso-space-28); }
+  .shape-light-dictionary { position: static; width: auto; }
+  .gesso-shape-light h1 { font-size: 40px; line-height: 44px; }
+  .shape-light-mobile-shape { display: block; width: 82%; aspect-ratio: 655.12 / 354.716; margin: var(--gesso-space-96) auto; margin: round(nearest, clamp(var(--gesso-space-56), 18vw, var(--gesso-space-128)), var(--gesso-space-4)) auto; border-radius: 24px; transform: rotate(-30deg); background: var(--shape-specimen); }
+  .shape-light-mobile-shape { box-shadow: 0 0 48px 16px var(--shape-halo); }
+  .shape-light-chapter { display: flex; flex-direction: column; align-items: stretch; gap: var(--gesso-space-40); height: auto; min-height: 0; padding: var(--gesso-space-48) 0 var(--gesso-space-64); }
+  .shape-light-chapter .shape-light-chapter-copy { width: 100%; margin-left: 0; }
+  .gesso-shape-light .shape-light-chapter h2 { font-size: 36px; max-width: 18ch; }
+  .shape-light-chapter .shape-light-copy { padding-top: var(--gesso-space-24); }
+  .shape-light-contents { margin-top: var(--gesso-space-28); }
+  .shape-light-mobile-specimen { display: block; width: 72%; max-height: 260px; fill: var(--shape-specimen); align-self: flex-end; overflow: visible; filter: drop-shadow(0 0 28px var(--shape-halo)); }
+  .shape-light-chapter[data-copy-side="right"] .shape-light-mobile-specimen { align-self: flex-start; }
+  .shape-light-copy { padding-top: 0; }
+}
+@media (prefers-reduced-motion: reduce), (max-width: 900px), (hover: none) and (pointer: coarse) {
+  .gesso-shape-light, .gesso-shape-light * { transition: none !important; scroll-behavior: auto !important; }
+}
+
+/* Match Pretext's word breaking while retaining native selection, headings and links. */
+.gesso-shape-light :is(h1,h2,p) { overflow-wrap: break-word; }
+
+/* Pretext owns the actual desktop line breaks. Keep real heading/paragraph
+   elements and selectable text; the browser must not balance them again. */
+.gesso-shape-light [data-pretext-leaf] { position:relative; text-wrap:initial!important; overflow:visible; }
+.shape-light-text-line, .shape-light-text-token { position:absolute; left:0; top:0; display:block; white-space:pre; }
+
+/* This window is the same shared contour as every other page, with a single
+   bounded WebGL specimen beneath the native, selectable text. */
+.shape-light-glassine.dynamic-frame-window { position: fixed; inset: 0; width: 100%; height: 100dvh; pointer-events: none; opacity: 0; }
+.shape-light-glassine .dynamic-frame-local-defs { width: 100%; height: 100%; overflow: visible; }
+.shape-light-glassine canvas, .shape-light-glassine-still { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.shape-light-glassine-still { object-fit: cover; }
+.shape-light-glassine canvas { opacity: 0; }
+.shape-light-glassine[data-ready="true"] canvas { opacity: 1; }
+.shape-light-mobile-shape { overflow: hidden; }
+.shape-light-mobile-shape img { display: block; width: 100%; height: 100%; object-fit: cover; }
+@media (max-width: 900px) { .shape-light-glassine.dynamic-frame-window { display: none; } }
+
+/* Give the longer dictionary title a complete left lane on small desktops. */
+@media (min-width: 901px) and (max-width: 1200px) {
+  .shape-light-dictionary { left: 0; width: calc(3 * var(--shape-column) + 40px); }
+}
+
+/* The definition keeps complete words in native compact layouts too. */
+.gesso-shape-light h1 { overflow-wrap: normal; word-break: normal; hyphens: none; }
+
+/* Gesture-end settling owns the real scroll offset. Keeping CSS snap active
+   would start a second, browser-timed animation during that same movement. */
+.gesso-shape-light { scroll-snap-type: none; scroll-behavior: auto; }

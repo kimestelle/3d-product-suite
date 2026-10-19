@@ -180,6 +180,31 @@ def inspect_product_glb(payload):
         raise ValueError(f"Malformed normalized product GLB: {type(error).__name__}") from error
 
 
+
+def validate_product_material_nodes(component, payload):
+    """Check section targets against the already verified, static GLB bytes."""
+    bindings = component.get("materialBindings", [])
+    if not bindings:
+        return
+    json_length = struct.unpack_from("<I", payload, 12)[0]
+    document = json.loads(payload[20:20 + json_length])
+    nodes = document["nodes"]
+    drawable = set()
+    def visit(index):
+        node = nodes[index]
+        has_mesh = "mesh" in node
+        for child in node.get("children", []):
+            has_mesh = visit(child) or has_mesh
+        if has_mesh:
+            drawable.add(index)
+        return has_mesh
+    for root in document["scenes"][document.get("scene", 0)]["nodes"]:
+        visit(root)
+    for binding in bindings:
+        _require(binding["nodeIndex"] in drawable,
+                 "Material section must reference an existing source node with mesh geometry")
+
+
 def validate_product_dimensions(metadata, dimensions_m, bounds_m=None):
     dimensions = _numbers(dimensions_m, 3, "dimensionsM")
     actual = metadata["dimensionsM"]

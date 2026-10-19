@@ -36,7 +36,7 @@ function viewport(capture = false) {
   const finish = vi.fn();
   Object.assign(view, {
     scene, content, camera, canvas, renderer, options: { capture }, disposed: false, visible: true,
-    dirty: false, pendingRender: 0, loadVersion: 1, loading: false, loadFailed: false, awaitingSample: false,
+    dirty: false, pendingRender: 0, loadVersion: 1, unpresentedLoadVersion: 1, sampledLoadVersion: -1, loading: false, loadFailed: false, awaitingSample: false,
     pendingSize: { width: 800, height: 400 }, renderedSize: { width: 800, height: 400 },
     liveRender: null, renderQueue: Promise.resolve(), frameQueue: Promise.resolve(), frameRequest: 0,
     spark: null, components: new Map(), controls: null, selection: null,
@@ -271,5 +271,157 @@ describe('viewport frame presentation', () => {
     expect(presented.map(camera => camera.position.x)).toEqual([1, 2]);
     expect(renderer.setSize).toHaveBeenCalledExactlyOnceWith(1920, 1080, false);
     expect(finish).toHaveBeenCalledTimes(2);
+  });
+});
+
+
+describe('first sampled scene presentation', () => {
+  it('notifies after the sampled frame renders, once per load, never for the initial empty canvas', async () => {
+    const { view, events } = viewport();
+    const onPresented = vi.fn(() => events.push('presented'));
+    view.options.onPresented = onPresented;
+    view.unpresentedLoadVersion = null;
+    await view.draw(false, 1);
+    expect(onPresented).not.toHaveBeenCalled();
+
+    view.unpresentedLoadVersion = 1;
+    view.awaitingSample = true;
+    await view.draw(false, 1);
+    expect(onPresented).not.toHaveBeenCalled();
+    await view.frame(sample(1));
+    expect(events.slice(-2)).toEqual(['render', 'presented']);
+    await view.frame(sample(2));
+    await view.draw(false, 1);
+    expect(onPresented).toHaveBeenCalledOnce();
+
+    view.loadVersion = 2; view.unpresentedLoadVersion = 2; view.awaitingSample = true;
+    await view.draw(false, 2);
+    expect(onPresented).toHaveBeenCalledOnce();
+    await view.frame(sample(3));
+    expect(onPresented).toHaveBeenCalledTimes(2);
+  });
+
+  it('waits for the Gaussian sort and draw rather than sample submission', async () => {
+    const { view, renderer, events } = viewport();
+    const sort = deferred();
+    splats(view, () => sort.promise);
+    const onPresented = vi.fn(() => events.push('presented'));
+    view.options.onPresented = onPresented;
+    const frame = view.frame(sample(1));
+    await flush();
+    expect(renderer.render).not.toHaveBeenCalled();
+    expect(onPresented).not.toHaveBeenCalled();
+    sort.resolve();
+    await frame;
+    expect(events).toEqual(['render', 'presented']);
+  });
+
+  it('keeps readiness pending while the sampled scene cannot be displayed', async () => {
+    const { view, renderer } = viewport();
+    const onPresented = vi.fn(); view.options.onPresented = onPresented;
+    view.visible = false;
+    await view.frame(sample(1));
+    expect(onPresented).not.toHaveBeenCalled();
+    expect(renderer.render).not.toHaveBeenCalled();
+    view.visible = true;
+    await view.draw(false, 1);
+    expect(onPresented).toHaveBeenCalledOnce();
+  });
+
+  it('does not report failed sorting or drawing, and permits a successful retry', async () => {
+    for (const failureAt of ['sort', 'render'] as const) {
+      const { view, renderer } = viewport();
+      const onPresented = vi.fn(); view.options.onPresented = onPresented;
+      view.sampledLoadVersion = 1;
+      const failure = new Error('presentation failed');
+      if (failureAt === 'sort') splats(view, async () => { throw failure; });
+      else renderer.render.mockImplementationOnce(() => { throw failure; });
+      await expect(view.draw(false, 1)).rejects.toBe(failure);
+      expect(onPresented).not.toHaveBeenCalled();
+      view.spark = null;
+      await view.draw(false, 1);
+      expect(onPresented).toHaveBeenCalledOnce();
+    }
+  });
+
+  it('does not report an obsolete load or presentation after an asynchronous sort', async () => {
+    for (const state of ['load', 'presentation', 'disposed'] as const) {
+      const { view, renderer } = viewport();
+      const sort = deferred();
+      splats(view, () => sort.promise);
+      const onPresented = vi.fn(); view.options.onPresented = onPresented;
+      view.sampledLoadVersion = 1;
+      const draw = view.draw(false, 1);
+      await flush();
+      if (state === 'load') view.loadVersion = 2;
+      if (state === 'presentation') view.presentationVersion = 1;
+      if (state === 'disposed') view.disposed = true;
+      sort.resolve();
+      await draw;
+      expect(renderer.render).not.toHaveBeenCalled();
+      expect(onPresented).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe('viewport loading presentation', () => {
+  it('keeps loading until the replacement Gaussian sample reaches the canvas', async () => {
+    const { view, renderer, events } = viewport();
+    const sort = deferred();
+    splats(view, () => sort.promise);
+    const onLoading = vi.fn((loading: boolean) => events.push(`loading:${loading}`));
+    view.options.onLoading = onLoading;
+    const frame = view.frame(sample(1));
+    await flush();
+    expect(renderer.render).not.toHaveBeenCalled();
+    expect(onLoading).not.toHaveBeenCalled();
+    sort.resolve();
+    await frame;
+    expect(events).toEqual(['render', 'loading:false']);
+    await view.frame(sample(2));
+    expect(onLoading).toHaveBeenCalledExactlyOnceWith(false);
+  });
+
+  it('does not let a superseded Gaussian sort dismiss the replacement loading state', async () => {
+    const { view, renderer } = viewport();
+    const sort = deferred();
+    splats(view, () => sort.promise);
+    const onLoading = vi.fn(); view.options.onLoading = onLoading;
+    const obsoleteFrame = view.frame(sample(1));
+    await flush();
+    view.loadVersion = 2; view.unpresentedLoadVersion = 2; view.awaitingSample = true;
+    sort.reject(new Error('The old world worker was disposed.'));
+    await obsoleteFrame;
+    expect(renderer.render).not.toHaveBeenCalled();
+    expect(onLoading).not.toHaveBeenCalled();
+    view.spark = null;
+    await view.frame(sample(2));
+    expect(renderer.render).toHaveBeenCalledOnce();
+    expect(onLoading).toHaveBeenCalledExactlyOnceWith(false);
+  });
+
+  it.each(['sort', 'render'] as const)('ends loading on a current %s failure without reporting a presented frame', async failureAt => {
+    const { view, renderer } = viewport();
+    const onLoading = vi.fn(), onPresented = vi.fn();
+    view.options.onLoading = onLoading; view.options.onPresented = onPresented;
+    const failure = new Error('The new world could not be displayed.');
+    if (failureAt === 'sort') splats(view, async () => { throw failure; });
+    else renderer.render.mockImplementationOnce(() => { throw failure; });
+    await expect(view.frame(sample(1))).rejects.toBe(failure);
+    expect(onLoading).toHaveBeenCalledExactlyOnceWith(false);
+    expect(onPresented).not.toHaveBeenCalled();
+  });
+
+  it('waits for a hidden comparison pane to become visible before ending its loading state', async () => {
+    const { view, renderer } = viewport();
+    const onLoading = vi.fn(); view.options.onLoading = onLoading;
+    view.visible = false;
+    await view.frame(sample(1));
+    expect(onLoading).not.toHaveBeenCalled();
+    expect(renderer.render).not.toHaveBeenCalled();
+    view.visible = true;
+    await view.draw(false, 1);
+    expect(renderer.render).toHaveBeenCalledOnce();
+    expect(onLoading).toHaveBeenCalledExactlyOnceWith(false);
   });
 });

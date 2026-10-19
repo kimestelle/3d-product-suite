@@ -1,5 +1,5 @@
 import {Euler, Quaternion} from 'three';
-import {partName} from './hierarchy';
+import {displayPartName} from './hierarchy';
 import type {TransformAxis, TransformMode, TransformTarget} from './transforms';
 
 export type KeyframeProperty = 'position.x'|'position.y'|'position.z'|'rotation.x'|'rotation.y'|'rotation.z'|'scale'|'motion';
@@ -20,7 +20,7 @@ export function animationBlockReason(scene:any,componentId:string,_property:Keyf
   if(componentId===PRODUCT_TARGET)return null;
   const dependent=scene.actions?.find((action:any)=>action.relativeTo===componentId);
   if(!dependent)return null;
-  const name=(id:string)=>scene.product?.components?.find((part:any)=>part.id===id)?.name??partName(id);
+  const name=(id:string)=>displayPartName(scene,id);
   return `${name(componentId)} anchors ${name(dependent.componentId)} movement. Animate Whole product to move them together.`;
 }
 

@@ -16,15 +16,19 @@ import loader from './assets/gesso/interface/imgIconLoader_74b33c2b.svg';
 import option from './assets/gesso/interface/imgIconOption_f0f4733e.svg';
 import clock from './assets/gesso/interface/imgIconClock_918c3f26.svg';
 import circle from './assets/gesso/interface/imgIconCircle_db14ad29.svg';
+import undo from './assets/gesso/undo-2.svg';
+import redo from './assets/gesso/redo-2.svg';
+import history from './assets/gesso/history.svg';
 
 const icons = {
   chevron: [chevron14, 14], down: [down, 14], minus: [minus, 12], plus: [plus, 12],
   check: [check, 12], eye: [eye, 14], eyeoff: [eyeoff, 14], lock: [lock12, 12],
   alert: [alert12, 12], unavailable: [unavailable, 12], loader: [loader, 12],
   option: [option, 10], clock: [clock, 12], circle: [circle, 12],
+  undo: [undo, 16], redo: [redo, 16], history: [history, 14.4],
 } as const;
 
-/** Native-size Figma assets; the mask lets each state inherit its text color. */
+/** Figma and Lucide assets; the mask lets each state inherit its text color. */
 export function UiIcon({name, size, className = ''}: {name: keyof typeof icons; size?: number; className?: string}) {
   let [url, dimension]: readonly [string, number] = icons[name];
   if (name === 'chevron' && size === 12) [url, dimension] = [chevron12, 12];

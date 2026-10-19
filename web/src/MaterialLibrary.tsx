@@ -2,11 +2,13 @@ import {useEffect, useId, useRef, useState} from 'react';
 import {createPortal} from 'react-dom';
 import {equalJson} from './state';
 import MaterialSwatches from './MaterialSwatches';
+import MaterialAssignments from './MaterialAssignments';
+import type {HierarchyPart} from './hierarchy';
 import MaterialProperties, {type MaterialPropertySection} from './MaterialProperties';
 import {UiIcon} from './UiIcon';
 import PolyHavenLibrary from './PolyHavenLibrary';
 import {campaignMaterialPresets, materialTypes, presetPartIds, saveMaterialPreset, type LibraryMaterialPreset, type MaterialType, type SavedMaterialPreset} from './materialPresets';
-import type {MaterialPreview, MaterialSpecification} from './materials';
+import type {MaterialHover, MaterialPreview, MaterialSpecification} from './materials';
 import './material-library.css';
 
 type MaterialEntry = {id:string; name:string; material:MaterialSpecification; prompt?:string;provider?:string;sourceUrl?:string};
@@ -27,8 +29,9 @@ async function request(path:string, method='GET', data?:unknown, signal?:AbortSi
   return value;
 }
 
-export default function MaterialLibrary({scene, componentId, partNames, disabled=false, onChange, onPreview, editorHost}:{
-  scene:any;componentId:string;partNames:Record<string,string>;disabled?:boolean;editorHost?:HTMLElement|null;onChange:(edit:(scene:any)=>void)=>void;onPreview?:(preview:MaterialPreview|null)=>void;
+export default function MaterialLibrary({scene, componentId, parts, onSelect, onChange, onPreview, onHover, editorHost}:{
+  scene:any;componentId:string;editorHost?:HTMLElement|null;onChange:(edit:(scene:any)=>void)=>void;onPreview?:(preview:MaterialPreview|null)=>void;
+  parts:HierarchyPart[];onSelect:(id:string)=>void;onHover?:(hover:MaterialHover|null)=>void;
 }) {
   const [entries,setEntries] = useState<MaterialEntry[]>([]);
   const [configured,setConfigured] = useState<boolean|null>(null);
@@ -37,10 +40,11 @@ export default function MaterialLibrary({scene, componentId, partNames, disabled
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState('');
   const [retry,setRetry] = useState(0);
-  const [choosingType,setChoosingType] = useState(false);
+  const [choosingType,setChoosingType] = useState(true);
   const [draft,setDraft] = useState<Draft|null>(null);
   const [selectedId,setSelectedId] = useState<string|null>(null);
   const [feedback,setFeedback] = useState('');
+  const [sampleShape,setSampleShape] = useState<'sphere'|'rectangle'>('sphere');
   const [activeSection,setActiveSection] = useState<MaterialPropertySection|'textures'|null>('response');
   const textureContentId = useId();
   useEffect(()=>setActiveSection('response'),[draft?.id]);
@@ -49,22 +53,22 @@ export default function MaterialLibrary({scene, componentId, partNames, disabled
   const editorBody = useRef<HTMLDivElement>(null);
   const draftSource = useRef<LibraryMaterialPreset|null>(null);
   const focusEditor = useRef(false);
-  const draftScope = useRef('');
+  const draftScope = useRef(scene.sceneId);
   useEffect(() => {if(editorBody.current)editorBody.current.scrollTop=0;},[editorHost,draft?.id,choosingType]);
   useEffect(() => {if(focusEditor.current && presetName.current){presetName.current.focus({preventScroll:true});focusEditor.current=false;}});
   useEffect(() => { mounted.current = true; return () => {mounted.current = false;}; }, []);
-  useEffect(() => {
-    const preset=campaignMaterialPresets(scene).find(item=>presetPartIds(scene,item).includes(componentId));
-    draftSource.current=preset ?? null;draftScope.current=scene.sceneId+':'+componentId;
-    setSelectedId(preset?.id ?? null);setChoosingType(false);setFeedback('');
-    setDraft(preset ? editablePreset(preset) : null);
-  }, [componentId,scene.sceneId]);
   useEffect(() => {
     const source=draftSource.current;
     if(!draft || !source || source.id!==draft.id)return;
     const currentPresets=campaignMaterialPresets(scene);
     const updated=currentPresets.find(preset=>preset.id===source.id);
-    if(updated && samePreset(updated,source))return;
+    if(updated && samePreset(updated,source)) {
+      if(source.sourceComponentId && !updated.sourceComponentId) {
+        draftSource.current=updated;
+        setDraft(current=>current?{...current,isNew:false,sourceComponentId:undefined}:current);
+      }
+      return;
+    }
     if(!samePreset(draft,source)){setFeedback('The saved preset changed. Your unsaved draft is still here.');return;}
     const restored=updated ?? currentPresets.find(preset=>presetPartIds(scene,preset).includes(componentId));
     draftSource.current=restored ?? null;
@@ -99,9 +103,6 @@ export default function MaterialLibrary({scene, componentId, partNames, disabled
     return () => {abort.abort();clearTimeout(timer);};
   }, [job?.id,retry]);
   const presets = campaignMaterialPresets(scene);
-  const label = (id:string) => partNames[id] ?? id;
-  const assigned = presets.find(preset => presetPartIds(scene,preset).includes(componentId));
-  const selected = presets.find(preset => preset.id === selectedId) ?? assigned ?? presets[0];
   const nameFor = (base:string) => {
     const names = new Set(presets.map(preset=>preset.name));
     if (!names.has(base)) return base;
@@ -122,16 +123,15 @@ export default function MaterialLibrary({scene, componentId, partNames, disabled
     focusEditor.current=true;draftSource.current=null;
     setDraft({id:crypto.randomUUID(),name:nameFor(type.name),type:type.id,material:structuredClone(type.material),isNew:true});setChoosingType(false);
   };
-  const closeEditor = () => {draftSource.current=null;setDraft(null);setChoosingType(false);setFeedback('');};
-  const saveDraft = (applyToPart=false) => {
-    if(!draft || !draft.name.trim() || (applyToPart && disabled))return;
+  const closeEditor = () => {draftSource.current=null;setDraft(null);setSelectedId(null);setChoosingType(false);setFeedback('');};
+  const saveDraft = () => {
+    if(!draft || !draft.name.trim())return;
     const preset:SavedMaterialPreset={id:draft.id,name:draft.name.trim(),type:draft.type,material:{...structuredClone(draft.material),name:draft.name.trim()}};
-    const assignments=Array.from(new Set([...(draft.sourceComponentId ? [draft.sourceComponentId] : []),...(applyToPart ? [componentId] : [])]));
     try {
-      saveMaterialPreset(structuredClone(scene),preset,assignments);
+      saveMaterialPreset(structuredClone(scene),preset);
       draftSource.current=preset;
-      onChange(next=>saveMaterialPreset(next,preset,assignments));setSelectedId(preset.id);setDraft({...preset,isNew:false});
-      setFeedback(applyToPart ? 'Applied to ' + label(componentId) : draft.isNew && !assignments.length ? 'Preset added.' : 'Preset updated.');
+      onChange(next=>saveMaterialPreset(next,preset));setSelectedId(preset.id);setDraft({...preset,isNew:false});
+      setFeedback('Saved');
     } catch(reason) {setFeedback((reason as Error).message);}
   };
   const useTexture = (entry:MaterialEntry) => {
@@ -153,16 +153,25 @@ export default function MaterialLibrary({scene, componentId, partNames, disabled
     finally {if (mounted.current) setBusy(false);}
   };
   const draftParts=draft ? presetPartIds(scene,presets.find(preset=>preset.id===draft.id) ?? draft) : [];
-  const previewParts=draftParts.length ? draftParts : disabled ? [] : [componentId];
+  const previewParts=draftParts;
   const changedSurface=!!draft && (!draftSource.current || !sameSurface(draft.material,draftSource.current.material));
-  const preview=draft && draftScope.current===scene.sceneId+':'+componentId && (changedSurface || !draftParts.length) && previewParts.some(id=>{
-    const component=scene.product.components.find((item:any)=>item.id===id);
-    return component?.material && !sameSurface(component.material,draft.material);
-  }) ? {componentIds:previewParts,material:draft.material} : null;
+  const preview=draft && draftScope.current===scene.sceneId && changedSurface && previewParts.length
+    ? {componentIds:previewParts,material:draft.material,presetId:draft.id} : null;
   const previewKey=JSON.stringify(preview);
   useEffect(()=>{onPreview?.(JSON.parse(previewKey));},[previewKey,onPreview]);
   useEffect(()=>()=>onPreview?.(null),[onPreview]);
   const editor = <div className="gesso-panel gesso-preset-editor-content">
+    {draft&&<div className="gesso-preset-fixed-preview">
+      <div className="gesso-preset-heading"><h2>{draft.name.trim() || 'New preset'}</h2><button type="button" className="gesso-text-button" onClick={()=>edit(draft,true)}>Duplicate</button></div>
+      <div className="gesso-material-sample" aria-label="Selected material sample">
+        <div className="gesso-material-sample-shapes" role="group" aria-label="Sample shape">
+          <button type="button" aria-label="Sphere sample" title="Sphere" aria-pressed={sampleShape==='sphere'} onClick={()=>setSampleShape('sphere')}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><circle cx="10" cy="10" r="7"/></svg></button>
+          <button type="button" aria-label="Rectangle sample" title="Rectangle" aria-pressed={sampleShape==='rectangle'} onClick={()=>setSampleShape('rectangle')}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><rect x="2.5" y="4.5" width="15" height="11" rx="1"/></svg></button>
+        </div>
+        <div className="gesso-material-sample-render" aria-hidden="true"><MaterialSwatches items={[{id:'selected-sample',name:draft.name,material:draft.material}]} shape={sampleShape} disabled onSelect={()=>{}}/></div>
+      </div>
+      <div className="gesso-preset-scope"><span>{previewParts.length ? `${previewParts.length} attached ${previewParts.length===1?'object / section':'objects / sections'}` : 'Unassigned preset'}</span></div>
+    </div>}
     <div className="gesso-preset-editor-body" ref={editorBody}>
     {!draft && !choosingType && <p className="gesso-meta">Select a preset from the library to edit it.</p>}
     {choosingType && <section className="gesso-section" aria-label="Choose material type">
@@ -171,8 +180,6 @@ export default function MaterialLibrary({scene, componentId, partNames, disabled
       <MaterialSwatches items={materialTypes} onSelect={newFromType}/>
     </section>}
     {draft && <>
-      <div className="gesso-preset-heading"><h2>{draft.name.trim() || 'New preset'}</h2><button type="button" className="gesso-text-button" onClick={()=>edit(draft,true)}>Duplicate</button></div>
-      <div className="gesso-preset-scope"><UiIcon name="clock" size={12}/><span>{previewParts.length ? previewParts.map(label).join(', ') + ' · all frames' : 'Unassigned preset'}</span></div>
       <section className="gesso-preset-fields" aria-label="Edit material preset">
         <label className="gesso-field gesso-material-field"><span>Name</span><input ref={presetName} aria-label="Preset name" value={draft.name} maxLength={140} onChange={event=>setDraft({...draft,name:event.target.value})}/></label>
         <label className="gesso-field gesso-material-field"><span>Type</span><select aria-label="Material type" value={draft.type} onChange={event=>{
@@ -182,7 +189,6 @@ export default function MaterialLibrary({scene, componentId, partNames, disabled
         }}>{materialTypes.map(type=><option key={type.id} value={type.id}>{type.name}</option>)}</select></label>
       </section>
       <MaterialProperties material={draft.material} activeSection={activeSection==='textures' ? null : activeSection} onSectionChange={setActiveSection} onChange={material=>setDraft({...draft,material})}/>
-      {!!draftParts.length && !draftParts.includes(componentId) && <button type="button" disabled={disabled || !draft.name.trim()} onClick={()=>saveDraft(true)}>Apply to {label(componentId)}</button>}
     </>}
     <div className="gesso-preset-textures" hidden={!draft}>
       <button className="gesso-section-toggle" type="button" aria-expanded={activeSection==='textures'} aria-controls={textureContentId} onClick={()=>setActiveSection(activeSection==='textures' ? null : 'textures')}><span>Texture library</span><small>Browse</small><UiIcon name={activeSection==='textures' ? 'down' : 'chevron'} size={14}/></button><div className="gesso-preset-texture-content" id={textureContentId} hidden={activeSection!=='textures'}>
@@ -200,19 +206,19 @@ export default function MaterialLibrary({scene, componentId, partNames, disabled
         </section>
       </div>
     </div>
-    {draft && <p className="gesso-meta gesso-preset-save-scope">{draftParts.length ? 'Saving updates ' + draftParts.map(label).join(', ') + '. Duplicate first to keep the current preset.' : previewParts.length ? 'Preview on ' + previewParts.map(label).join(', ') + '. Save applies this preset.' : 'Save to the library. Select an editable part to preview.'}</p>}
+    {draft && <p className="gesso-meta gesso-preset-save-scope">{draftParts.length ? 'Saving updates every attached object and section.' : 'Save to the library, then attach objects or sections.'}</p>}
     {feedback && <p className="gesso-meta" role="status">{feedback}</p>}
     </div>
     {draft && <div className="gesso-preset-footer" aria-label="Material actions">
-      <button type="button" className="gesso-preset-save" disabled={!draft.name.trim()} onClick={()=>saveDraft(!draftParts.length && !disabled)}>{!draft.name.trim() && <UiIcon name="unavailable" size={12}/>}Save</button>
+      <button type="button" className="gesso-preset-save" disabled={!draft.name.trim()} onClick={()=>saveDraft()}>{!draft.name.trim() && <UiIcon name="unavailable" size={12}/>}Save</button>
       <button type="button" onClick={closeEditor}>Cancel</button>
     </div>}
   </div>;
   return <div className="gesso-preset-library">
     <section className="gesso-section" aria-label="Material library">
       <div className="gesso-preset-library-actions"><span className="gesso-meta">Saved with this campaign</span><button type="button" className="gesso-text-button" onClick={()=>{setChoosingType(true);setDraft(null);setSelectedId(null);setFeedback('');}}>Add new</button></div>
-      {presets.length ? <MaterialSwatches items={presets.map(preset=>({...preset,description:presetPartIds(scene,preset).map(label).join(' · ') || 'Unassigned'}))}
-        selectedId={choosingType ? undefined : draft?.id ?? selected?.id} onSelect={id=>{const preset=presets.find(item=>item.id===id);if(preset)edit(preset);}}/> : <p className="gesso-meta">No presets in this campaign. Add a material type to start.</p>}
+      <MaterialAssignments scene={scene} parts={parts} presets={presets} selectedId={choosingType?undefined:draft?.id??selectedId??undefined}
+        onEdit={edit} onSelect={onSelect} onChange={onChange} onHover={onHover}/>
     </section>
     {editorHost ? createPortal(editor,editorHost) : editor}
   </div>;

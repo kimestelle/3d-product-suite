@@ -1,4 +1,5 @@
 import {Box3, Quaternion, Vector3} from 'three';
+import {validateFilmMotions} from './filmMotion';
 
 export type CameraEnd = 'from' | 'to';
 export type CameraPose = {positionM: number[]; targetM: number[]; focalLengthMm: number};
@@ -56,6 +57,11 @@ export function editCamera(scene: any, id: string, edit: (camera: CameraDefiniti
   const next = structuredClone(shot.camera);
   edit(next);
   validateCamera(next);
+  // Optical changes must also remain valid along the evaluated motion path.
+  // Preflight a replacement camera without mutating the scene on rejection.
+  if (scene.motions !== undefined || scene.shots.some((item: any) => item.motions !== undefined)) {
+    validateFilmMotions({...scene, shots: scene.shots.map((item: any) => item.id === id ? {...item, camera: next} : item)});
+  }
   shot.camera = next;
 }
 
@@ -71,7 +77,7 @@ export function cameraTarget(scene: any, sample: any, componentId?: string): num
     const rotation = new Quaternion().fromArray(pose.rotationXyzw);
     const translation = new Vector3().fromArray(pose.translationM);
     for (const x of [-.5, .5]) for (const y of [-.5, .5]) for (const z of [-.5, .5]) {
-      bounds.expandByPoint(new Vector3(component.sizeM[0] * x, component.sizeM[1] * y, component.sizeM[2] * z).applyQuaternion(rotation).add(translation));
+      bounds.expandByPoint(new Vector3(component.sizeM[0] * x, component.sizeM[1] * y, component.sizeM[2] * z).multiplyScalar(pose.scale ?? 1).applyQuaternion(rotation).add(translation));
     }
   }
   return bounds.getCenter(new Vector3()).toArray();

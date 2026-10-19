@@ -448,9 +448,10 @@ def verify_scene_assets(scene, source_dir):
         elif component is None:
             metadata = _validate_content(payload, asset["format"])
         else:
-            from .products import inspect_product_glb, validate_product_dimensions
+            from .products import inspect_product_glb, validate_product_dimensions, validate_product_material_nodes
             metadata = inspect_product_glb(payload)
             validate_product_dimensions(metadata, component["sizeM"])
+            validate_product_material_nodes(component, payload)
         records[asset["path"]] = {"path": asset["path"], "sha256": asset["sha256"], "format": asset["format"],
                                    "bytes": len(payload), **metadata}
     return list(records.values())

@@ -5,16 +5,18 @@ import shutil
 
 from . import jobs
 from .scene import evaluate
+from .export_formats import artifact_names, job_format, primary_artifact, validate_format
 
 
-def create_still_job(scene_path, output_dir, *, frame=1, width=540, height=960, samples=32):
+def create_still_job(scene_path, output_dir, *, frame=1, width=540, height=960, samples=32, export_format=None):
+    validate_format("still", export_format)
     evaluate(jobs.load_scene(scene_path), frame)
     output = Path(output_dir).resolve()
     if (output / "job.json").exists():
         existing = jobs._read_job(output)
         if existing.get("kind") != "still" or existing.get("frame") != frame:
             raise ValueError("Output directory belongs to another render request")
-    job = jobs.create_job(scene_path, output, width=width, height=height, samples=samples)
+    job = jobs.create_job(scene_path, output, width=width, height=height, samples=samples, export_format=export_format)
     scene = jobs.load_scene(output / "scene.json")
     job.update(kind="still", frame=frame)
     jobs._save_job(output, job)
@@ -23,13 +25,27 @@ def create_still_job(scene_path, output_dir, *, frame=1, width=540, height=960, 
 
 def _valid_outputs(output, job):
     artifacts = job.get("artifacts", {})
-    for name in ("still.png", "scene.blend"):
+    for name in artifact_names(job):
         record = artifacts.get(name, {})
         path = output / name
         if not path.is_file() or path.stat().st_size != record.get("bytes") or jobs._sha256(path) != record.get("sha256"):
             return False
     profile = job["renderProfile"]
-    return jobs.validate_png(output / "still.png", profile["width"], profile["height"]) and jobs._blend_valid(output / "scene.blend")
+    return _valid_image(output / primary_artifact(job), job_format(job), profile) and jobs._blend_valid(output / "scene.blend")
+
+
+def _valid_image(path, export_format, profile):
+    if export_format == "png":
+        return jobs.validate_png(path, profile["width"], profile["height"])
+    try:
+        with path.open("rb") as handle:
+            header = handle.read(12)
+            if export_format == "webp":
+                return len(header) == 12 and header[:4] == b"RIFF" and header[8:] == b"WEBP" and path.stat().st_size > 12
+            handle.seek(-2, 2)
+            return header[:2] == b"\xff\xd8" and handle.read(2) == b"\xff\xd9" and path.stat().st_size > 12
+    except (OSError, ValueError):
+        return False
 
 
 def run_still_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cancellation=True):
@@ -45,6 +61,7 @@ def run_still_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cance
         try:
             jobs._check_cancel(output)
             scene = jobs._verify_snapshots(output, job)
+            export_format = job_format(job)
             frame = job["frame"]
             evaluate(scene, frame)
             if scene["environment"]["kind"] == "splat":
@@ -59,6 +76,8 @@ def run_still_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cance
             job["state"] = "running"
             jobs._save_job(output, job)
             job["tools"]["blender"] = jobs._check_tool(blender, "blender", jobs.BLENDER_VERSION)
+            if export_format != "png":
+                job["tools"]["ffmpeg"] = jobs._check_tool(ffmpeg, "ffmpeg", jobs.FFMPEG_VERSION)
             attempt["tools"] = dict(job["tools"])
             profile = job["renderProfile"]
             path = output / "frames" / f"{frame:06d}.png"
@@ -73,15 +92,29 @@ def run_still_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cance
             if not jobs.validate_png(path, profile["width"], profile["height"]) or not jobs._blend_valid(output / "scene.blend"):
                 raise RuntimeError("Renderer did not produce a valid still and saved scene")
             source_hash = jobs._sha256(path)
-            temporary = output / ".still.partial.png"
-            shutil.copyfile(path, temporary)
-            temporary.replace(output / "still.png")
-            if jobs._sha256(path) != source_hash or jobs._sha256(output / "still.png") != source_hash:
+            # Pin the verified source before conversion, including failed encodes.
+            job["frameDigests"] = {str(frame): source_hash}
+            job["completedRanges"] = [[frame, frame]]
+            jobs._save_job(output, job)
+            name = primary_artifact(job)
+            temporary = output / (".still.partial" + Path(name).suffix)
+            if export_format == "png":
+                shutil.copyfile(path, temporary)
+            else:
+                codec = (["-c:v", "mjpeg", "-q:v", "2", "-pix_fmt", "yuvj444p"] if export_format == "jpeg"
+                         else ["-c:v", "libwebp", "-quality", "90"])
+                jobs._run_process([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+                                   "-i", str(path), "-frames:v", "1"] + codec + ["-update", "1", str(temporary)],
+                                  output, "ffmpeg.log", worker_fd=worker_lock.fileno())
+            if not _valid_image(temporary, export_format, profile):
+                raise RuntimeError("Encoder did not produce a valid still image")
+            temporary.replace(output / name)
+            if jobs._sha256(path) != source_hash or (export_format == "png" and jobs._sha256(output / name) != source_hash):
                 raise RuntimeError("Still frame changed during export")
             job["frameDigests"] = {str(frame): source_hash}
             job["completedRanges"] = [[frame, frame]]
             job["artifacts"] = {name: {"bytes": (output / name).stat().st_size, "sha256": jobs._sha256(output / name)}
-                                for name in ("still.png", "scene.blend")}
+                                for name in artifact_names(job)}
             jobs._check_cancel(output)
             job["state"] = attempt["state"] = "succeeded"
             attempt["endedAt"] = jobs._now()

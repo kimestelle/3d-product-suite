@@ -1,0 +1,21 @@
+.frame-boundary-guides {
+  fill: none;
+  stroke: rgb(255 255 255 / .5);
+  stroke-width: .75;
+  stroke-dasharray: .25 4;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.dynamic-frame-guides {
+  position: fixed;
+  inset: 0;
+  /* Above the frame ground, behind every page, control and popup. */
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+/* In the editor, dividers belong to sidebar sections rather than viewport bounds. */
+.dynamic-frame-shell[data-page="studio"] .dynamic-frame-guides { display: none; }

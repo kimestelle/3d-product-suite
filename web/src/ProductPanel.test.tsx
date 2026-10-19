@@ -14,6 +14,23 @@ function render(patch: Partial<ProductPanelProps> = {}) {
 }
 
 describe('Product panel capability boundaries', () => {
+  it('offers an editable name and uses saved aliases in the tree, parent and material assignments', () => {
+    const scene = structuredClone(fixture) as any;
+    scene.editorPartNames = {'bottle-body': 'Glass body', label: 'Front print', cap: 'Lid'};
+    const html = render({scene});
+    expect(html).toContain('aria-label="Object name"');
+    expect(html).toContain('maxLength="120"');
+    expect(html).toContain('value="Front print"');
+    expect(html).toContain('class="gesso-part-name">Front print</span>');
+    expect(html).toContain('aria-label="Hide Front print"');
+    expect(html).toContain('<dt>Parent</dt><dd>Glass body</dd>');
+    expect(html).toContain('Double-click or press F2 to rename');
+    expect(html).toContain('<span>Part details</span>');
+    expect(html).toContain('<span>Objects</span>');
+    const materials = render({scene, workspace: 'material', layer: 'Materials', partId: 'cap'});
+    expect(materials).toContain('aria-label="Lid material"');
+  });
+
   it('shows a reviewable fixture grouping and keyboard-operable part buttons immediately', () => {
     const html = render();
     expect(html).toContain('Keep grouping');
@@ -39,7 +56,8 @@ describe('Product panel capability boundaries', () => {
     expect(html).toContain('class="gesso-part-name">Body</span>');
     expect(html).toContain('class="gesso-part-name">Label</span>');
     expect(html).toContain('>Source objects</button>');
-    expect(html).toContain('<dt>Structure</dt><dd>Suggested</dd>');
+    expect(html).toContain('class="gesso-status suggested">suggested</span>');
+    expect(html).not.toContain('<dt>Structure</dt>');
     expect(parts.find(part => part.id === 'bottle-body')?.name).toBe('bottle-body');
   });
 
@@ -61,7 +79,9 @@ describe('Product panel capability boundaries', () => {
     expect(html).not.toContain('>Import</button>');
     expect(html).not.toContain('>Focus part</button>');
     expect(html).not.toContain('>Show assembly</button>');
-    expect(html).toContain('>Frame</button>');
+    expect(html).not.toContain('>Frame</button>');
+    expect(html).not.toContain('aria-label="Objects"');
+    expect(html).toContain('gesso-material-swatches is-list');
   });
 
   it('retains mechanical limits and source evidence while removing duplicate timing controls', () => {
@@ -71,13 +91,15 @@ describe('Product panel capability boundaries', () => {
     expect(html).toContain('aria-label="Pivot X"');
     expect(html).toContain('aria-label="Movement axis"');
     expect(html).toContain('Synthetic lift-off fixture');
+    expect(html).toContain('<dt>Parent</dt><dd>Top level</dd>');
+    expect(html).not.toContain('<dt>Structure</dt>');
     expect(html).not.toContain('aria-label="Start time"');
     expect(html).not.toContain('aria-label="Duration"');
   });
 
   it('keeps Film animation selection without duplicating mechanics or the property editor', () => {
     const html = render({workspace: 'animation', layer: 'Animation', partId: 'cap', positionSpace: 'world'});
-    expect(html).toContain('aria-label="Product parts"');
+    expect(html).toContain('aria-label="Objects"');
     for (const field of ['Position', 'Rotation']) for (const axis of ['X', 'Y', 'Z']) expect(html).not.toContain(`aria-label="${field} ${axis}"`);
     expect(html).not.toContain('aria-label="Part scale"');
     expect(html).toContain('Position, rotation, scale + keyframes below.');
@@ -96,7 +118,7 @@ describe('Product panel capability boundaries', () => {
     const uvLayout: UvLayout = {partId: 'label', triangles: [[0, 0, 1, 0, 1, 1]], triangleCount: 1,
       missingUv: false, overlap: false, truncated: false};
     const html = render({scene, workspace: 'material', layer: 'Decals', decal, uvLayout});
-    expect(html).toContain('aria-label="Product parts"');
+    expect(html).toContain('aria-label="Objects"');
     for (const name of ['Body', 'Label', 'Neck', 'Cap']) {
       expect(html).toContain(`class="gesso-part-name">${name}</span>`);
       expect(html).toContain(`aria-label="Hide ${name}"`);
@@ -110,19 +132,26 @@ describe('Product panel capability boundaries', () => {
     expect(html).not.toContain('Artwork position Y');
   });
 
-  it('does not expose per-node edits that the component-based scene contract cannot save', () => {
+  it('offers imported sections in the material library without duplicating the product tree', () => {
     const scene = structuredClone(fixture) as any;
     scene.product.components = [{...scene.product.components[0], id: 'imported', shape: 'mesh'}];
     delete scene.product.label;
     const parts = [{id: 'imported', componentId: 'imported', name: 'Imported', sourceName: 'imported', source: 'scene' as const, parentId: null},
-      {id: 'imported/0', componentId: 'imported', name: 'Shell', sourceName: 'mesh_0', source: 'glb' as const, parentId: 'imported', materialSlots: [{id: 'slot-0', name: 'Shell lacquer'}]}];
-    const materials = render({scene, parts, workspace: 'material', partId: 'imported/0', layer: 'Materials'});
-    expect(materials).toContain('Shell lacquer');
-    expect(materials).toContain('Per-node material editing is not available yet.');
+      {id: 'imported::node:0', sourcePath: 'nodes[0]', componentId: 'imported', name: 'Shell', sourceName: 'mesh_0', source: 'glb' as const, parentId: 'imported', materialSlots: [{id: 'slot-0', name: 'Shell lacquer'}]}];
+    const materials = render({scene, parts, workspace: 'material', partId: 'imported::node:0', layer: 'Materials'});
+    expect(materials).toContain('Original materials');
+    expect(materials).toContain('>Shell</button>');
+    expect(materials).toContain('draggable="true"');
+    expect(materials).not.toContain('aria-label="Objects"');
     expect(materials).not.toContain('type="color"');
-    const placement = render({scene, parts, workspace: 'animation', partId: 'imported/0', layer: 'Animation'});
+    const placement = render({scene, parts, workspace: 'animation', partId: 'imported::node:0', layer: 'Animation'});
     expect(placement).not.toContain('aria-label="Rotation X"');
-    expect(placement).toContain('>Select imported</button>');
+    expect(placement).not.toContain('>Select imported</button>');
     expect(placement).not.toContain('aria-label="Full travel"');
+    scene.editorPartNames = {'imported::node:0': 'Upper shell'};
+    const structure = render({scene, parts, workspace: 'product', partId: 'imported::node:0', layer: 'Model'});
+    expect(structure).toContain('aria-label="Object name"');
+    expect(structure).toContain('value="Upper shell"');
+    expect(parts[1].sourceName).toBe('mesh_0');
   });
 });

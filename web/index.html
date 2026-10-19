@@ -1,1 +1,56 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><meta name="theme-color" content="#131313"/><title>gesso studio</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="theme-color" content="#131313"/>
+    <title>gesso studio</title>
+    <style id="gesso-boot-style">
+      html,body{margin:0;background:#131313}
+      #gesso-boot{position:fixed;inset:0;z-index:2147483647;background:#131313;color:#f9faf7;font:400 14px/20px 'Halyard Text',sans-serif;text-align:center}
+      #gesso-boot-glyph{position:absolute;left:50%;top:50%;width:104px;height:104px;transform:translate(-50%,-50%);fill:currentColor}
+      #gesso-boot-message{position:absolute;top:calc(50% + 76px);left:50%;transform:translateX(-50%);width:min(320px,calc(100vw - 48px))}
+      #gesso-boot p{margin:0}
+      #gesso-boot a{display:inline-block;margin-top:8px;padding:3px 12px 5px;color:inherit;text-underline-offset:4px}
+      #gesso-boot a[hidden]{display:none}
+      #gesso-boot a:focus-visible{outline:1px solid currentColor;outline-offset:4px}
+    </style>
+  </head>
+  <body>
+    <div id="gesso-boot" role="status" aria-live="polite" aria-busy="true">
+      <!-- Generated from loadingFrameNodes({x:52,y:52},46): the shared 64-anchor contour. -->
+      <svg id="gesso-boot-glyph" viewBox="0 0 104 104" aria-hidden="true"><path d="M 98 52 C 98 53.506 97.926 55.01 97.778 56.509 C 97.631 58.007 97.41 59.497 97.116 60.974 C 96.822 62.451 96.456 63.912 96.019 65.353 C 95.582 66.794 95.075 68.212 94.498 69.603 C 93.922 70.994 93.278 72.356 92.568 73.684 C 91.859 75.012 91.084 76.304 90.248 77.556 C 89.411 78.808 88.514 80.018 87.558 81.182 C 86.603 82.346 85.592 83.462 84.527 84.527 C 83.462 85.592 82.346 86.603 81.182 87.558 C 80.018 88.514 78.808 89.411 77.556 90.248 C 76.304 91.084 75.012 91.859 73.684 92.568 C 72.356 93.278 70.994 93.922 69.603 94.498 C 68.212 95.075 66.794 95.582 65.353 96.019 C 63.912 96.456 62.451 96.822 60.974 97.116 C 59.497 97.41 58.007 97.631 56.509 97.778 C 55.01 97.926 53.506 98 52 98 C 50.494 98 48.99 97.926 47.491 97.778 C 45.993 97.631 44.503 97.41 43.026 97.116 C 41.549 96.822 40.088 96.456 38.647 96.019 C 37.206 95.582 35.788 95.075 34.397 94.498 C 33.006 93.922 31.644 93.278 30.316 92.568 C 28.988 91.859 27.696 91.084 26.444 90.248 C 25.192 89.411 23.982 88.514 22.818 87.558 C 21.654 86.603 20.538 85.592 19.473 84.527 C 18.408 83.462 17.397 82.346 16.442 81.182 C 15.486 80.018 14.589 78.808 13.752 77.556 C 12.916 76.304 12.141 75.012 11.432 73.684 C 10.722 72.356 10.078 70.994 9.502 69.603 C 8.925 68.212 8.418 66.794 7.981 65.353 C 7.544 63.912 7.178 62.451 6.884 60.974 C 6.59 59.497 6.369 58.007 6.222 56.509 C 6.074 55.01 6 53.506 6 52 C 6 50.494 6.074 48.99 6.222 47.491 C 6.369 45.993 6.59 44.503 6.884 43.026 C 7.178 41.549 7.544 40.088 7.981 38.647 C 8.418 37.206 8.925 35.788 9.502 34.397 C 10.078 33.006 10.722 31.644 11.432 30.316 C 12.141 28.988 12.916 27.696 13.752 26.444 C 14.589 25.192 15.486 23.982 16.442 22.818 C 17.397 21.654 18.408 20.538 19.473 19.473 C 20.538 18.408 21.654 17.397 22.818 16.442 C 23.982 15.486 25.192 14.589 26.444 13.752 C 27.696 12.916 28.988 12.141 30.316 11.432 C 31.644 10.722 33.006 10.078 34.397 9.502 C 35.788 8.925 37.206 8.418 38.647 7.981 C 40.088 7.544 41.549 7.178 43.026 6.884 C 44.503 6.59 45.993 6.369 47.491 6.222 C 48.99 6.074 50.494 6 52 6 C 53.506 6 55.01 6.074 56.509 6.222 C 58.007 6.369 59.497 6.59 60.974 6.884 C 62.451 7.178 63.912 7.544 65.353 7.981 C 66.794 8.418 68.212 8.925 69.603 9.502 C 70.994 10.078 72.356 10.722 73.684 11.432 C 75.012 12.141 76.304 12.916 77.556 13.752 C 78.808 14.589 80.018 15.486 81.182 16.442 C 82.346 17.397 83.462 18.408 84.527 19.473 C 85.592 20.538 86.603 21.654 87.558 22.818 C 88.514 23.982 89.411 25.192 90.248 26.444 C 91.084 27.696 91.859 28.988 92.568 30.316 C 93.278 31.644 93.922 33.006 94.498 34.397 C 95.075 35.788 95.582 37.206 96.019 38.647 C 96.456 40.088 96.822 41.549 97.116 43.026 C 97.41 44.503 97.631 45.993 97.778 47.491 C 97.926 48.99 98 50.494 98 52 Z"/></svg>
+      <div id="gesso-boot-message">
+        <p id="gesso-boot-label">opening gesso</p>
+        <a id="gesso-boot-retry" href="" hidden>reload page</a>
+      </div>
+      <noscript><p style="position:absolute;bottom:24px;width:100%">Enable JavaScript to open gesso.</p></noscript>
+    </div>
+    <div id="root"></div>
+    <script>
+      (() => {
+        const shell=document.getElementById('gesso-boot');
+        const label=document.getElementById('gesso-boot-label');
+        const retry=document.getElementById('gesso-boot-retry');
+        const studio=location.pathname==='/';
+        label.textContent=studio?'opening studio':'opening gesso';
+        retry.href=location.href;
+        retry.addEventListener('click',event=>{event.preventDefault();location.reload();});
+        const failed=()=>{
+          shell.setAttribute('aria-busy','false');
+          shell.setAttribute('role','alert');
+          label.textContent=studio?'couldn’t open studio':'couldn’t open gesso';
+          retry.hidden=false;
+        };
+        const scriptFailed=event=>{if(event.target instanceof HTMLScriptElement&&event.target.type==='module')failed();};
+        window.addEventListener('error',scriptFailed,true);
+        window.addEventListener('gesso:boot-error',failed);
+        window.addEventListener('gesso:boot-complete',()=>{
+          window.removeEventListener('error',scriptFailed,true);
+          window.removeEventListener('gesso:boot-error',failed);
+        },{once:true});
+      })();
+    </script>
+    <script id="gesso-entry" type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

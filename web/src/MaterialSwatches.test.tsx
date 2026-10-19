@@ -21,4 +21,12 @@ describe('Material swatch accessibility', () => {
     const html = renderToStaticMarkup(<MaterialSwatches items={MATERIAL_PRESETS} disabled onSelect={() => {}}/>);
     expect(html.match(/<button\b[^>]*disabled=""/g)).toHaveLength(MATERIAL_PRESETS.length);
   });
+
+  it('describes a rectangular sample while preserving list assignment content and native selection', () => {
+    const html = renderToStaticMarkup(<MaterialSwatches items={MATERIAL_PRESETS.slice(0, 1)} shape="rectangle" layout="list"
+      itemProps={() => ({'aria-label': 'Glass assignments'})} renderBelow={() => <span>lamp shade</span>} onSelect={() => {}}/>);
+    expect(html).toContain('52 × 40 mm preview tile'); expect(html).toContain('is-list');
+    expect(html).toContain('Glass assignments'); expect(html).toContain('lamp shade');
+    expect(html).toContain('aria-label="Glass"');
+  });
 });

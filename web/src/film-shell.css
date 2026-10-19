@@ -1,0 +1,45 @@
+/* Film keeps one specimen and a single timeline between two mounted rails. */
+.gesso-studio .gesso-workspace.with-film-workspace{--workspace-rail-width:280px;grid-template-columns:280px minmax(0,1fr) 300px}
+.gesso-studio .with-film-workspace>.gesso-material-editor{display:none}
+.gesso-studio .with-film-workspace>.gesso-sidebar:first-child .gesso-sidebar-content{padding-top:var(--gesso-space-16);display:flex;flex-direction:column;gap:var(--gesso-space-16)}
+.gesso-studio .with-film-workspace>.gesso-sidebar:first-child .gesso-sidebar-content>*{flex-shrink:0}
+.gesso-studio .with-film-workspace .gesso-panel-title{padding-top:var(--gesso-space-20)}
+.gesso-studio .with-film-workspace .gesso-stage{--timeline-height:192px;border-radius:20px;margin-bottom:var(--gesso-space-8)}
+.gesso-studio .with-film-workspace.film-curves-open .gesso-stage{--timeline-height:370px}
+.gesso-studio .with-film-workspace.film-legacy-open .gesso-stage{--timeline-height:350px}
+.gesso-studio .with-film-workspace .viewport-wrap{border-radius:20px}
+.gesso-studio .with-film-workspace .film-inspector-rail .gesso-sidebar-content{padding-top:var(--gesso-space-16);padding-bottom:var(--gesso-space-24)}
+.gesso-studio .with-film-workspace .gesso-sidebar-footer{height:32px;min-height:32px;padding-bottom:var(--gesso-space-8)}
+.film-camera-fields{display:flex;flex-direction:column;gap:var(--gesso-space-16);border:0;padding:0;margin:0;min-width:0}
+.gesso-studio .film-inspector .gesso-camera-panel{gap:var(--gesso-space-16)}
+.gesso-studio .film-inspector .gesso-section-heading{gap:var(--gesso-space-8)}
+.gesso-studio .film-inspector .gesso-section-heading>span{flex:none}
+.gesso-studio .film-inspector .gesso-vector-values{gap:var(--gesso-space-8)}
+.gesso-studio .film-inspector .gesso-vector-inline .gesso-control-compact{padding:var(--gesso-space-4)}
+.film-owner-note{font:400 12px/18px var(--gesso-font-text);color:var(--gesso-text-secondary);display:flex;flex-direction:column;gap:var(--gesso-space-8);margin:0 0 var(--gesso-space-12)}
+.film-owner-note button{align-self:flex-start}
+.film-property-owners{display:flex;flex-direction:column;gap:var(--gesso-space-4)}
+.film-property-owners button{display:flex;justify-content:space-between;align-items:center;gap:var(--gesso-space-8);text-align:left}
+.film-property-owners small{font-size:10px;color:var(--gesso-text-muted)}
+.film-delivery-entry{display:flex;flex-direction:column;gap:var(--gesso-space-8);margin-top:auto;padding-top:var(--gesso-space-20)}
+.film-delivery-entry>button{display:flex;justify-content:space-between;align-items:center;gap:var(--gesso-space-8);text-align:left}
+.film-delivery-entry>button:first-child{border:0;padding-left:0;padding-right:0;color:var(--gesso-text-secondary)}
+.film-delivery-entry>button:first-child span{font-size:10px;color:var(--gesso-text-muted)}
+.film-delivery-entry>button:last-child{background:var(--gesso-surface-action);color:var(--gesso-text-on-action);border-color:transparent}
+.film-delivery-panel .gesso-film-scope,.film-delivery-panel .gesso-control-section:not(.is-open),.film-delivery-panel .gesso-section-toggle{display:none}
+.film-delivery-panel .gesso-section-body{padding:0}
+.film-return{margin-bottom:var(--gesso-space-12)}
+.film-legacy-editor{height:100%;min-height:0;display:flex;flex-direction:column}
+.film-legacy-heading{display:flex;align-items:center;justify-content:space-between;gap:var(--gesso-space-8);padding:var(--gesso-space-6) var(--gesso-space-12);font-size:11px;color:var(--gesso-text-secondary)}
+.film-legacy-heading button{display:flex;align-items:center;gap:var(--gesso-space-6);padding:var(--gesso-space-2) var(--gesso-space-4);min-height:24px;border:0}
+.film-legacy-editor .gesso-keyframe-editor{flex:1;min-height:0}
+.film-legacy-editor>.film-owner-note{padding:0 var(--gesso-space-16);margin-bottom:var(--gesso-space-4);font-size:11px}
+/* Compact rails retain the page margin at the outside edge and free room toward the viewport. */
+@media(min-width:900px) and (max-width:1199px){.gesso-studio .gesso-workspace.with-film-workspace{grid-template-columns:230px minmax(0,1fr) 250px}.gesso-studio .with-film-workspace>.gesso-sidebar:first-child :is(.gesso-sidebar-content,.gesso-sidebar-footer,.film-shot-header){padding-right:var(--gesso-space-16)}.gesso-studio .with-film-workspace .film-inspector-rail :is(.gesso-sidebar-content,.film-shot-header){padding-left:var(--gesso-space-16)}.gesso-studio .with-film-workspace .gesso-stage{--timeline-height:224px}.film-delivery-entry>button:first-child span{display:none}}
+
+@media(min-width:900px) and (max-width:1199px){.gesso-studio .with-film-workspace.film-curves-open .gesso-stage{--timeline-height:400px}}
+
+/* The shot remains visible while its controls scroll below. */
+.film-shot-header{display:flex;align-items:baseline;gap:var(--gesso-space-8);flex:none;min-width:0;margin:0;padding:var(--gesso-space-20) var(--rail-gutter) 0;color:var(--gesso-text-primary);font:500 14px/20px var(--gesso-font-text)}
+.film-shot-number{flex:none;color:var(--gesso-text-secondary);font:400 11px/20px var(--gesso-font-text);font-variant-numeric:tabular-nums}
+.film-shot-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

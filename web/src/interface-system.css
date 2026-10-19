@@ -1,32 +1,53 @@
-/* Gesso / Interface — Figma 128:6315, including the 18 Oct optical padding edits. */
+/* Gesso / Interface — Figma 128:6315, with the shared 4px spacing rhythm. */
 @font-face{font-family:'Halyard Text';src:local('Halyard Text Regular'),local('HalyardText-Regular');font-weight:400;font-style:normal;font-display:swap}
-@font-face{font-family:'Halyard Text';src:local('Halyard Text Medium'),local('HalyardText-Medium');font-weight:500;font-style:normal;font-display:swap}
+@font-face{font-family:'Halyard Text';src:local('Halyard Text Medium'),local('HalyardTextMedium');font-weight:500;font-style:normal;font-display:swap}
+@font-face{font-family:'Halyard Text';src:local('Halyard Text SemiBold'),local('HalyardTextSemiBold'),local('HalyardText-SemiBold');font-weight:600;font-style:normal;font-display:swap}
+@font-face{font-family:'Halyard Display';src:local('Halyard Display Regular'),local('HalyardDisplay-Regular');font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:'Halyard Display';src:local('Halyard Display Medium'),local('HalyardDisplayMedium');font-weight:500;font-style:normal;font-display:swap}
 :root{
   --gesso-font-text:'Halyard Text','Studio Sans',sans-serif;
   --gesso-font-display:'Halyard Display','Halyard Text','Studio Sans',sans-serif;
+  /* Brand sheet 25:323 + landing 40:1124; interface roles remain below. */
+  --gesso-brand-ground:#980101;--gesso-brand-light:#ff5724;--gesso-brand-ink:#08080a;
+  --gesso-type-display:500 64px/72px var(--gesso-font-display);
+  --gesso-type-title:400 40px/48px var(--gesso-font-display);
+  --gesso-type-heading:500 28px/36px var(--gesso-font-display);
+  --gesso-type-subheading:500 20px/28px var(--gesso-font-text);
+  --gesso-type-body:400 16px/24px var(--gesso-font-text);
+  --gesso-type-control:500 14px/20px var(--gesso-font-text);
+  --gesso-type-caption:400 12px/18px var(--gesso-font-text);
+  --gesso-type-measure:400 13px/20px var(--gesso-font-text);
   --gesso-surface-chrome:#131313;--gesso-surface-field:#242424;
   --gesso-surface-hover:#2c2c2c;--gesso-surface-selected:#333;
   --gesso-surface-action:#f5f5f3;--gesso-surface-scene:#fff;--gesso-surface-chalk:#f9faf7;
   --gesso-text-primary:#f5f5f3;--gesso-text-secondary:#aaa9a7;--gesso-text-muted:#858585;
   --gesso-text-disabled:#626262;--gesso-text-on-action:#131313;
   --gesso-border-subtle:#343434;--gesso-border-control:#626262;--gesso-border-focus:#f5f5f3;
-  --gesso-signal-error:#ff968b;--gesso-radius-control:4px;--gesso-radius-viewport:20px;
+  --gesso-primitive-success:#a8d5b5;--gesso-primitive-pending:#e7c56a;
+  --gesso-signal-success:var(--gesso-primitive-success);--gesso-signal-pending:var(--gesso-primitive-pending);--gesso-signal-error:#ff968b;--gesso-radius-control:4px;--gesso-radius-viewport:20px;
   --gesso-control-height:32px;--gesso-section-height:36px;
   --gesso-field-value-width:56px;--gesso-field-unit-width:20px;--gesso-field-tools-width:40px;
-  --gesso-space-4:4px;--gesso-space-8:8px;--gesso-space-12:12px;--gesso-space-16:16px;
+  /* Layout uses 4px steps; 2px half-steps are reserved for dense controls.
+     Buttons retain the specified 3px top / 5px bottom optical padding.
+     Type metrics, borders, SVG geometry, and live coordinates keep their own units. */
+  --gesso-space-2:2px;--gesso-space-4:4px;--gesso-space-6:6px;--gesso-space-8:8px;--gesso-space-10:10px;--gesso-space-12:12px;--gesso-space-14:14px;--gesso-space-16:16px;
+  --gesso-space-18:18px;--gesso-space-20:20px;--gesso-space-22:22px;--gesso-space-24:24px;--gesso-space-26:26px;--gesso-space-28:28px;--gesso-space-30:30px;--gesso-space-32:32px;
+  --gesso-space-34:34px;--gesso-space-36:36px;--gesso-space-38:38px;--gesso-space-40:40px;--gesso-space-42:42px;--gesso-space-44:44px;--gesso-space-46:46px;--gesso-space-48:48px;
+  --gesso-space-50:50px;--gesso-space-52:52px;--gesso-space-54:54px;--gesso-space-56:56px;--gesso-space-58:58px;--gesso-space-60:60px;--gesso-space-62:62px;--gesso-space-64:64px;
+  --gesso-space-72:72px;--gesso-space-80:80px;--gesso-space-88:88px;--gesso-space-96:96px;--gesso-space-120:120px;--gesso-space-128:128px;--gesso-space-160:160px;
   --chrome:var(--gesso-surface-chrome);--panel:var(--gesso-surface-chrome);
   --muted:var(--gesso-text-secondary);--edge:var(--gesso-border-control);
   font-family:var(--gesso-font-text);color:var(--gesso-text-primary);font-size:13px;line-height:18px;
 }
 button,input,select,textarea{font-family:var(--gesso-font-text);font-weight:400}
-button{min-height:32px;border-radius:var(--gesso-radius-control);padding:3px 12px 5px;font-size:12px;line-height:18px;background:transparent;border-color:var(--gesso-border-control)}
+button{min-height:32px;border-radius:var(--gesso-radius-control);padding:3px var(--gesso-space-12) 5px;font-size:12px;line-height:18px;background:transparent;border-color:var(--gesso-border-control)}
 button:hover{background:var(--gesso-surface-hover)}
 button:disabled{opacity:1;color:var(--gesso-text-disabled);border-color:var(--gesso-border-subtle);cursor:default}
 button:disabled:hover{background:transparent}
 input,select,textarea{border-radius:var(--gesso-radius-control);background:var(--gesso-surface-field);color:var(--gesso-text-primary);border-color:var(--gesso-border-control);font-size:13px;line-height:18px}
 input:disabled,select:disabled,textarea:disabled{color:var(--gesso-text-disabled);border-color:var(--gesso-border-subtle)}
 input::placeholder,textarea::placeholder{color:var(--gesso-text-muted)}
-button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--gesso-border-focus);outline-offset:2px}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--gesso-border-focus);outline-offset:var(--gesso-space-2)}
 kbd{font:400 10px/12px var(--gesso-font-text);color:var(--gesso-text-muted)}
 h2,h3{font-family:var(--gesso-font-text);font-size:14px;line-height:20px;font-weight:500}
 .gesso-ui-icon{display:inline-block;flex:none;background:currentColor;mask-repeat:no-repeat;mask-position:center;mask-size:auto;-webkit-mask-repeat:no-repeat;-webkit-mask-position:center;-webkit-mask-size:auto;vertical-align:middle}
@@ -38,29 +59,33 @@ h2,h3{font-family:var(--gesso-font-text);font-size:14px;line-height:20px;font-we
 .gesso-wordmark span{font-family:var(--gesso-font-text);font-size:12px;line-height:18px}
 .gesso-appmenus button,.gesso-header-actions button{font-size:12px;line-height:18px;color:var(--gesso-text-secondary)}
 .gesso-appmenus button:disabled,.gesso-header-actions button:disabled{opacity:1;color:var(--gesso-text-disabled)}
-.gesso-header-actions .gesso-save-status{display:flex;align-items:center;gap:8px;color:var(--gesso-text-secondary)}
+.gesso-header-actions .gesso-save-status{display:flex;align-items:center;gap:var(--gesso-space-8);color:var(--gesso-text-secondary)}
+.gesso-header-actions .gesso-save-status[data-state=saved]{color:var(--gesso-signal-success)}
+.gesso-header-actions .gesso-save-status[data-state=saving]{color:var(--gesso-signal-pending)}
 .gesso-save-status .gesso-ui-icon{flex:none}
-.gesso-navrow button{height:32px;min-height:32px;font-size:13px;line-height:18px;gap:4px;color:var(--gesso-text-secondary);border-radius:4px}
+.gesso-header-actions .gesso-export-entry{display:inline-flex;align-items:center;gap:var(--gesso-space-4)}
+.gesso-export-arrow{width:14px;height:20px;mask-image:url("./assets/gesso/about-arrow-up-right.svg");-webkit-mask-image:url("./assets/gesso/about-arrow-up-right.svg");mask-size:contain;-webkit-mask-size:contain}
+.gesso-navrow button{height:32px;min-height:32px;font-size:13px;line-height:18px;gap:var(--gesso-space-4);color:var(--gesso-text-secondary);border-radius:4px}
 .gesso-navrow button[aria-pressed=true]{color:var(--gesso-text-primary)}
 .gesso-navrow button:hover,.gesso-film-mode button:hover{background:transparent}
-.key-hint{gap:4px;margin-top:2px;opacity:1;height:16px;color:var(--gesso-text-muted);font:400 10px/12px var(--gesso-font-text)}
+.key-hint{gap:var(--gesso-space-4);margin-top:var(--gesso-space-2);opacity:1;height:16px;color:var(--gesso-text-muted);font:400 10px/12px var(--gesso-font-text)}
 .key-icon{width:10px;height:10px}
 .gesso-navrow button:not([aria-pressed=true]) .key-hint{opacity:1}
 .gesso-film-mode button{font-size:12px;line-height:18px;color:var(--gesso-text-secondary)}
-.gesso-sidebar .gesso-panel-title{font:500 14px/20px var(--gesso-font-text);padding:20px var(--rail-gutter) 16px;color:var(--gesso-text-primary)}
-.gesso-sidebar-content:first-child{padding-top:20px}
+.gesso-sidebar .gesso-panel-title{font:500 14px/20px var(--gesso-font-text);padding:var(--gesso-space-20) var(--rail-gutter) var(--gesso-space-16);color:var(--gesso-text-primary)}
+.gesso-sidebar-content:first-child{padding-top:var(--gesso-space-20)}
 .gesso-sidebar-footer{font-size:11px;line-height:16px;color:var(--gesso-text-secondary)}
 .gesso-sidebar-footer>span:last-child{color:var(--gesso-text-muted)}
-.gesso-sidebar .gesso-condensed-sidebar{gap:12px}
-.gesso-panel{font-size:13px;line-height:18px;gap:12px}
-.gesso-panel.gesso-condensed-product,.gesso-panel.gesso-condensed-world{gap:16px}
-.gesso-section{gap:8px}
+.gesso-sidebar .gesso-condensed-sidebar{gap:var(--gesso-space-12)}
+.gesso-panel{font-size:13px;line-height:18px;gap:var(--gesso-space-12)}
+.gesso-panel.gesso-condensed-product,.gesso-panel.gesso-condensed-world{gap:var(--gesso-space-16)}
+.gesso-section{gap:var(--gesso-space-8)}
 .gesso-section-heading{font:400 13px/18px var(--gesso-font-text);color:var(--gesso-text-primary)}
 .gesso-section-heading>span:not(:first-child){font-size:11px;line-height:16px;color:var(--gesso-text-muted)}
 .gesso-fixed-parts>.gesso-section-heading{font-size:11px;line-height:16px;color:var(--gesso-text-secondary)}
 .gesso-note,.gesso-meta,.gesso-condensed-product .gesso-meta,.gesso-condensed-world .gesso-meta,.small-copy,.world-note,.pairing-note{font:400 11px/16px var(--gesso-font-text);color:var(--gesso-text-secondary)}
 .gesso-selected-name,.gesso-selected-heading{font:500 14px/20px var(--gesso-font-text)}
-.gesso-facts>div{min-height:24px;font-size:12px;line-height:18px;gap:12px}
+.gesso-facts>div{min-height:24px;font-size:12px;line-height:18px;gap:var(--gesso-space-12)}
 .gesso-facts dt{color:var(--gesso-text-secondary)}
 .gesso-facts dd{font-size:13px;line-height:18px;color:var(--gesso-text-primary)}
 .gesso-status{font:400 11px/16px var(--gesso-font-text);color:var(--gesso-text-muted)}
@@ -68,50 +93,47 @@ h2,h3{font-family:var(--gesso-font-text);font-size:14px;line-height:20px;font-we
 .message.error{color:var(--gesso-signal-error);border-color:var(--gesso-signal-error);background:var(--gesso-surface-chrome);border-radius:4px}
 
 /* Text and select fields carry their label inside the measured surface. */
-.gesso-panel .gesso-field:not(:has(input[type=file])){display:grid;grid-template-columns:86px minmax(0,1fr);gap:8px;align-items:center;min-height:32px;margin:0;padding:4px 8px;background:var(--gesso-surface-field);border:1px solid var(--gesso-border-control);border-radius:4px}
-.gesso-panel .gesso-field>span{font-size:12px;line-height:18px;color:var(--gesso-text-secondary);min-width:0;transform:translateY(-.5px)}
-.gesso-panel .gesso-field>input:not([type=color]):not([type=checkbox]),.gesso-panel .gesso-field>select{width:100%;height:22px;min-height:0;border:0;background:transparent;padding:0;outline:0;font-size:13px;line-height:18px;transform:translateY(-.5px)}
-.gesso-panel .gesso-field:has(:focus-visible){outline:2px solid var(--gesso-border-focus);outline-offset:1px}
-.gesso-panel .gesso-field:has(select){position:relative;padding-right:30px}
-.gesso-panel .gesso-field>select{appearance:none}
-.gesso-panel .gesso-field:has(select)::after{content:'';position:absolute;right:8px;top:50%;transform:translateY(-50%);width:14px;height:14px;background:var(--gesso-text-secondary);mask:url('./assets/gesso/interface/imgIconDown_bbbe208a.svg') center no-repeat}
+.gesso-panel .gesso-field:not(:has(input[type=file])){display:grid;grid-template-columns:86px minmax(0,1fr);gap:var(--gesso-space-8);align-items:center;min-height:32px;margin:0;padding:var(--gesso-space-4) var(--gesso-space-8);background:var(--gesso-surface-field);border:1px solid var(--gesso-border-control);border-radius:4px}
+.gesso-panel .gesso-field>span{font-size:12px;line-height:18px;color:var(--gesso-text-secondary);min-width:0;transform:none}
+.gesso-panel .gesso-field>input:not([type=color]):not([type=checkbox]),.gesso-panel .gesso-field>select{width:100%;height:22px;min-height:0;border:0;background:transparent;padding:0;outline:0;font-size:13px;line-height:18px;transform:none}
+.gesso-panel .gesso-field:has(:focus-visible){outline:2px solid var(--gesso-border-focus);outline-offset:var(--gesso-space-2)}
 select option{background:var(--gesso-surface-field);color:var(--gesso-text-primary)}
 .gesso-panel .gesso-field:has(textarea){display:flex;align-items:stretch}
 .gesso-color span,.gesso-color code{font:400 12px/18px var(--gesso-font-text)}
-.gesso-color input[type=color]{height:28px;width:28px;border-radius:4px;padding:2px}
+.gesso-color input[type=color]{height:28px;width:28px;border-radius:4px;padding:var(--gesso-space-2)}
 .gesso-panel .gesso-field .gesso-color input[type=color]{height:20px;width:20px;flex:0 0 20px}
 .gesso-camera-aimrow>.gesso-field{grid-template-columns:28px minmax(0,1fr)}
 
-/* Actions use optical 3 / 5 padding; choices retain a persistent state. */
-.gesso-sidebar :is(.gesso-button-row>button,.gesso-panel>button,.gesso-section>button,.gesso-section-toolbar>button){min-height:32px;padding:3px 12px 5px;border-radius:4px;font-size:12px;line-height:18px;font-weight:400}
-.gesso-button-row{gap:8px}
-.gesso-sidebar :is(.gesso-button-row,.segmented)>button[aria-pressed]{min-height:28px;padding:3px 8px 5px;color:var(--gesso-text-secondary);background:transparent;border-color:transparent}
+/* Buttons retain optical 3px / 5px padding; horizontal spacing follows the scale. */
+.gesso-sidebar :is(.gesso-button-row>button,.gesso-panel>button,.gesso-section>button,.gesso-section-toolbar>button){min-height:32px;padding:3px var(--gesso-space-12) 5px;border-radius:4px;font-size:12px;line-height:18px;font-weight:400}
+.gesso-button-row{gap:var(--gesso-space-8)}
+.gesso-sidebar :is(.gesso-button-row,.segmented)>button[aria-pressed]{min-height:28px;padding:3px var(--gesso-space-8) 5px;color:var(--gesso-text-secondary);background:transparent;border-color:transparent}
 .gesso-sidebar :is(.gesso-button-row,.segmented)>button[aria-pressed=true]{background:var(--gesso-surface-selected);color:var(--gesso-text-primary)}
-.gesso-sidebar :is(.gesso-button-row,.segmented)>button[aria-pressed=true]::before{content:'';display:inline-block;width:12px;height:12px;margin-top:2px;flex:none;background:currentColor;mask:url('./assets/gesso/interface/imgIconCheck_4386244d.svg') center no-repeat}
+.gesso-sidebar :is(.gesso-button-row,.segmented)>button[aria-pressed=true]::before{content:'';display:inline-block;width:12px;height:12px;margin-top:var(--gesso-space-2);flex:none;background:currentColor;mask:url('./assets/gesso/interface/imgIconCheck_4386244d.svg') center no-repeat}
 .gesso-sidebar :is(.gesso-button-row,.segmented)>button[aria-pressed]:disabled{color:var(--gesso-text-disabled)}
-.gesso-sidebar :is(.gesso-text-button,.text-button){min-height:32px;padding:3px 12px 5px;font:400 12px/18px var(--gesso-font-text);border:1px solid transparent;background:transparent;color:var(--gesso-text-primary)}
+.gesso-sidebar :is(.gesso-text-button,.text-button){min-height:32px;padding:3px var(--gesso-space-12) 5px;font:400 12px/18px var(--gesso-font-text);border:1px solid transparent;background:transparent;color:var(--gesso-text-primary)}
 .gesso-sidebar :is(.gesso-text-button,.text-button):hover{background:var(--gesso-surface-hover)}
-.gesso-check{min-height:28px;padding:3px 8px 5px;gap:8px;font:400 12px/18px var(--gesso-font-text);color:var(--gesso-text-secondary)}
-.gesso-check input{appearance:none;flex:none;width:14px;height:14px;min-height:14px;margin:2px 0 0;padding:0;border:1px solid var(--gesso-border-control);border-radius:2px;background:transparent}
+.gesso-check{min-height:28px;padding:3px var(--gesso-space-8) 5px;gap:var(--gesso-space-8);font:400 12px/18px var(--gesso-font-text);color:var(--gesso-text-secondary)}
+.gesso-check input{appearance:none;flex:none;width:14px;height:14px;min-height:14px;margin:var(--gesso-space-2) 0 0;padding:0;border:1px solid var(--gesso-border-control);border-radius:2px;background:transparent}
 .gesso-check input:checked{background:var(--gesso-surface-action);border-color:var(--gesso-surface-action)}
 .gesso-check input:checked::after{content:'';display:block;width:12px;height:12px;background:var(--gesso-text-on-action);mask:url('./assets/gesso/interface/imgIconCheck1_0c830e19.svg') center no-repeat}
-.gesso-film-render .gesso-film-render-button{min-height:32px;background:var(--gesso-surface-action);border-color:var(--gesso-surface-action);color:var(--gesso-text-on-action);font-size:12px;line-height:18px;padding:3px 12px 5px}
+.gesso-film-render .gesso-film-render-button{min-height:32px;background:var(--gesso-surface-action);border-color:var(--gesso-surface-action);color:var(--gesso-text-on-action);font-size:12px;line-height:18px;padding:3px var(--gesso-space-12) 5px}
 .gesso-film-render .gesso-film-render-button:disabled{background:transparent;color:var(--gesso-text-disabled);border-color:var(--gesso-border-subtle)}
 
 /* A disclosure never shares the increment symbol of a number field. */
 .gesso-control-section{border-top-color:var(--gesso-border-subtle);min-height:36px}
 .gesso-control-section.is-open{min-height:36px}
-.gesso-control-section>.gesso-section-toggle{min-height:36px;padding:0;gap:8px;font-size:13px;line-height:18px;border-radius:4px;color:var(--gesso-text-secondary)}
+.gesso-control-section>.gesso-section-toggle{min-height:36px;padding:0;gap:var(--gesso-space-8);font-size:13px;line-height:18px;border-radius:4px;color:var(--gesso-text-secondary)}
 .gesso-section-toggle>span:first-child{color:var(--gesso-text-secondary)}
 .gesso-section-toggle[aria-expanded=true]>span:first-child{color:var(--gesso-text-primary)}
 .gesso-section-toggle>small{font-size:11px;line-height:16px;color:var(--gesso-text-muted)}
 .gesso-section-toggle>.gesso-ui-icon:last-child{width:14px;color:var(--gesso-text-muted)}
-.gesso-control-section .gesso-section-body{gap:12px;padding-bottom:12px}
-.gesso-section-body>.gesso-section{gap:8px}
-.gesso-disclosure>summary,.gesso-compact-details>summary{display:flex;align-items:center;gap:8px;list-style:none;min-height:36px;padding:0;color:var(--gesso-text-secondary);font:400 13px/18px var(--gesso-font-text)}
+.gesso-control-section .gesso-section-body{gap:var(--gesso-space-12);padding-bottom:var(--gesso-space-12)}
+.gesso-section-body>.gesso-section{gap:var(--gesso-space-8)}
+.gesso-disclosure>summary,.gesso-compact-details>summary{display:flex;align-items:center;gap:var(--gesso-space-8);list-style:none;min-height:36px;padding:0;color:var(--gesso-text-secondary);font:400 13px/18px var(--gesso-font-text)}
 .gesso-disclosure>summary::-webkit-details-marker{display:none}
 .gesso-disclosure>summary::after{content:'';margin-left:auto;flex:none;width:14px;height:14px;background:var(--gesso-text-muted);mask:url('./assets/gesso/interface/imgIconChevron_48be26ca.svg') center no-repeat}
-.gesso-disclosure[open]>summary{margin-bottom:8px;color:var(--gesso-text-primary)}
+.gesso-disclosure[open]>summary{margin-bottom:var(--gesso-space-8);color:var(--gesso-text-primary)}
 .gesso-disclosure[open]>summary::after{mask-image:url('./assets/gesso/interface/imgIconDown_bbbe208a.svg')}
 .gesso-disclosure>summary>span,.gesso-condensed-product .gesso-disclosure>summary>span,.gesso-camera-options>summary>span{font-size:11px;line-height:16px;color:var(--gesso-text-muted);margin-left:auto}
 .gesso-disclosure>summary:has(>span)::after{margin-left:0}
@@ -119,16 +141,16 @@ select option{background:var(--gesso-surface-field);color:var(--gesso-text-prima
 
 /* The object row owns selection; visibility remains a separate control. */
 .gesso-fixed-parts .gesso-part-tree{gap:0}
-.gesso-product-panel .gesso-part-row{height:28px;min-height:28px;padding:4px 8px;gap:8px;border-radius:4px}
+.gesso-product-panel .gesso-part-row{height:28px;min-height:28px;padding:var(--gesso-space-4) var(--gesso-space-8);gap:var(--gesso-space-8);border-radius:4px}
 .gesso-product-panel .gesso-part-row:hover{background:var(--gesso-surface-hover)}
 .gesso-product-panel .gesso-part-row.selected{background:var(--gesso-surface-selected)}
 .gesso-part-row .gesso-tree-toggle,.gesso-part-row .gesso-tree-spacer{width:12px;flex:0 0 12px;height:20px;min-height:20px;padding:0;color:var(--gesso-text-secondary)}
-.gesso-part-row .gesso-part-select{height:20px;min-height:20px;padding:0 0 1px;font:400 12px/18px var(--gesso-font-text);color:var(--gesso-text-secondary);gap:4px}
+.gesso-part-row .gesso-part-select{height:20px;min-height:20px;padding:0;font:400 12px/18px var(--gesso-font-text);color:var(--gesso-text-secondary);gap:var(--gesso-space-4)}
 .gesso-panel .gesso-part-row.selected .gesso-part-select{font-weight:400;color:var(--gesso-text-primary)}
 .gesso-part-row .gesso-visibility{width:14px;flex:0 0 14px;min-height:20px;height:20px;padding:0;color:var(--gesso-text-secondary)}
 .gesso-part-row .gesso-visibility[aria-pressed=false]{color:var(--gesso-text-disabled)}
 .gesso-part-row button:hover{background:transparent}
-.gesso-shot-list>button{min-height:28px;border:0;border-radius:4px;padding:3px 8px 5px;background:transparent;font-size:12px;line-height:18px;color:var(--gesso-text-secondary)}
+.gesso-shot-list>button{min-height:28px;border:0;border-radius:4px;padding:3px var(--gesso-space-8) 5px;background:transparent;font-size:12px;line-height:18px;color:var(--gesso-text-secondary)}
 .gesso-shot-list>button[aria-pressed=true]{background:var(--gesso-surface-selected);color:var(--gesso-text-primary)}
 .gesso-shot-list small{font-size:11px;line-height:16px;color:var(--gesso-text-muted)}
 
@@ -153,9 +175,51 @@ select option{background:var(--gesso-surface-field);color:var(--gesso-text-prima
 .kf-key.selected>span{background:var(--gesso-text-primary);border-color:var(--gesso-text-primary)}
 
 @media(min-width:900px) and (max-width:1087px){
-  .gesso-workspace.with-material-editor{--workspace-rail-width:300px;--rail-gutter:20px}
+  .gesso-workspace.with-material-editor{--workspace-rail-width:300px}
+  .gesso-workspace.with-material-editor>.gesso-sidebar:first-child :is(.gesso-panel-title,.gesso-sidebar-content,.gesso-sidebar-footer){padding-right:var(--gesso-space-20)}
+  .gesso-workspace.with-material-editor .gesso-material-editor :is(.gesso-preset-editor-body,.gesso-preset-footer){padding-left:var(--gesso-space-20)}
 }
 @media(prefers-reduced-motion:reduce){.gesso-ui-icon{animation:none}}
 
-.gesso-material-preview-label{display:flex;align-items:center;gap:8px}
+.gesso-material-preview-label{display:flex;align-items:center;gap:var(--gesso-space-8)}
 .gesso-header-actions .gesso-save-status{height:21px;min-height:21px;font:400 11px/16px var(--gesso-font-text)}
+
+/* Button highlights use surfaces; keyboard focus gets a distinct solid fill. */
+:is(.gesso-studio,.gesso-aperture-editor,.gesso-export-dialog) button:is(:hover,:active,[aria-pressed=true],[aria-selected=true],[aria-expanded=true],.selected,.is-selected):not(:disabled){border-color:transparent;outline:none;box-shadow:none}
+:is(.gesso-studio,.gesso-aperture-editor,.gesso-export-dialog) button:focus-visible:not(:disabled){border-color:transparent;outline:none;box-shadow:none;background:var(--gesso-surface-action);color:var(--gesso-text-on-action)}
+:is(.gesso-studio,.gesso-aperture-editor,.gesso-export-dialog) button:focus-visible:not(:disabled) :is(span,small,kbd){color:inherit}
+
+
+/* A rule marks a change of task inside a rail, never a column of empty chrome.
+   Match the frame's .75px rounded dash and 50% opacity without adding box chrome. */
+.gesso-studio .gesso-sidebar{
+  --gesso-section-rule:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4.25' height='1' viewBox='0 0 4.25 1'%3E%3Cpath d='M2 .5h.25' stroke='white' stroke-opacity='.5' stroke-width='.75' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+.gesso-studio .gesso-sidebar :is(
+  .gesso-control-section,.gesso-product-mechanics,
+  .gesso-material-property-section,.gesso-preset-textures,.gesso-material-source,
+  .film-add-actions,.film-existing-actions,.film-inspector-actions,.gesso-camera-options
+),
+.gesso-studio .gesso-sidebar .gesso-world-object-body>.gesso-section+.gesso-section,
+.gesso-studio .gesso-sidebar .gesso-camera-panel>.gesso-section+.gesso-section{
+  position:relative;
+  border-top:0;
+}
+.gesso-studio .gesso-sidebar :is(
+  .gesso-control-section,.gesso-product-mechanics,
+  .gesso-material-property-section,.gesso-preset-textures,.gesso-material-source,
+  .film-add-actions,.film-existing-actions,.film-inspector-actions,.gesso-camera-options
+)::before,
+.gesso-studio .gesso-sidebar .gesso-world-object-body>.gesso-section+.gesso-section::before,
+.gesso-studio .gesso-sidebar .gesso-camera-panel>.gesso-section+.gesso-section::before{
+  content:'';
+  position:absolute;
+  top:0;left:0;right:0;height:1px;
+  background:var(--gesso-section-rule) left center / 4.25px 1px repeat-x;
+  pointer-events:none;
+}
+/* The first group has no section above it; the product tree does. */
+.gesso-studio .gesso-sidebar .gesso-condensed-world>.gesso-control-section:first-of-type::before,
+.gesso-studio .gesso-sidebar .gesso-workspace-material>.gesso-control-sections:first-child>.gesso-control-section:first-child::before{
+  content:none;
+}

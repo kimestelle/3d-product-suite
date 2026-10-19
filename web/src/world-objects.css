@@ -1,0 +1,23 @@
+/* The library and inspector share the studio's measured rails. */
+.gesso-world-object-actions{display:flex;flex-direction:column;gap:8px;flex:0 0 auto}
+.gesso-world-object-actions .gesso-button-row{gap:8px}
+.gesso-world-object-actions .gesso-button-row>button{padding:3px 5px}
+.gesso-world-object-actions>.gesso-disclosure>summary{font-size:12px;line-height:18px}
+.gesso-sidebar-content>.gesso-panel.gesso-world-object-editor{height:100%;min-height:0;overflow:hidden;gap:0}
+.gesso-world-object-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:20px var(--rail-gutter) 12px;flex:none}
+.gesso-world-object-heading>div{min-width:0;display:flex;flex-direction:column;gap:4px}
+.gesso-world-object-heading span{font-size:11px;line-height:16px;color:var(--gesso-text-secondary)}
+.gesso-world-object-heading h2{margin:0;font-size:14px;line-height:20px;font-weight:500;overflow-wrap:anywhere}
+.gesso-world-object-heading>button{flex:none;background:transparent;border:0;padding:3px 5px}
+.gesso-world-object-body{display:flex;flex-direction:column;gap:16px;flex:1;min-height:0;padding:0 var(--rail-gutter) 16px;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#484848 transparent}
+.gesso-world-object-body>.gesso-section{gap:8px}
+.gesso-world-object-body>.gesso-section+.gesso-section{border-top:1px solid var(--gesso-border-subtle,#ffffff14);padding-top:16px}
+.gesso-world-object-footer{display:flex;gap:8px;padding:12px var(--rail-gutter) 20px;flex:none}
+.gesso-world-object-footer>button{flex:1;padding:3px 5px;white-space:nowrap}
+@media(min-width:900px) and (max-width:1199px){
+ .gesso-world-object-heading,.gesso-world-object-body,.gesso-world-object-footer{padding-left:20px}
+}
+/* Keep creation and import available while the object collection scrolls. */
+#world-section-Props{overflow:hidden;gap:12px}
+#world-section-Props>.gesso-world-object-previews{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;align-content:start;padding-bottom:4px}
+.gesso-world-object-actions>.gesso-disclosure[open]{max-height:260px;overflow:auto;scrollbar-width:thin}

@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import {equalJson} from './state';
-import {partName} from './hierarchy';
+import {displayPartName} from './hierarchy';
 import {animatedTransformScene,copyAnimatedTransform} from './animatedTransforms';
 import type {TransformGesture} from './transformPointer';
 import {
@@ -208,7 +208,7 @@ export default function TransformShortcuts(props:TransformShortcutsProps) {
   },[]);
 
   if (!props.enabled) return null;
-  const targetName = props.target?.kind === 'product' ? 'Product' : props.scene?.product?.components?.find((part:any)=>part.id === (props.target?.kind === 'part' ? props.target.componentId : ''))?.displayName ?? (props.target?.kind === 'part' ? partName(props.target.componentId) : 'No component selected');
+  const targetName = props.target?.kind === 'product' ? 'Product' : props.target?.kind === 'part' ? displayPartName(props.scene, props.target.componentId) : 'No component selected';
   return <div className={`gesso-transform-shortcuts${active ? ' is-active' : ''}`} ref={panel} tabIndex={-1} aria-label="Transform controls" onPointerDown={event=>event.stopPropagation()}>
     <div className="gesso-transform-tools" role="group" aria-label="Transform mode">
       {(['translate','rotate','scale'] as TransformMode[]).map(mode=><button key={mode} type="button" aria-pressed={active?.mode === mode}

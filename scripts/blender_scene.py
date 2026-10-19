@@ -15,12 +15,15 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import importlib.util
+from functools import lru_cache
 import json
 import math
 from pathlib import Path
 import re
 import struct
 import sys
+import tempfile
 
 import bpy
 from mathutils import Matrix, Quaternion, Vector
@@ -28,6 +31,20 @@ from mathutils import Matrix, Quaternion, Vector
 
 BLENDER_VERSION = (4, 3, 2)
 COORDINATE_ROTATION = Quaternion((1.0, 0.0, 0.0), math.pi / 2.0)
+
+
+@lru_cache(maxsize=1)
+def decal_geometry():
+    """Load the frozen job helper; direct source runs use the repository helper."""
+    renderer = Path(__file__).resolve()
+    source = (renderer.with_name("decal_geometry.py") if renderer.name == "renderer.py"
+              else renderer.parents[1] / "film" / "decal_geometry.py")
+    spec = importlib.util.spec_from_file_location("gesso_decal_geometry", source)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load renderer geometry helper: {source}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def blender_position(value):
@@ -149,8 +166,7 @@ def specified_material(name, specification, samples_root=None, *, source_uv_flip
 
 def textured_primitive(name, shape, size, surface, bevel):
     """Use the editor's exact procedural surface and UV atlas for PBR materials."""
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from film.decal_geometry import primitive_triangles
+    primitive_triangles = decal_geometry().primitive_triangles
     points = [point for triangle in primitive_triangles({"shape":shape,"sizeM":size,"bevelM":bevel}) for point in triangle]
     mesh = bpy.data.meshes.new(name)
     mesh.from_pydata([blender_position(point[:3]) for point in points], [],
@@ -325,8 +341,9 @@ def decal_artwork(specification, output_root):
 
 def product_decals(source, objects, samples_root, output_root):
     """Attach UV-clipped relief to the same animated rigid component as its source."""
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from film.decal_geometry import imported_triangles, primitive_triangles, project_triangle
+    geometry = decal_geometry()
+    imported_triangles, primitive_triangles, project_triangle = (
+        geometry.imported_triangles, geometry.primitive_triangles, geometry.project_triangle)
     components = {component["id"]: component for component in source["product"]["components"]}
     details = []
     for specification in source["product"].get("decals", []):
@@ -672,7 +689,65 @@ def import_visual_mesh(source, asset_path):
     return {"importedObjects": len(imported), "excludedEmbeddedCamerasAndLights": excluded}
 
 
-def product_mesh(component, samples_root):
+def material_binding_nodes(component, document, material_presets):
+    """Resolve node bindings on immutable glTF indices, nearest ancestor first."""
+    bindings = component.get("materialBindings", [])
+    if not isinstance(bindings, list) or len(bindings) > 100000:
+        raise ValueError("Material section bindings must be a bounded list")
+    presets = {preset["id"]: preset for preset in material_presets}
+    direct = {}
+    for binding in bindings:
+        if not isinstance(binding, dict) or set(binding) != {"nodeIndex", "materialPresetId"}:
+            raise ValueError("Material section binding must contain nodeIndex and materialPresetId")
+        index, preset_id = binding["nodeIndex"], binding["materialPresetId"]
+        if type(index) is not int or not 0 <= index < len(document["nodes"]) or index in direct:
+            raise ValueError("Material section node indices must exist and be unique")
+        if not isinstance(preset_id, str) or preset_id not in presets:
+            raise ValueError("Material section preset does not exist")
+        direct[index] = presets[preset_id]
+    drawable, effective = set(), {}
+    def visit(index, inherited=None):
+        node = document["nodes"][index]
+        selected = direct.get(index, inherited)
+        has_mesh = "mesh" in node
+        if has_mesh and selected is not None:
+            effective[index] = selected
+        for child in node.get("children", []):
+            has_mesh = visit(child, selected) or has_mesh
+        if has_mesh:
+            drawable.add(index)
+        return has_mesh
+    for root in document["scenes"][document.get("scene", 0)]["nodes"]:
+        visit(root)
+    if any(index not in drawable for index in direct):
+        raise ValueError("Material section must reference a source node with mesh geometry")
+    return effective
+
+
+def import_bound_product_hierarchy(path, document, prefix):
+    """Add import-only indices; original GLB bytes, geometry and names stay intact.
+
+    Blender copies node extras to object properties. Indices survive duplicate
+    names and repeated mesh instances, unlike matching sanitized object names.
+    """
+    payload = path.read_bytes()
+    old_json_length = struct.unpack_from("<I", payload, 12)[0]
+    for index, node in enumerate(document["nodes"]):
+        extras = dict(node["extras"]) if isinstance(node.get("extras"), dict) else {}
+        extras["gesso_material_node_index"] = index
+        node["extras"] = extras
+    encoded = json.dumps(document, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    encoded += b" " * (-len(encoded) % 4)
+    tail = payload[20 + old_json_length:]
+    rewritten = (struct.pack("<4sII", b"glTF", 2, 20 + len(encoded) + len(tail))
+                 + struct.pack("<I4s", len(encoded), b"JSON") + encoded + tail)
+    with tempfile.TemporaryDirectory(prefix="gesso-material-import-") as directory:
+        tagged = Path(directory) / "product.glb"
+        tagged.write_bytes(rewritten)
+        return imported_hierarchy(tagged, prefix)
+
+
+def product_mesh(component, samples_root, material_presets=()):
     """A static metre-space GLB is one externally posed rigid component."""
     asset = component["asset"]
     path = verified_asset_record(asset, samples_root, "Product")
@@ -703,29 +778,49 @@ def product_mesh(component, samples_root):
             meshes.add(node["mesh"])
     if len(reached) != len(nodes) or meshes != set(range(len(document["meshes"]))):
         raise ValueError("Rigid product GLB requires one fully reachable active scene with no unused nodes or meshes")
-    imported, excluded = imported_hierarchy(path, f"Product / {component['id']} / ")
+    bindings = material_binding_nodes(component, document, material_presets)
+    prefix = f"Product / {component['id']} / "
+    imported, excluded = (import_bound_product_hierarchy(path, document, prefix) if bindings
+                          else imported_hierarchy(path, prefix))
     anchor = parent_imported_hierarchy(imported, component["id"])
     meshes = [obj for obj in imported if obj.type == "MESH"]
     override = component.get("materialOverride", False)
-    if override:
-        surface = specified_material(component["id"] + " / surface", component["material"], samples_root)
-        for obj in meshes:
-            if component["material"].get("textures") and obj.data.uv_layers.active:
-                # Blender flips glTF UV V on import. Restore raw source UVs for
-                # editor-applied maps, including the tangent-space normal basis.
-                for loop in obj.data.uv_layers.active.data:
-                    loop.uv.y = 1 - loop.uv.y
-            obj.data.materials.clear()
-            obj.data.materials.append(surface)
-            for polygon in obj.data.polygons:
-                polygon.material_index = 0
+    surfaces = {}
+    for obj in meshes:
+        node_index = obj.get("gesso_material_node_index")
+        if bindings and (type(node_index) is not int or not 0 <= node_index < len(nodes)):
+            raise ValueError("Imported material section lost its source node identity")
+        preset = bindings.get(node_index) if bindings else None
+        if preset is not None:
+            specification, surface_key = preset["material"], ("preset", preset["id"])
+            obj["gesso_material_preset_id"] = preset["id"]
+        elif override:
+            specification, surface_key = component["material"], ("component", component["id"])
+        else:
+            continue
+        if surface_key not in surfaces:
+            surfaces[surface_key] = specified_material(component["id"] + " / " + (preset["name"] if preset else "surface"), specification, samples_root)
+        # glTF instances may share a Blender mesh datablock. Material slots and
+        # UV edits belong to this assigned object, never to its unassigned peers.
+        if obj.data.users > 1:
+            obj.data = obj.data.copy()
+        if specification.get("textures") and obj.data.uv_layers.active:
+            # Blender flips glTF UV V on import. Restore raw source UVs for
+            # editor-applied maps, including the tangent-space normal basis.
+            for loop in obj.data.uv_layers.active.data:
+                loop.uv.y = 1 - loop.uv.y
+        obj.data.materials.clear()
+        obj.data.materials.append(surfaces[surface_key])
+        for polygon in obj.data.polygons:
+            polygon.material_index = 0
     # No sizeM scaling or recentering: input geometry has approved local metre
     # coordinates, and the external pose belongs only to this rigid anchor.
     anchor["asset_sha256"] = asset["sha256"]
     anchor["role"] = "Rigid product GLB component; centered local geometry in metres"
-    anchor["material_source"] = "declared override" if override else "original GLB materials"
+    material_source = "section bindings" if bindings else "declared override" if override else "original GLB materials"
+    anchor["material_source"] = material_source
     return anchor, {"id": component["id"], "shape": "mesh", "asset": asset, "importedObjects": len(imported),
-                    "meshObjects": len(meshes), "materialSource": "declared override" if override else "original GLB materials",
+                    "meshObjects": len(meshes), "materialSource": material_source,
                     "excludedEmbeddedCamerasAndLights": excluded, "geometryPolicy": "Centered local metres; no rescaling or recentering"}
 
 
@@ -911,7 +1006,7 @@ def main():
     product_components = []
     for component in source["product"]["components"]:
         if component["shape"] == "mesh":
-            obj, details = product_mesh(component, args.samples.parent)
+            obj, details = product_mesh(component, args.samples.parent, source["product"].get("materialPresets", []))
         else:
             surface = specified_material(component["id"] + " / surface", component["material"], args.samples.parent)
             obj = primitive(component["id"], component["shape"], component["sizeM"], surface, component.get("bevelM", 0))

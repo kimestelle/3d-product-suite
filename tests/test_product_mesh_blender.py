@@ -278,6 +278,72 @@ assert len({material.as_pointer() for material in materials})==1
                 component["asset"].update(asset_updates)
                 self.build(temporary, payload, error=error)
 
+    def test_section_bindings_resolve_original_indices_and_isolate_shared_meshes(self):
+        # Deliberately duplicate every name and instance mesh 0 twice: neither
+        # Blender object names nor shared mesh data may determine assignment.
+        nodes = [
+            {"name":"Repeated", "children":[1]},
+            {"name":"Repeated", "children":[2,3,4]},
+            {"name":"Repeated", "mesh":0, "translation":[-.02,0,0]},
+            {"name":"Repeated", "mesh":0, "translation":[.02,0,0]},
+            {"name":"Repeated", "mesh":1},
+        ]
+        for ancestor, override in ((False, False), (True, True), (False, True)):
+            with self.subTest(ancestor=ancestor, override=override), tempfile.TemporaryDirectory() as directory:
+                temporary = Path(directory)
+                payload = self.product_payload(temporary, override=override, extra={"nodes":nodes})
+                component = next(item for item in payload['scene']['product']['components'] if item['id']=='cap')
+                payload['scene']['product']['materialPresets'] = [
+                    {'id':'section', 'name':'Section finish', 'type':'plastic',
+                     'material':{'baseColor':[.13,.59,.24,1], 'roughness':.31, 'metallic':0}},
+                    {'id':'parent', 'name':'Parent finish', 'type':'metal',
+                     'material':{'baseColor':[.62,.22,.09,1], 'roughness':.57, 'metallic':.8}},
+                ]
+                component['materialBindings']=[{'nodeIndex':2,'materialPresetId':'section'}]
+                if ancestor:
+                    component['materialBindings'].append({'nodeIndex':1,'materialPresetId':'parent'})
+                original=(temporary/'assets/product.glb').read_bytes()
+                samples=self.build(temporary,payload)
+                self.assertEqual((temporary/'assets/product.glb').read_bytes(), original)
+                self.verify_native(temporary,samples,r'''
+component=next(item for item in payload['scene']['product']['components'] if item['id']=='cap')
+presets={item['id']:item['material'] for item in payload['scene']['product']['materialPresets']}
+bindings={item['nodeIndex']:item['materialPresetId'] for item in component['materialBindings']}
+meshes={obj['gesso_material_node_index']:obj for obj in bpy.data.objects['cap'].children_recursive if obj.type=='MESH'}
+assert set(meshes)=={2,3,4}, list(meshes)
+for index,obj in meshes.items():
+    preset_id=bindings.get(index,bindings.get(1))
+    specification=presets[preset_id] if preset_id else component['material'] if component.get('materialOverride') else None
+    if specification is None:
+        assert len(obj.material_slots)==2
+        assert {polygon.material_index for polygon in obj.data.polygons}=={0,1}
+        assert all(slot.material.name.startswith('Original fixture surface') for slot in obj.material_slots)
+    else:
+        assert len(obj.material_slots)==1
+        shader=obj.material_slots[0].material.node_tree.nodes.get('Principled BSDF')
+        assert max(abs(a-b) for a,b in zip(shader.inputs['Base Color'].default_value,specification['baseColor']))<1e-6
+        assert abs(shader.inputs['Roughness'].default_value-specification['roughness'])<1e-6
+        assert abs(shader.inputs['Metallic'].default_value-specification['metallic'])<1e-6
+assert meshes[2].data != meshes[3].data
+''')
+
+    def test_direct_renderer_rejects_missing_duplicate_and_empty_material_targets(self):
+        cases = (
+            ([{'nodeIndex':999,'materialPresetId':'finish'}], 'indices must exist', None),
+            ([{'nodeIndex':2,'materialPresetId':'finish'}]*2, 'indices must exist', None),
+            ([{'nodeIndex':2,'materialPresetId':'missing'}], 'preset does not exist', None),
+            ([{'nodeIndex':3,'materialPresetId':'finish'}], 'mesh geometry',
+             {'nodes':[{'children':[1,2,3]}, {'mesh':0}, {'mesh':1}, {}]}),
+        )
+        for bindings,error,extra in cases:
+            with self.subTest(bindings=bindings), tempfile.TemporaryDirectory() as directory:
+                temporary=Path(directory)
+                payload=self.product_payload(temporary, extra=extra)
+                component=next(item for item in payload['scene']['product']['components'] if item['id']=='cap')
+                payload['scene']['product']['materialPresets']=[{'id':'finish','name':'Finish','type':'custom','material':component['material']}]
+                component['materialBindings']=bindings
+                self.build(temporary,payload,error=error)
+
 
 if __name__ == "__main__":
     unittest.main()

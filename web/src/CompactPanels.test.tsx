@@ -32,15 +32,15 @@ describe('Combined editor panels', () => {
     expect(html).toContain('<button type="button" aria-label="Aim at start">Aim</button>');
     expect(html).toContain('<button type="button" disabled="">Both ends</button>');
   });
-  it('keeps output and shot controls together while preserving last-shot and render capability guards', () => {
+  it('keeps composition and shot controls together while opening export for delivery settings', () => {
     const scene = structuredClone(fixture); scene.shots = [scene.shots[0]];
-    const html = renderToStaticMarkup(<FilmPanel scene={scene} frame={1} layer="Shots" onChange={noop} onFrame={noop} onRender={noop} renderReelDisabled/>);
+    const html = renderToStaticMarkup(<FilmPanel scene={scene} frame={1} layer="Shots" onChange={noop} onFrame={noop} onExport={noop}/>);
     expect(html).toContain('Duration');
     const output = renderToStaticMarkup(<FilmPanel scene={scene} frame={1} layer="Output" onChange={noop} onFrame={noop}/>);
-    for (const name of ['Frame rate', 'Format', 'Width', 'Height', 'Samples']) expect(output).toContain(name);
+    for (const name of ['Frame rate', 'Composition', 'Width', 'Height']) expect(output).toContain(name);
     expect(html).toContain('<button type="button" disabled="">Remove shot</button>');
     expect(html).not.toContain('Render still');
-    expect(html).toContain('disabled="">Render video</button>');
+    expect(html).toContain('>Export video…</button>');
   });
   it('keeps one shot selector in Film and one visible section open', () => {
     const html = renderToStaticMarkup(<FilmPanel scene={fixture} frame={1} onChange={noop} onFrame={noop}/>);
@@ -58,12 +58,12 @@ describe('Combined editor panels', () => {
     scene.shots[0].camera.from.focalLengthMm = 35;
     scene.shots[0].camera.to.focalLengthMm = 85;
     const edited = JSON.stringify(scene);
-    const html = renderToStaticMarkup(<FilmPanel scene={scene} mode="still" layer="Sequence" frame={scene.shots[0].startFrame} onChange={noop} onFrame={noop} onRender={noop} renderReelDisabled/>);
+    const html = renderToStaticMarkup(<FilmPanel scene={scene} mode="still" layer="Sequence" frame={scene.shots[0].startFrame} onChange={noop} onFrame={noop} onExport={noop}/>);
     expect(html).toContain('aria-label="Frame"');
     expect(html).toContain('aria-expanded="true" aria-controls="film-section-Framing"');
     expect(html).toContain('Frame position X');
     expect(html).toContain('Edits shift the whole shot. Video motion is preserved.');
-    expect(html).toContain('>Render still</button>');
+    expect(html).toContain('>Export still…</button>');
     for (const name of ['Camera endpoint', 'Reverse', 'Hold view', 'Film sequence', 'Frame rate', 'Render video', 'aria-controls="film-section-Animation"']) expect(html).not.toContain(name);
     expect(JSON.stringify(scene)).toBe(edited);
     expect(before).not.toBe(edited);

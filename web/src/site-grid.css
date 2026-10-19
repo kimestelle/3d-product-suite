@@ -1,0 +1,65 @@
+/* One seven-column grid for the public pages: the same outer edges,
+   gutters and navigation slots as landing frame 40:1124. */
+:is(.gesso-landing, .gesso-about, .gesso-shape-light) {
+  --site-margin: var(--gesso-space-40);
+  --site-gap: var(--gesso-space-20);
+  --site-column: calc((100vw - 2 * var(--site-margin) - 6 * var(--site-gap)) / 7);
+}
+.gesso-site-header {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  column-gap: var(--site-gap);
+  align-items: start;
+}
+.gesso-site-wordmark {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
+  display: block;
+  padding-top: var(--gesso-space-16);
+  font: 500 32px/45px var(--gesso-font-display);
+  letter-spacing: -1.6px;
+}
+.gesso-site-nav {
+  grid-column: 5 / -1;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: var(--site-gap);
+  align-items: center;
+  padding-top: var(--site-nav-offset, var(--gesso-space-32));
+  font: 400 14px/20px var(--gesso-font-text);
+}
+.gesso-site-nav a {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: var(--gesso-space-4);
+  white-space: nowrap;
+  opacity: 1;
+  transition: opacity 160ms ease-out;
+}
+.gesso-site-nav .site-about-link { grid-column: 1; }
+.gesso-site-nav .site-study-link { grid-column: 2; }
+.gesso-site-nav .site-studio-link { grid-column: 3; justify-self: end; font-weight: 600; }
+.gesso-site-nav a[aria-current="page"] { opacity: .7; }
+.gesso-site-nav a:focus-visible { opacity: .85; }
+@media (hover: hover) and (pointer: fine) {
+  .gesso-site-nav a:hover { opacity: .85; }
+}
+.gesso-site-nav img { display: block; flex: none; }
+@media (max-width: 760px) {
+  :is(.gesso-landing, .gesso-about, .gesso-shape-light) { --site-margin: var(--gesso-space-24); }
+  .gesso-site-header { grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: var(--gesso-space-16); }
+  .gesso-site-wordmark { padding-top: var(--gesso-space-16); font-size: 28px; }
+  .gesso-site-nav { grid-column: 2 / -1; column-gap: var(--gesso-space-12); padding-top: var(--site-nav-offset, var(--gesso-space-24)); font-size: 12px; line-height: 18px; }
+  .gesso-site-nav img { width: 12px; height: 18px; }
+  .landing-topline .gesso-site-nav { grid-column: 1 / -1; }
+}
+@media (max-width: 560px) {
+  /* Keep every link visible in the narrow header, with the logo occupying
+     the first column and the studio action on the second baseline. */
+  :is(.about-header, .shape-light-header) .gesso-site-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: var(--gesso-space-8); }
+  :is(.about-header, .shape-light-header) .site-study-link { justify-self: end; }
+  :is(.about-header, .shape-light-header) .site-studio-link { grid-column: 2; grid-row: 2; }
+}

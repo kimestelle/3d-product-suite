@@ -2,7 +2,7 @@ import regular from './assets/OpenSans-Regular.woff?url';
 import semibold from './assets/OpenSans-Semibold.woff?url';
 
 // Load packaged bytes before measuring label artwork. No host font installation
-// or third-party font server is needed for the editor or its canvas labels.
+// or third-party font server is needed for product artwork and canvas labels.
 export async function loadStudioFonts() {
   await Promise.all([[regular, '400'], [semibold, '600']].map(async ([url, weight]) => {
     const response = await fetch(url);
@@ -12,12 +12,19 @@ export async function loadStudioFonts() {
   }));
 }
 
-// Local Halyard is the interface face; product artwork keeps its packaged font.
+// The Figma system uses both optical families in Regular and Medium.
+// Keep font failures inspectable rather than silently claiming Halyard loaded.
 export async function loadInterfaceFonts() {
-  await Promise.allSettled([
-    document.fonts.load('400 13px "Halyard Text"'),
-    document.fonts.load('500 14px "Halyard Text"'),
-    document.fonts.load('500 32px "Halyard Display"'),
-  ]);
+  const requested = [
+    '400 16px "Halyard Text"', '500 14px "Halyard Text"',
+    '400 40px "Halyard Display"', '500 64px "Halyard Display"',
+  ];
+  const results = await Promise.allSettled(requested.map(font => document.fonts.load(font)));
+  const missing = requested.filter((_, index) => {
+    const result = results[index];
+    return result.status === 'rejected' || result.value.length === 0 || result.value.some(face => face.status !== 'loaded');
+  });
+  document.documentElement.dataset.gessoFonts = missing.length ? 'fallback' : 'halyard';
+  if (missing.length) console.warn('Halyard is unavailable to this browser. Activate the local fonts or configure a licensed web font source.', missing);
   await document.fonts.ready;
 }

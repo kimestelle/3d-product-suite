@@ -52,6 +52,51 @@ describe('Film viewport controls', () => {
     expect(html).toContain('<button type="button" aria-pressed="false">Start');
     expect(html).toContain('<button type="button" aria-pressed="false">End');
   });
+  it('shows motion ownership and blocks pose edits while lens, focus and output remain editable', () => {
+    const scene: any = structuredClone(fixture);
+    scene.shots[0].camera.depthOfField = {enabled: true, fStop: 2.8};
+    const html = render({scene, cameraMotionDriven: true, guide: {...guide, focalLengthMm: 73, distanceM: .42}});
+    expect(html).toContain('Camera motion controls position. Select its motion to edit.');
+    expect(html).toMatch(/aria-label="Camera target"[^>]*disabled=""/);
+    expect(html).toMatch(/aria-label="Viewport camera target"[^>]*disabled=""/);
+    expect(html).toContain('<button type="button" disabled="">Aim</button>');
+    expect(html).not.toMatch(/aria-label="Viewport focal length"[^>]*disabled=""/);
+    expect(html).toMatch(/aria-label="Viewport focal length"[^>]*value="73"/);
+    expect(html).toContain('420 mm');
+    for (const label of ['Viewport frame width', 'Viewport frame height', 'Viewport aperture', 'Viewport focus distance'])
+      expect(html).not.toMatch(new RegExp(`aria-label="${label}"[^>]*disabled=""`));
+    expect(html).toContain('<button type="button" aria-pressed="true">Start');
+  });
+  it('labels a trimmed source end and blocks spatial edits while the visible lens stays editable', () => {
+    const scene: any = structuredClone(fixture);
+    scene.shots[0].camera.durationFrames = 240;
+    const html = render({scene, frame: scene.shots[0].endFrame, end: 'to'});
+    expect(html).toContain('Source end · trimmed');
+    expect(html).toContain('<span>240</span>');
+    expect(html).toContain('Camera source end is trimmed. Extend the shot to edit it.');
+    expect(html).toMatch(/aria-label="Camera target"[^>]*disabled=""/);
+    expect(html).toMatch(/aria-label="Viewport camera target"[^>]*disabled=""/);
+    expect(html).not.toMatch(/aria-label="Viewport focal length"[^>]*disabled=""/);
+    expect(html).not.toMatch(/aria-label="Viewport frame width"[^>]*disabled=""/);
+    expect(html).toMatch(/disabled=""[^>]*>Source end · trimmed/);
+  });
+  it('uses the actual source endpoint after an extended shot reaches its hold', () => {
+    const scene: any = structuredClone(fixture);
+    scene.shots[0].camera.durationFrames = 60;
+    const html = render({scene, frame: 60, end: 'to'});
+    expect(html).toContain('>End <span>60</span>');
+    expect(html).not.toMatch(/aria-label="Camera target"[^>]*disabled=""/);
+    const held = render({scene, frame: scene.shots[0].endFrame, end: 'to'});
+    expect(held).toContain('Choose Start or End to edit');
+    expect(held).toMatch(/aria-label="Camera target"[^>]*disabled=""/);
+  });
+  it('does not expose an unused ending pose for a one-frame source camera', () => {
+    const scene: any = structuredClone(fixture);
+    scene.shots[0].camera.durationFrames = 1;
+    const html = render({scene});
+    expect(html).toContain('Held camera');
+    expect(html).toMatch(/disabled=""[^>]*>Held camera/);
+  });
   it('hides endpoints in still mode and keeps framing editable at the current frame', () => {
     const html = render({mode: 'still', frame: fixture.shots[0].startFrame + 1});
     expect(html).not.toContain('Viewport camera endpoint');

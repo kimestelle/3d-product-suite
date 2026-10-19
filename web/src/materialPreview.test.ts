@@ -46,6 +46,32 @@ function bitmap() { return { width: 2, height: 2, close: vi.fn() }; }
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('material drafts on the real product', () => {
+  it('previews an imported section without spilling into sibling sections and restores its original slots', async () => {
+    const view = viewport(), body = addPart(view); body.root.userData.gessoPrimitiveShape = 'mesh';
+    const other = new THREE.Mesh(new THREE.BoxGeometry(), body.material); body.root.add(other);
+    const slots = [body.material, new THREE.MeshStandardMaterial()]; (body.mesh as THREE.Mesh).material = slots;
+    view.parts.set('body::node:1', body.mesh); view.parts.set('body::node:2', other);
+    await view.setMaterialPreview({ componentIds: ['body::node:1'], material: red, presetId: 'red' });
+    expect(body.mesh.material).not.toBe(slots); expect(other.material).toBe(body.material);
+    await view.setMaterialPreview(null);
+    expect(body.mesh.material).toBe(slots); expect(other.material).toBe(body.material);
+  });
+
+  it('keeps descendant bindings to another preset intact while previewing a parent material', async () => {
+    const view = viewport(), body = addPart(view);
+    const bound = new THREE.Group(); bound.userData.gessoMaterialBindingPresetId = 'rubber';
+    const insert = new THREE.Mesh(new THREE.BoxGeometry(), body.material); bound.add(insert); body.root.add(bound);
+    const same = new THREE.Mesh(new THREE.BoxGeometry(), body.material); same.userData.gessoMaterialBindingPresetId = 'steel'; body.root.add(same);
+    view.parts.set('body::node:1', bound);
+    await view.setMaterialPreview({ componentIds: ['body'], material: red, presetId: 'steel' });
+    const preview = view.materialPreviewState.applied.material;
+    expect(body.mesh.material).toBe(preview); expect(same.material).toBe(preview);
+    expect(insert.material).toBe(body.material);
+    await view.setMaterialPreview({ componentIds: ['body::node:1'], material: red, presetId: 'rubber' });
+    expect(insert.material).toBe(view.materialPreviewState.applied.material);
+    expect(body.mesh.material).toBe(body.material); expect(same.material).toBe(body.material);
+  });
+
   it('previews linked parts without touching artwork, geometry, source materials or the camera; cancel restores exact arrays', async () => {
     const view = viewport(), body = addPart(view), cap = addPart(view, 'cap');
     const originalArray = [body.material, new THREE.MeshStandardMaterial()];
@@ -168,5 +194,31 @@ describe('material drafts on the real product', () => {
     await view.setMaterialPreview(null);
     expect(savedMesh.material).not.toBe(freshMesh.material);
     expect((savedMesh.material as THREE.MeshPhysicalMaterial).roughness).toBe(.11);
+  });
+});
+
+describe('material hover around an unsaved surface draft', () => {
+  it('preserves the current draft when hover leaves and restores saved materials when the draft is cancelled', async () => {
+    const view = viewport(), body = addPart(view), cap = addPart(view, 'cap');
+    view.setSelection('cap'); view.setFocusParts(['cap']);
+    const bodyTextureDispose = vi.spyOn(body.texture, 'dispose'), capTextureDispose = vi.spyOn(cap.texture, 'dispose');
+    view.setMaterialHover({ presetId: 'cap', partIds: ['cap'] });
+    await view.setMaterialPreview({ componentIds: ['body'], presetId: 'body', material: red });
+    const draftMaterial = view.materialPreviewState.applied.material;
+    expect(body.mesh.material).not.toBe(draftMaterial); expect(body.mesh.material.opacity).toBe(.18);
+    expect(body.mesh.material.color.toArray()).toEqual(red.baseColor.slice(0, 3)); expect(cap.mesh.material).toBe(cap.material);
+    view.setMaterialHover(null);
+    expect(body.mesh.material).toBe(draftMaterial); expect(body.mesh.castShadow).toBe(true);
+    view.setMaterialHover({ presetId: 'body', partIds: ['body'] });
+    expect(body.mesh.material).toBe(draftMaterial); expect(cap.mesh.material.opacity).toBe(.18);
+    const draftDispose = vi.spyOn(draftMaterial, 'dispose');
+    await view.setMaterialPreview(null);
+    expect(body.mesh.material).toBe(body.material); expect(cap.mesh.material.opacity).toBe(.18);
+    expect(draftDispose).toHaveBeenCalledOnce();
+    view.setMaterialHover(null);
+    expect(body.mesh.material).toBe(body.material); expect(cap.mesh.material).toBe(cap.material);
+    expect(body.mesh.castShadow).toBe(true); expect(cap.mesh.castShadow).toBe(true);
+    expect(bodyTextureDispose).not.toHaveBeenCalled(); expect(capTextureDispose).not.toHaveBeenCalled();
+    expect(view.selectedId).toBe('cap'); expect(view.focusPartIds).toEqual(['cap']); expect(view.partFocus).toBe(false);
   });
 });

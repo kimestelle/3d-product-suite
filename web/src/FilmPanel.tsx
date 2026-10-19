@@ -31,11 +31,8 @@ export interface FilmPanelProps {
   cameraTargetId?: string;
   onCameraTargetChange?: (id: string) => void;
   animationContent?: ReactNode;
-  renderJobs?: ReactNode;
-  onRender?: (kind: 'still' | 'reel') => void;
-  renderDisabled?: boolean;
-  renderReelDisabled?: boolean;
-  renderBusy?: boolean;
+  onExport?: (mode: 'still' | 'video') => void;
+  exportDisabled?: boolean;
 }
 
 /** Keep all changes made by sequence edits, including frame-rate retiming of authored keys. */
@@ -43,11 +40,12 @@ export function commitFilmDraft(scene: any, draft: any) {
   scene.shots = draft.shots;
   scene.render = draft.render;
   if (draft.animation !== undefined) scene.animation = draft.animation;
+  if (draft.motions !== undefined) scene.motions = draft.motions;
 }
 
 const outputSizes = [{label: 'Portrait / 1080 × 1920', width: 1080, height: 1920}, {label: 'Landscape / 1920 × 1080', width: 1920, height: 1080}, {label: 'Square / 1080 × 1080', width: 1080, height: 1080}, {label: 'Portrait / 540 × 960', width: 540, height: 960}, {label: 'Landscape / 960 × 540', width: 960, height: 540}];
 
-export default function FilmPanel({scene, layer, onLayerChange, mode = 'video', frame, samples = [], onChange, onFrame, onResetView, cameraEnd, onCameraEndChange, viewportControls, cameraTargetId, onCameraTargetChange, animationContent, renderJobs, onRender, renderDisabled, renderReelDisabled, renderBusy}: FilmPanelProps) {
+export default function FilmPanel({scene, layer, onLayerChange, mode = 'video', frame, samples = [], onChange, onFrame, onResetView, cameraEnd, onCameraEndChange, viewportControls, cameraTargetId, onCameraTargetChange, animationContent, onExport, exportDisabled}: FilmPanelProps) {
   const [error, setError] = useState('');
   const [localSection, setLocalSection] = useState<FilmSection>('Framing');
   const selectedSection = layer === 'Shots' ? 'Sequence' : layer === 'Timing' ? 'Output' : layer ?? localSection;
@@ -113,7 +111,7 @@ export default function FilmPanel({scene, layer, onLayerChange, mode = 'video', 
 
     <FilmSectionBlock name="Output" shortcut={still ? 6 : 8} description={<>{scene.render.width} × {scene.render.height}{!still && ` · ${fps} fps`}</>} active={section === 'Output'} onSelect={() => selectSection('Output')}>
       <section className="gesso-section" aria-label="Film output">
-        <StepField label="Format"><select value={chosenSize} onChange={event => {const size = outputSizes[Number(event.target.value)]; if (size) edit(draft => setOutputDimensions(draft, size.width, size.height));}}>
+        <StepField label="Composition"><select value={chosenSize} onChange={event => {const size = outputSizes[Number(event.target.value)]; if (size) edit(draft => setOutputDimensions(draft, size.width, size.height));}}>
           {chosenSize < 0 && <option value={-1}>Custom / {scene.render.width} × {scene.render.height}</option>}{outputSizes.map((size, position) => <option key={size.label} value={position}>{size.label}</option>)}
         </select></StepField>
         {!still && <StepField label="Rate"><select aria-label="Frame rate" value={fps} onChange={event => edit(draft => setFrameRate(draft, Number(event.target.value)))}>
@@ -121,16 +119,14 @@ export default function FilmPanel({scene, layer, onLayerChange, mode = 'video', 
         </select></StepField>}
         <StepNumber label="Width" value={scene.render.width} unit="px" min={2} max={8192} step={2} onChange={value => edit(draft => setOutputDimensions(draft, value, draft.render.height))}/>
         <StepNumber label="Height" value={scene.render.height} unit="px" min={2} max={8192} step={2} onChange={value => edit(draft => setOutputDimensions(draft, draft.render.width, value))}/>
-        <StepNumber label="Samples" value={scene.render.samples} min={1} max={65536} onChange={value => edit(draft => {if (!Number.isInteger(value)) throw new Error('Samples must be a whole number.'); draft.render.samples = value;})}/>
-        <p className="gesso-meta">Cycles export. More samples reduce noise and take longer.{!still && ' Frame rate changes preserve timing to the nearest frame.'}</p>
+        <p className="gesso-meta">Export chooses file type, resolution, and render quality.{!still && ' Frame rate changes preserve timing to the nearest frame.'}</p>
       </section>
     </FilmSectionBlock>
     </div>
 
-    {onRender && <section className="gesso-section gesso-film-render" aria-label="Render controls"><button type="button" className="gesso-film-render-button" disabled={renderDisabled || (!still && renderReelDisabled) || renderBusy} onClick={() => onRender(still ? 'still' : 'reel')}>{still ? 'Render still' : 'Render video'}</button>
+    {onExport && <section className="gesso-section gesso-film-render" aria-label="Export controls"><button type="button" className="gesso-film-render-button" aria-haspopup="dialog" disabled={exportDisabled} onClick={() => onExport(mode)}>{still ? 'Export still…' : 'Export video…'}</button>
       {scene.comparison && <p className="gesso-meta">Matching A and B renders.</p>}
     </section>}
-    {renderJobs && <details className="gesso-disclosure gesso-compact-details gesso-render-jobs" open={renderBusy ? true : undefined}><summary>Renders / progress</summary><div className="gesso-bounded-jobs">{renderJobs}</div></details>}
     {error && <p className="gesso-error" role="alert">{error}</p>}
   </div>;
 }

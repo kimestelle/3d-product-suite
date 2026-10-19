@@ -1,10 +1,13 @@
 import {UiIcon} from './UiIcon';
-import {useEffect, useState, type ReactNode} from 'react';
-import {Euler, Quaternion} from 'three';
+import {useEffect, useRef, useState, type ReactNode} from 'react';
+import {createPortal} from 'react-dom';
+import WorldObjectPreviews from './WorldObjectPreviews';
+import WorldObjectEditor from './WorldObjectEditor';
+import './world-objects.css';
 import {NumberControl, VectorControl} from './EditorControls';
 import {matchWorldRevision} from './comparison';
 import PolyHavenLibrary from './PolyHavenLibrary';
-import {addProp, addPropFromLibrary, setHdriFromLibrary, colorFromHex, colorHex, defaultLighting, ensureLighting, PLINTH_MATERIAL, resizeProp, setPropShape, setWorldYaw, worldYaw} from './world';
+import {addProp, addPropFromLibrary, setHdriFromLibrary, colorFromHex, colorHex, defaultLighting, ensureLighting, setWorldYaw, worldYaw} from './world';
 
 export type WorldLayer = 'Environment' | 'Props' | 'Lights';
 export interface WorldPanelProps {
@@ -12,6 +15,9 @@ export interface WorldPanelProps {
   onChange: (edit: (scene: any) => void) => void; onWorld: (id: string) => void; onImport: () => void;
   onLayer?: (layer: WorldLayer) => void;
   onFrameProp?: (id: string) => void;
+  selectedObjectId?: string | null;
+  onSelectObject?: (id: string | null) => void;
+  editorHost?: HTMLElement | null;
   children?: ReactNode;
 }
 function Field({label, children}: {label: string; children: ReactNode}) {return <label className="gesso-field"><span>{label}</span>{children}</label>;}
@@ -24,21 +30,34 @@ function ColorField({label, value, onChange}: {label: string; value: number[]; o
   return <Field label={label}><div className="gesso-color"><input type="color" aria-label={label} value={colorHex(value)} onChange={event => onChange(colorFromHex(event.target.value))}/><span>{colorHex(value).toUpperCase()}</span></div></Field>;
 }
 
-export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onImport, onFrameProp, onLayer, children}: WorldPanelProps) {
-  const [selectedProp, setSelectedProp] = useState(scene.environment.plinth.id);
+export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onImport, onFrameProp, onLayer, selectedObjectId = null, onSelectObject, editorHost, children}: WorldPanelProps) {
+  const root = useRef<HTMLDivElement>(null);
   const [selectedLight, setSelectedLight] = useState('key');
-  useEffect(() => {setSelectedProp(scene.environment.plinth.id); setSelectedLight('key');}, [scene.sceneId]);
+  useEffect(() => {setSelectedLight('key');}, [scene.sceneId]);
   const environment = scene.environment;
-  const prop = selectedProp === environment.plinth.id ? environment.plinth : environment.props?.find((item: any) => item.id === selectedProp) ?? environment.plinth;
-  const isPlinth = prop.id === environment.plinth.id;
   const lighting = scene.lighting ?? defaultLighting(scene);
   const light = lighting.lights.find((item: any) => item.id === selectedLight) ?? lighting.lights[0];
-  const editProp = (edit: (value: any) => void) => onChange(next => {const target = isPlinth ? next.environment.plinth : next.environment.props?.find((item: any) => item.id === prop.id); if (target) edit(target);});
   const editLight = (edit: (value: any) => void) => onChange(next => {const target = ensureLighting(next).lights.find(item => item.id === light.id); if (target) edit(target);});
-  const surface = prop.material ?? PLINTH_MATERIAL;
-  const editMaterial = (edit: (value: any) => void) => editProp(target => {target.material ??= structuredClone(PLINTH_MATERIAL); edit(target.material);});
+  const objects = [environment.plinth, ...(environment.props ?? [])].map((object: any) => {
+    const isPlinth = object.id === environment.plinth.id;
+    const kind = isPlinth ? 'Contact surface' : object.shape === 'mesh' ? 'Imported mesh' : object.shape === 'cylinder' ? 'Cylinder' : 'Box';
+    const dimensions = object.sizeM.map((value: number) => Number((value * 1000).toFixed(1))).join(' × ');
+    return {id: object.id, name: isPlinth ? 'Plinth' : object.displayName ?? object.id, object, isPlinth,
+      description: `${kind}${object.visible === false ? ' · Hidden' : ''} · ${dimensions} mm`};
+  });
+  const closeEditor = (removed = false) => {
+    // Return keyboard users to the object they were editing before collapsing the rail.
+    const buttons = root.current?.querySelectorAll<HTMLButtonElement>('.gesso-world-object-previews button');
+    const button = removed ? root.current?.querySelector<HTMLButtonElement>('.gesso-world-object-actions button')
+      : Array.from(buttons ?? []).find(button => button.dataset.objectId === selectedObjectId);
+    button?.focus();
+    onSelectObject?.(null);
+  };
+  const editor = layer === 'Props' && selectedObjectId && objects.some(item => item.id === selectedObjectId)
+    ? <WorldObjectEditor scene={scene} objectId={selectedObjectId} onChange={onChange} onClose={closeEditor} onFrameProp={onFrameProp}/> : null;
 
-  return <div className="gesso-panel gesso-condensed-world gesso-control-sections">
+  return <div ref={root} className="gesso-panel gesso-condensed-world gesso-control-sections">
+    {editorHost && editor ? createPortal(editor, editorHost) : editor}
     <section className={`gesso-control-section${layer==='Environment'?' is-open':''}`}>
       <button type="button" className="gesso-section-toggle" aria-expanded={layer==='Environment'} aria-controls="world-section-Environment" onClick={()=>onLayer?.('Environment')}><span>Environment</span><small>World + background</small><UiIcon name={layer==='Environment' ? "down" : "chevron"} size={14}/></button>
       {layer === 'Environment' && <div className="gesso-section-body" id="world-section-Environment">
@@ -68,40 +87,11 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
     <section className={`gesso-control-section${layer==='Props'?' is-open':''}`}>
       <button type="button" className="gesso-section-toggle" aria-expanded={layer==='Props'} aria-controls="world-section-Props" onClick={()=>onLayer?.('Props')}><span>Objects</span><small>Props + surfaces</small><UiIcon name={layer==='Props' ? "down" : "chevron"} size={14}/></button>
       {layer === 'Props' && <div className="gesso-section-body" id="world-section-Props">
-      <section className="gesso-section"><div className="gesso-section-heading">Objects</div>
-        <ul className="gesso-part-tree" aria-label="World objects">{[environment.plinth, ...(environment.props ?? [])].map((item: any) => <li key={item.id} className={`gesso-part-row ${prop.id === item.id ? 'selected' : ''}`}>
-          <button type="button" className="gesso-part-select" aria-pressed={prop.id === item.id} onClick={() => setSelectedProp(item.id)}><span className="gesso-part-name">{item.id === environment.plinth.id ? 'Plinth' : item.displayName ?? item.id}</span><span className="gesso-status">{item.id === environment.plinth.id ? item.visible === false ? 'Hidden' : 'Contact' : item.shape}</span></button>
-        </li>)}</ul>
-        <div className="gesso-button-row">{(['box', 'cylinder'] as const).map(shape => <button key={shape} type="button" onClick={() => {const id = addProp(structuredClone(scene), shape); onChange(next => {addProp(next, shape);}); setSelectedProp(id);}}>Add {shape}</button>)}</div>
-      </section>
-      <details className="gesso-disclosure"><summary>Prop library</summary><PolyHavenLibrary kind="models" scopeKey={scene.sceneId} onImport={result => {const id = addPropFromLibrary(structuredClone(scene), result.entry); onChange(next => {addPropFromLibrary(next, result.entry);}); setSelectedProp(id);}}/></details>
-      <section className="gesso-section"><div className="gesso-section-heading">{isPlinth ? 'Plinth' : 'Geometry'}</div>
-        {isPlinth && <label className="gesso-check"><input type="checkbox" checked={prop.visible !== false} onChange={event => {const visible = event.target.checked; editProp(target => {target.visible = visible;});}}/><span>Show plinth</span></label>}
-        {!isPlinth && <><Field label="Name"><input value={prop.displayName ?? prop.id} maxLength={80} onChange={event => {const name = event.target.value; editProp(target => {target.displayName = name;});}}/></Field>
-          {prop.shape === 'mesh' ? <p className="gesso-meta">Imported mesh · {prop.materialOverride ? 'material override' : 'original UVs and materials'}</p> : <Field label="Shape"><select value={prop.shape} onChange={event => {const shape = event.target.value as 'box' | 'cylinder'; editProp(target => setPropShape(target, shape));}}><option value="box">Box</option><option value="cylinder">Cylinder</option></select></Field>}</>}
-        {!isPlinth && onFrameProp && <button type="button" onClick={() => onFrameProp(prop.id)}>Frame prop</button>}
-        <VectorField label="Size · mm" values={prop.sizeM} min={1} factor={1000} onChange={(axis, value) => editProp(target => resizeProp(target, axis, value))}/>
-        {prop.shape === 'mesh' && <p className="gesso-meta">Source {prop.asset.sourceDimensionsM.map((value: number) => Number((value * 1000).toFixed(1))).join(' × ')} mm. Size changes this instance.</p>}
-        <VectorField label="Position · mm" values={prop.translationM} factor={1000} onChange={(axis, value) => editProp(target => {target.translationM[axis] = value;})}/>
-        {isPlinth ? <p className="gesso-meta">{prop.visible === false ? 'Hidden. Product placement still follows this contact surface.' : 'The product follows the top of this contact surface.'}</p> : <>
-          <VectorField label="Rotation · degrees" factor={180 / Math.PI} values={new Euler().setFromQuaternion(new Quaternion().fromArray(prop.rotationXyzw), 'XYZ').toArray().slice(0, 3) as number[]} onChange={(axis, value) => editProp(target => {
-            const rotation = new Euler().setFromQuaternion(new Quaternion().fromArray(target.rotationXyzw), 'XYZ');
-            if (axis === 0) rotation.x = value; else if (axis === 1) rotation.y = value; else rotation.z = value;
-            target.rotationXyzw = new Quaternion().setFromEuler(rotation).toArray();
-          })}/>
-          {prop.shape !== 'mesh' && <NumberField label="Edge radius" unit="mm" value={(prop.bevelM ?? 0) * 1000} min={0} max={Math.min(...prop.sizeM) * 500} step={.1} onChange={value => editProp(target => {target.bevelM = value / 1000;})}/>}
-          {prop.shape === 'cylinder' && <p className="gesso-meta">X and Z share the same diameter.</p>}
-        </>}
-      </section>
-      <section className="gesso-section"><div className="gesso-section-heading">Surface</div>
-        {prop.shape === 'mesh' && <label className="gesso-check"><input type="checkbox" checked={prop.materialOverride === true} onChange={event => {const enabled = event.target.checked; editProp(target => {target.materialOverride = enabled;});}}/><span>Override source materials</span></label>}
-        {(prop.shape !== 'mesh' || prop.materialOverride === true) && <>
-        <ColorField label="Color" value={surface.baseColor} onChange={color => editMaterial(target => {target.baseColor = [...color, target.baseColor[3]];})}/>
-        <NumberField label="Roughness" unit="%" step={1} value={surface.roughness * 100} min={0} max={100} onChange={value => editMaterial(target => {target.roughness = value / 100;})}/>
-        <NumberField label="Metalness" unit="%" step={1} value={surface.metallic * 100} min={0} max={100} onChange={value => editMaterial(target => {target.metallic = value / 100;})}/></>}
-        {prop.source?.url && <p className="gesso-meta"><a href={prop.source.url} target="_blank" rel="noreferrer">{prop.displayName} · Poly Haven ↗</a> · CC0</p>}
-        {!isPlinth && <button type="button" onClick={() => {onChange(next => {next.environment.props = next.environment.props.filter((item: any) => item.id !== prop.id);}); setSelectedProp(environment.plinth.id);}}>Remove prop</button>}
-      </section>
+      <div className="gesso-world-object-actions">
+        <div className="gesso-button-row">{(['box', 'cylinder'] as const).map(shape => <button key={shape} type="button" onClick={() => {const id = addProp(structuredClone(scene), shape); onChange(next => {addProp(next, shape);}); onSelectObject?.(id);}}>Add {shape}</button>)}</div>
+        <details className="gesso-disclosure"><summary>Prop library</summary><PolyHavenLibrary kind="models" scopeKey={scene.sceneId} onImport={result => {const id = addPropFromLibrary(structuredClone(scene), result.entry); onChange(next => {addPropFromLibrary(next, result.entry);}); onSelectObject?.(id);}}/></details>
+      </div>
+      <WorldObjectPreviews items={objects} selectedId={selectedObjectId ?? undefined} onSelect={id => onSelectObject?.(id)}/>
       </div>}
     </section>
 

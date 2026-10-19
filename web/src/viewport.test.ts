@@ -53,6 +53,77 @@ function source(asset: unknown, materialOverride = false) {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('real product component meshes', () => {
+  it('applies a section material without changing its sibling or original slot identity', async () => {
+    const fixture = glb({ nodes: [
+      { name: 'Assembly', children: [1, 2] },
+      { name: 'Shell', mesh: 0 }, { name: 'Base', mesh: 0 },
+    ] });
+    const scene: any = source(fixture.asset);
+    scene.product.materialPresets = [{ id: 'steel', material: { baseColor: [.5, .5, .5, 1], roughness: .12, metallic: 1 } }];
+    scene.product.components[0].materialBindings = [{ nodeIndex: 1, materialPresetId: 'steel' }];
+    const original = structuredClone(scene), view = viewport(); view.options.onParts = vi.fn();
+    vi.stubGlobal('fetch', async () => new Response(fixture.bytes));
+    await view.makeProduct(scene, 1, new AbortController().signal);
+    const shell = view.parts.get('real-component::node:1'), base = view.parts.get('real-component::node:2');
+    expect(shell.material.metalness).toBe(1); expect(shell.material.roughness).toBe(.12);
+    expect(base.material.color.toArray()).toEqual([.8, .1, .05]);
+    expect(shell.userData.gessoSourceNode).toEqual({ index: 1, name: 'Shell' });
+    expect(shell.userData.gessoMaterialBindingPresetId).toBe('steel');
+    const records = view.options.onParts.mock.calls[0][0];
+    expect(records.find((part: any) => part.id === 'real-component::node:1').materialSlots)
+      .toEqual([{ id: 'real-component::material:0', name: 'Original red material' }]);
+    expect(records[0].materialSlots).toHaveLength(1);
+    expect(scene).toEqual(original);
+  });
+
+  it('uses the most-specific binding independent of list order, over the whole-object material', async () => {
+    const fixture = glb({ nodes: [
+      { name: 'Assembly', children: [1, 4] },
+      { name: 'Shell', children: [2, 3] }, { name: 'Outer', mesh: 0 },
+      { name: 'Insert', mesh: 0 }, { name: 'Base', mesh: 0 },
+    ] });
+    const scene: any = source(fixture.asset, true);
+    scene.product.materialPresets = [
+      { id: 'steel', material: { baseColor: [.5, .5, .5, 1], roughness: .1, metallic: 1 } },
+      { id: 'rubber', material: { baseColor: [.1, .1, .1, 1], roughness: .9, metallic: 0 } },
+    ];
+    scene.product.components[0].materialBindings = [
+      { nodeIndex: 3, materialPresetId: 'rubber' }, { nodeIndex: 1, materialPresetId: 'steel' },
+    ];
+    vi.stubGlobal('fetch', async () => new Response(fixture.bytes)); const view = viewport();
+    await view.makeProduct(scene, 1, new AbortController().signal);
+    expect(view.parts.get('real-component::node:2').material.roughness).toBe(.1);
+    expect(view.parts.get('real-component::node:3').material.roughness).toBe(.9);
+    expect(view.parts.get('real-component::node:4').material.roughness).toBe(.6);
+  });
+
+  it('retains source material arrays and does not dispose textures still used outside a bound section', () => {
+    const view = viewport(), root = new THREE.Group(), texture = new THREE.Texture();
+    const shared = new THREE.MeshStandardMaterial({ map: texture }); shared.name = 'Shared'; shared.userData.gessoSourceMaterial = 2;
+    const unique = new THREE.MeshStandardMaterial({ map: texture }); unique.name = 'Unique'; unique.userData.gessoSourceMaterial = 3;
+    const section = new THREE.Mesh(new THREE.BoxGeometry(), [shared, unique]); section.userData.gessoSourceNode = { index: 1, name: 'Shell' };
+    const sibling = new THREE.Mesh(new THREE.BoxGeometry(), shared); root.add(section, sibling);
+    const sharedDispose = vi.spyOn(shared, 'dispose'), uniqueDispose = vi.spyOn(unique, 'dispose'), textureDispose = vi.spyOn(texture, 'dispose');
+    view.applyProductMaterials(root, { id: 'body', materialBindings: [{ nodeIndex: 1, materialPresetId: 'steel' }] },
+      [{ id: 'steel', material: { baseColor: [.5, .5, .5, 1], roughness: .1, metallic: 1 } }]);
+    expect(section.material).toHaveLength(2);
+    expect(section.material.map(material => material.userData.gessoSourceMaterial)).toEqual([2, 3]);
+    expect(sibling.material).toBe(shared); expect(sharedDispose).not.toHaveBeenCalled();
+    expect(uniqueDispose).toHaveBeenCalledOnce(); expect(textureDispose).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ nodeIndex: 10, materialPresetId: 'steel' }, 'missing from'],
+    [{ nodeIndex: 1, materialPresetId: 'missing' }, 'preset missing is missing'],
+  ])('rejects invalid section bindings before replacing original materials', async (binding, message) => {
+    const fixture = glb(), scene: any = source(fixture.asset), view = viewport();
+    scene.product.materialPresets = [{ id: 'steel', material: scene.product.components[0].material }];
+    scene.product.components[0].materialBindings = [binding];
+    vi.stubGlobal('fetch', async () => new Response(fixture.bytes)); const dispose = vi.spyOn(view, 'disposeObject');
+    await expect(view.makeProduct(scene, 1, new AbortController().signal)).rejects.toThrow(String(message));
+    expect(view.components.size).toBe(0); expect(dispose).toHaveBeenCalledOnce();
+  });
+
   it('waits for verified material maps before publishing the new part tree', async () => {
     const bytes = new ArrayBuffer(33), header = new DataView(bytes);
     header.setUint32(0, 0x89504e47); header.setUint32(4, 0x0d0a1a0a); header.setUint32(8, 13);
@@ -71,6 +142,29 @@ describe('real product component meshes', () => {
     finish(image); await pending;
     expect(onParts).toHaveBeenCalledOnce();
     expect(view.components.get('real-component').children[0].material.map.image).toBe(image);
+  });
+
+  it('waits for section texture maps before publishing source parts', async () => {
+    const fixture = glb(), scene: any = source(fixture.asset), bytes = new ArrayBuffer(33), header = new DataView(bytes);
+    header.setUint32(0, 0x89504e47); header.setUint32(4, 0x0d0a1a0a); header.setUint32(8, 13);
+    header.setUint32(12, 0x49484452); header.setUint32(16, 2); header.setUint32(20, 2);
+    const sha256 = createHash('sha256').update(new Uint8Array(bytes)).digest('hex');
+    scene.product.materialPresets = [{ id: 'mapped', material: {
+      ...scene.product.components[0].material,
+      textures: { basecolor: { path: `assets/${sha256}.png`, sha256, format: 'png' } },
+    } }];
+    scene.product.components[0].materialBindings = [{ nodeIndex: 1, materialPresetId: 'mapped' }];
+    vi.stubGlobal('fetch', async (url: string) => new Response(url.endsWith('.glb') ? fixture.bytes : bytes));
+    let finish!: (bitmap: ImageBitmap) => void;
+    const decode = vi.fn(() => new Promise<ImageBitmap>(resolve => { finish = resolve; })); vi.stubGlobal('createImageBitmap', decode);
+    const view = viewport(); view.options.onParts = vi.fn();
+    const pending = view.makeProduct(scene, 1, new AbortController().signal);
+    await vi.waitFor(() => expect(decode).toHaveBeenCalledOnce());
+    expect(view.options.onParts).not.toHaveBeenCalled(); expect(view.parts.size).toBe(0);
+    const image = { width: 2, height: 2, close: vi.fn() } as unknown as ImageBitmap;
+    finish(image); await pending;
+    expect(view.parts.get('real-component::node:1').material.map.image).toBe(image);
+    expect(view.options.onParts).toHaveBeenCalledOnce();
   });
 
   it('loads verified bytes with original hierarchy/materials and applies exact rigid sampled poses', async () => {
@@ -794,5 +888,159 @@ describe('Poly Haven world assets', () => {
     expect(release).toHaveBeenCalledOnce(); expect(view.scene.environment).toBeNull();
     await expect(view.loadHdri({ lighting: { hdri: { ...hdri, asset: { ...hdri.asset, sha256: '0'.repeat(64), path: `assets/${'0'.repeat(64)}.hdr` } } } }, 1, new AbortController().signal)).rejects.toThrow('SHA-256');
     expect(prefilter).toHaveBeenCalledOnce();
+  });
+});
+
+describe('viewport scene loading status', () => {
+  it('starts loading before decoding assets and remains pending until presentation or clear', async () => {
+    const view = pickingViewport(), fixture = glb();
+    const onLoading = vi.fn(); view.options.onLoading = onLoading;
+    let finishFont!: () => void;
+    const font = new Promise<void>(resolve => { finishFont = resolve; });
+    vi.stubGlobal('document', { hidden: true, fonts: { load: vi.fn(() => font) } });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(fixture.bytes)));
+    vi.spyOn(view, 'makeStudio').mockImplementation(() => {});
+    const scene = { ...source(fixture.asset), environment: { kind: 'authored', worldColor: [.1, .1, .1] } };
+    const loading = view.load(scene);
+    expect(onLoading).toHaveBeenCalledExactlyOnceWith(true);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(view.renderer.setSize).not.toHaveBeenCalled();
+    finishFont();
+    await loading;
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(view.awaitingSample).toBe(true);
+    expect(onLoading.mock.calls).toEqual([[true]]);
+    view.clearScene();
+    expect(onLoading.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it('ends loading and reports the current asset failure', async () => {
+    const view = pickingViewport(), fixture = glb();
+    const onLoading = vi.fn(), onError = vi.fn();
+    view.options.onLoading = onLoading; view.options.onError = onError;
+    vi.stubGlobal('document', { hidden: true, fonts: { load: vi.fn(async () => []) } });
+    vi.stubGlobal('fetch', async () => { throw new Error('The product asset is unavailable.'); });
+    const scene = { ...source(fixture.asset), environment: { kind: 'authored', worldColor: [.1, .1, .1] } };
+    await expect(view.load(scene)).rejects.toThrow('The product asset is unavailable.');
+    expect(onLoading.mock.calls).toEqual([[true], [false]]);
+    expect(onError).toHaveBeenCalledExactlyOnceWith('The product asset is unavailable.');
+    expect(view.loadFailed).toBe(true);
+  });
+
+  it('keeps the replacement loading when an obsolete request fails', async () => {
+    const view = pickingViewport(), fixture = glb();
+    const onLoading = vi.fn(), onError = vi.fn();
+    view.options.onLoading = onLoading; view.options.onError = onError;
+    let failOld!: (error: Error) => void, failNew!: (error: Error) => void;
+    const oldFont = new Promise<void>((_resolve, reject) => { failOld = reject; });
+    const newFont = new Promise<void>((_resolve, reject) => { failNew = reject; });
+    vi.stubGlobal('document', { hidden: true, fonts: { load: vi.fn().mockReturnValueOnce(oldFont).mockReturnValueOnce(newFont) } });
+    const scene = { ...source(fixture.asset), environment: { kind: 'authored', worldColor: [.1, .1, .1] } };
+    const obsolete = view.load(scene);
+    const replacement = view.load(scene);
+    expect(onLoading.mock.calls).toEqual([[true], [true]]);
+    failOld(new Error('Obsolete font request failed.'));
+    await obsolete;
+    expect(onLoading.mock.calls).toEqual([[true], [true]]);
+    expect(onError).not.toHaveBeenCalled();
+    failNew(new Error('Current font request failed.'));
+    await expect(replacement).rejects.toThrow('Current font request failed.');
+    expect(onLoading.mock.calls).toEqual([[true], [true], [false]]);
+    expect(onError).toHaveBeenCalledExactlyOnceWith('Current font request failed.');
+  });
+});
+
+describe('material assignment hover', () => {
+  it('keeps every linked part and its artwork intact while fading other product meshes without changing selection', () => {
+    const { view, body, bodyMesh, label, cap, texture } = studioViewport();
+    label.userData.gessoArtwork = true;
+    const otherMaterial = new THREE.MeshStandardMaterial({ map: texture, transparent: true, opacity: .6 });
+    const other = new THREE.Mesh(new THREE.BoxGeometry(), otherMaterial); other.castShadow = true;
+    view.content.add(other); view.components.set('other', other); view.parts.set('other', other);
+    view.originalVisibility.set(other, true);
+    const world = new THREE.Mesh(new THREE.BoxGeometry(), otherMaterial); view.content.add(world);
+    const originalBody = bodyMesh.material, originalLabel = label.material, originalCap = (cap.children[0] as THREE.Mesh).material;
+    const textureDispose = vi.spyOn(texture, 'dispose');
+    view.setSelection('other'); view.setFocusParts(['other']);
+    const camera = view.camera.matrixWorld.clone();
+    view.setMaterialHover({ presetId: 'shared', partIds: ['body', 'cap'] });
+    expect(bodyMesh.material).toBe(originalBody); expect(label.material).toBe(originalLabel);
+    expect((cap.children[0] as THREE.Mesh).material).toBe(originalCap); expect(label.material.opacity).toBe(.8);
+    expect(other.material).not.toBe(otherMaterial); expect(other.material.opacity).toBeCloseTo(.108);
+    expect(other.material.map).toBe(texture); expect(other.material.depthWrite).toBe(false); expect(other.castShadow).toBe(false);
+    expect(world.material).toBe(otherMaterial); expect(otherMaterial.opacity).toBe(.6);
+    expect(view.selectedId).toBe('other'); expect(view.focusPartIds).toEqual(['other']); expect(view.partFocus).toBe(false);
+    expect(view.camera.matrixWorld).toEqual(camera); expect(bodyMesh.parent).toBe(body);
+    const cloneDispose = vi.spyOn(other.material, 'dispose');
+    view.setMaterialHover(null);
+    expect(other.material).toBe(otherMaterial); expect(other.castShadow).toBe(true);
+    expect(cloneDispose).toHaveBeenCalledOnce(); expect(textureDispose).not.toHaveBeenCalled();
+    expect(view.selectedId).toBe('other'); expect(view.focusPartIds).toEqual(['other']);
+  });
+
+  it('respects nested source bindings and reenters an explicitly attached descendant of the same material', async () => {
+    const fixture = glb({ nodes: [
+      { name: 'Assembly', children: [1, 2] }, { name: 'Shell', mesh: 0 },
+      { name: 'Rubber assembly', children: [3, 4] }, { name: 'Rubber insert', mesh: 0 },
+      { name: 'Steel inset', mesh: 0 },
+    ] });
+    const scene: any = source(fixture.asset, true);
+    scene.product.components[0].materialPresetId = 'steel';
+    scene.product.materialPresets = [
+      { id: 'steel', material: scene.product.components[0].material },
+      { id: 'rubber', material: { baseColor: [.1, .1, .1, 1], roughness: .9, metallic: 0 } },
+    ];
+    scene.product.components[0].materialBindings = [
+      { nodeIndex: 2, materialPresetId: 'rubber' }, { nodeIndex: 4, materialPresetId: 'steel' },
+    ];
+    const view = viewport(); view.options.studioMode = true;
+    vi.stubGlobal('fetch', async () => new Response(fixture.bytes));
+    await view.makeProduct(scene, 1, new AbortController().signal);
+    const shell = view.parts.get('real-component::node:1'), insert = view.parts.get('real-component::node:3'), inset = view.parts.get('real-component::node:4');
+    const originals = [shell.material, insert.material, inset.material];
+    view.setMaterialHover({ presetId: 'steel', partIds: ['real-component', 'real-component::node:4'] });
+    expect(shell.material).toBe(originals[0]); expect(insert.material.opacity).toBe(.18); expect(inset.material).toBe(originals[2]);
+    view.setMaterialHover({ presetId: 'rubber', partIds: ['real-component::node:2'] });
+    expect(shell.material.opacity).toBe(.18); expect(insert.material).toBe(originals[1]); expect(inset.material.opacity).toBe(.18);
+    view.setMaterialHover(null);
+    expect([shell.material, insert.material, inset.material]).toEqual(originals);
+    expect(shell.material).toBe(originals[0]); expect(insert.material).toBe(originals[1]); expect(inset.material).toBe(originals[2]);
+  });
+
+  it('restores imported material arrays and hidden sections without mutating shared glTF resources', () => {
+    const view = viewport(); view.options.studioMode = true;
+    const root = new THREE.Group(), texture = new THREE.Texture(); root.userData.gessoPrimitiveShape = 'mesh';
+    const shared = new THREE.MeshStandardMaterial({ map: texture });
+    const glass = new THREE.MeshPhysicalMaterial({ map: texture, transmission: .8, transparent: true, opacity: .5 });
+    const slots = [shared, glass];
+    const section = new THREE.Mesh(new THREE.BoxGeometry(), slots), sibling = new THREE.Mesh(new THREE.BoxGeometry(), slots);
+    section.userData.gessoMaterialBindingPresetId = 'steel'; section.castShadow = true; sibling.castShadow = true;
+    root.add(section, sibling); view.content.add(root); view.components.set('product', root);
+    view.parts.set('product', root); view.parts.set('product::node:1', section); view.parts.set('product::node:2', sibling);
+    root.traverse(object => view.originalVisibility.set(object, object.visible));
+    const textureDispose = vi.spyOn(texture, 'dispose'), sharedDispose = vi.spyOn(shared, 'dispose'), glassDispose = vi.spyOn(glass, 'dispose');
+    view.setHiddenParts(['product::node:2']);
+    view.setMaterialHover({ presetId: 'steel', partIds: ['product::node:1'] });
+    expect(section.material).toBe(slots); expect((section.material[1] as THREE.MeshPhysicalMaterial).transmission).toBe(.8);
+    expect(sibling.material).not.toBe(slots); expect(sibling.material[0].opacity).toBe(.18); expect(sibling.material[1].opacity).toBe(.09);
+    expect(sibling.visible).toBe(false); expect(sibling.castShadow).toBe(false);
+    const clones = sibling.material.map(material => vi.spyOn(material, 'dispose'));
+    view.setMaterialHover(null);
+    expect(section.material).toBe(slots); expect(sibling.material).toBe(slots); expect(sibling.visible).toBe(false); expect(sibling.castShadow).toBe(true);
+    expect(shared.opacity).toBe(1); expect(glass.opacity).toBe(.5);
+    clones.forEach(dispose => expect(dispose).toHaveBeenCalledOnce());
+    expect(textureDispose).not.toHaveBeenCalled(); expect(sharedDispose).not.toHaveBeenCalled(); expect(glassDispose).not.toHaveBeenCalled();
+  });
+
+  it('leaves unassigned presets, missing geometry, and capture rendering unchanged', () => {
+    const { view, bodyMesh, cap } = studioViewport();
+    const bodyMaterial = bodyMesh.material, capMaterial = (cap.children[0] as THREE.Mesh).material;
+    for (const partIds of [[], ['missing']]) {
+      view.setMaterialHover({ presetId: 'unassigned', partIds });
+      expect(bodyMesh.material).toBe(bodyMaterial); expect((cap.children[0] as THREE.Mesh).material).toBe(capMaterial);
+    }
+    view.setMaterialHover(null); view.options.capture = true;
+    view.setMaterialHover({ presetId: 'body', partIds: ['body'] });
+    expect(bodyMesh.material).toBe(bodyMaterial); expect((cap.children[0] as THREE.Mesh).material).toBe(capMaterial);
   });
 });

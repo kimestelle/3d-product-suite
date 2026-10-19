@@ -7,7 +7,15 @@ export type MaterialSpecification = {
   transmission?: number; ior?: number; textures?: Partial<Record<MaterialTextureChannel, ImageAsset>>;
   textureRepeat?: [number, number]; normalScale?: number; heightScaleM?: number;
 };
-export type MaterialPreview = { componentIds: string[]; material: MaterialSpecification };
+export type MaterialHover = {presetId: string; partIds: string[]};
+
+export type MaterialPreview = {
+  /** Component roots or immutable source section handles (`component::node:index`). */
+  componentIds: string[];
+  material: MaterialSpecification;
+  /** Keep more-specific assignments to other presets intact while editing. */
+  presetId?: string;
+};
 export type MaterialPreset = { id: string; name: string; material: MaterialSpecification };
 
 // Linear RGB values, the same inputs used by the product and Blender's Principled shader.

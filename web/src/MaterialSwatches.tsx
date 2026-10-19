@@ -1,7 +1,9 @@
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useRef, useState, type HTMLAttributes, type ReactNode} from 'react';
 import * as THREE from 'three';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
-import {createSurfaceMaterial, disposeSurfaceMaterial, loadMaterialTextures, type ImageAsset} from './materials';
+import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
+import {type ImageAsset} from './materials';
+import {createMaterialSwatchStore, type SwatchPreviewState} from './materialSwatchStore';
 import {UiIcon} from './UiIcon';
 import './material-swatches.css';
 
@@ -17,9 +19,12 @@ export interface MaterialSwatchesProps {
   selectedId?: string;
   disabled?: boolean;
   onSelect: (id: string) => void;
+  layout?: 'grid' | 'list';
+  renderBelow?: (item: MaterialSwatchItem) => ReactNode;
+  itemProps?: (item: MaterialSwatchItem) => HTMLAttributes<HTMLDivElement>;
+  shape?: 'sphere' | 'rectangle';
 }
 
-type PreviewState = 'loading' | 'ready' | 'failed';
 const SPHERE_RADIUS_M = .025;
 
 function textureUrl(asset: ImageAsset) {
@@ -29,16 +34,18 @@ function textureUrl(asset: ImageAsset) {
 }
 
 /** One demand-rendered canvas serves the native swatch buttons. */
-export default function MaterialSwatches({items, selectedId, disabled = false, onSelect}: MaterialSwatchesProps) {
+export default function MaterialSwatches({items, selectedId, disabled = false, onSelect, layout = 'grid', renderBelow, itemProps, shape = 'sphere'}: MaterialSwatchesProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageRefs = useRef(new Map<string, HTMLSpanElement>());
   const itemsRef = useRef(items);
   itemsRef.current = items;
-  const [states, setStates] = useState<Record<string, PreviewState>>({});
+  const shapeRef = useRef(shape); shapeRef.current = shape;
+  const syncRef = useRef<(() => void) | null>(null);
+  const [states, setStates] = useState<Record<string, SwatchPreviewState>>({});
   const [unavailable, setUnavailable] = useState(false);
   const [contextVersion, setContextVersion] = useState(0);
-  // Selection and parent rerenders leave the renderer and loaded images intact.
+  // Data updates patch the material store; only context recovery rebuilds WebGL.
   const materialKey = JSON.stringify(items.map(({id, material}) => [id, material]));
 
   useEffect(() => {
@@ -46,9 +53,6 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
     const canvas = canvasRef.current;
     if (!root || !canvas) return;
     const sidebar = root.closest<HTMLElement>('.gesso-sidebar') ?? root;
-    const controller = new AbortController();
-    const currentItems = itemsRef.current;
-    const previewStates: Record<string, PreviewState> = {};
     let disposed = false;
     let contextLost = false;
     let visible = true;
@@ -58,22 +62,27 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
     let environment: THREE.WebGLRenderTarget | undefined;
     let pmrem: THREE.PMREMGenerator | undefined;
     let room: RoomEnvironment | undefined;
-    const materials = new Map<string, THREE.MeshPhysicalMaterial>();
     const geometry = new THREE.SphereGeometry(SPHERE_RADIUS_M, 48, 32);
+    const tileGeometry = new RoundedBoxGeometry(.052, .04, .004, 3, .001);
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#131313');
     const camera = new THREE.PerspectiveCamera(32, 1, .001, 3);
     camera.position.set(0, 0, 4.45 * SPHERE_RADIUS_M);
-    const sphere = new THREE.Mesh(geometry, new THREE.MeshPhysicalMaterial());
+    const sphere = new THREE.Mesh<THREE.BufferGeometry, THREE.MeshPhysicalMaterial>(geometry, new THREE.MeshPhysicalMaterial());
     const placeholderMaterial = sphere.material;
     scene.add(sphere);
     const key = new THREE.PointLight(0xffffff, 52 * SPHERE_RADIUS_M ** 2, 0, 2);
     const fill = new THREE.HemisphereLight(0xeef1ff, 0x24201c, 0.45);
     scene.add(key, fill);
 
-    function publishStates() {
-      if (!disposed) setStates({...previewStates});
-    }
+    const materials = createMaterialSwatchStore(textureUrl, () => {
+      if (!disposed) {
+        const next = materials.states();
+        setStates(current => Object.keys(current).length === Object.keys(next).length
+          && Object.keys(next).every(id => current[id] === next[id]) ? current : next);
+        requestRender();
+      }
+    });
 
     function requestRender() {
       if (!disposed && !contextLost && visible && !document.hidden && !frame) frame = requestAnimationFrame(draw);
@@ -93,10 +102,13 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
       renderer.setClearColor('#131313', 1);
       renderer.clear();
       renderer.setScissorTest(true);
-      for (const item of currentItems) {
+      const tile = shapeRef.current === 'rectangle';
+      sphere.geometry = tile ? tileGeometry : geometry;
+      sphere.rotation.set(tile ? -.12 : 0, tile ? -.22 : 0, 0);
+      for (const item of itemsRef.current) {
         const image = imageRefs.current.get(item.id);
         const material = materials.get(item.id);
-        if (!image || !material || previewStates[item.id] !== 'ready') continue;
+        if (!image || !material) continue;
         const rect = image.getBoundingClientRect();
         const size = Math.min(rect.width, rect.height);
         if (!size) continue;
@@ -146,25 +158,8 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
       room = undefined;
       pmrem.dispose();
       pmrem = undefined;
-      for (const item of currentItems) {
-        const material = createSurfaceMaterial(item.material);
-        materials.set(item.id, material);
-        if (Object.values(item.material.textures ?? {}).some(Boolean)) {
-          previewStates[item.id] = 'loading';
-          void loadMaterialTextures(material, item.material, textureUrl, {signal: controller.signal}).then(() => {
-            if (disposed) return;
-            previewStates[item.id] = 'ready';
-            publishStates();
-            requestRender();
-          }).catch(() => {
-            if (disposed || controller.signal.aborted) return;
-            previewStates[item.id] = 'failed';
-            publishStates();
-            requestRender();
-          });
-        } else previewStates[item.id] = 'ready';
-      }
-      publishStates();
+      syncRef.current = () => {materials.sync(itemsRef.current); requestRender();};
+      syncRef.current();
       requestRender();
     } catch {
       setUnavailable(true);
@@ -197,7 +192,8 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
 
     return () => {
       disposed = true;
-      controller.abort();
+      syncRef.current = null;
+      materials.dispose();
       if (frame) cancelAnimationFrame(frame);
       resize.disconnect();
       intersection.disconnect();
@@ -210,29 +206,32 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
       canvas.removeEventListener('webglcontextlost', contextLoss);
       canvas.removeEventListener('webglcontextrestored', contextRestore);
       geometry.dispose();
+      tileGeometry.dispose();
       placeholderMaterial.dispose();
-      for (const material of materials.values()) disposeSurfaceMaterial(material);
       room?.dispose();
       pmrem?.dispose();
       environment?.dispose();
       renderer?.dispose();
     };
-  }, [materialKey, contextVersion]);
+  }, [contextVersion]);
 
-  return <div className="gesso-material-swatches" ref={rootRef}>
+  useEffect(() => {syncRef.current?.();}, [materialKey, shape]);
+
+  return <div className={`gesso-material-swatches${layout === 'list' ? ' is-list' : ''}`} ref={rootRef}>
     <canvas ref={canvasRef} className="gesso-material-swatch-canvas" aria-hidden="true"/>
     <div className="gesso-material-swatch-grid" role="group" aria-label="Materials">
-      {items.map(item => <button key={item.id} type="button" className="gesso-material-swatch" aria-label={item.name}
-        aria-pressed={selectedId === item.id} title={`${item.name}${item.description ? ' · ' + item.description : ''} · 50 mm preview sphere`} disabled={disabled} onClick={() => onSelect(item.id)}>
+      {items.map(item => <div key={item.id} className="gesso-material-swatch-entry" {...itemProps?.(item)}><button type="button" className="gesso-material-swatch" aria-label={item.name}
+        aria-pressed={selectedId === item.id} title={`${item.name}${item.description ? ' · ' + item.description : ''} · ${shape === 'sphere' ? '50 mm preview sphere' : '52 × 40 mm preview tile'}`} disabled={disabled} onClick={() => onSelect(item.id)}>
         <span className="gesso-material-swatch-image" aria-hidden="true" ref={element => {
           if (element) imageRefs.current.set(item.id, element); else imageRefs.current.delete(item.id);
         }}>
           {(unavailable || states[item.id] === 'failed') ? <span className="gesso-material-swatch-fallback">No preview</span>
+            : states[item.id] === 'stale' ? <span className="gesso-material-swatch-fallback">Update unavailable</span>
             : states[item.id] !== 'ready' ? <span className="gesso-material-swatch-fallback">Loading…</span> : null}
         </span>
-        <span className="gesso-material-swatch-label">{selectedId===item.id && <UiIcon name="check" size={12}/>}<span className="gesso-material-swatch-name">{item.name}</span></span>
+        <span className="gesso-material-swatch-label">{layout !== 'list' && selectedId===item.id && <UiIcon name="check" size={12}/>}<span className="gesso-material-swatch-name">{item.name}</span></span>
         {item.description && <span className="gesso-material-swatch-description">{item.description}</span>}
-      </button>)}
+      </button>{renderBelow?.(item)}</div>)}
     </div>
     {unavailable && <p className="gesso-material-preview-status" role="status">Material previews unavailable. You can still select a material.</p>}
   </div>;

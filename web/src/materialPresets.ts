@@ -1,4 +1,4 @@
-import {partName} from './hierarchy';
+import {displayPartName, type HierarchyPart} from './hierarchy';
 import {MATERIAL_PRESETS, type MaterialSpecification} from './materials';
 import {equalJson} from './state';
 
@@ -83,7 +83,7 @@ function inferType(material: MaterialSpecification): MaterialType {
 }
 
 /** Stable IDs retain the part identity; bounded suffixes resolve even imported-ID collisions. */
-function virtualPresets(components: any[], saved: SavedMaterialPreset[]): LibraryMaterialPreset[] {
+function virtualPresets(scene: any, components: any[], saved: SavedMaterialPreset[]): LibraryMaterialPreset[] {
   const used = new Set(saved.map(preset => preset.id));
   return components.filter(component => !component.materialPresetId && editable(component)).map(component => {
     const direct = `component:${component.id}`;
@@ -99,7 +99,7 @@ function virtualPresets(components: any[], saved: SavedMaterialPreset[]): Librar
     const materialName = typeof component.material.name === 'string' ? component.material.name.trim() : '';
     return {
       id, sourceComponentId: component.id,
-      name: (materialName || `${partName(component.id)} material`).slice(0, 140),
+      name: (materialName || `${displayPartName(scene, component.id)} material`).slice(0, 140),
       type: inferType(component.material), material: structuredClone(component.material),
     };
   });
@@ -108,14 +108,80 @@ function virtualPresets(components: any[], saved: SavedMaterialPreset[]): Librar
 /** Existing part materials remain independent until the user explicitly links them. */
 export function campaignMaterialPresets(scene: any): LibraryMaterialPreset[] {
   const components = componentsOf(scene), saved = savedPresetsOf(scene);
-  return [...structuredClone(saved), ...virtualPresets(components, saved)];
+  return [...structuredClone(saved), ...virtualPresets(scene, components, saved)];
 }
 
 export function presetPartIds(scene: any, preset: LibraryMaterialPreset): string[] {
   const components = componentsOf(scene);
-  return preset.sourceComponentId
-    ? components.filter(component => component.id === preset.sourceComponentId && !component.materialPresetId).map(component => component.id)
-    : components.filter(component => component.materialPresetId === preset.id).map(component => component.id);
+  const roots = components.filter(component => component.materialPresetId === preset.id ||
+    component.id === preset.sourceComponentId && !component.materialPresetId).map(component => component.id);
+  return [...roots, ...components.flatMap(component => (component.materialBindings ?? [])
+    .filter((binding: MaterialBinding) => binding.materialPresetId === preset.id)
+    .map((binding: MaterialBinding) => `${component.id}::node:${binding.nodeIndex}`))];
+}
+
+export type MaterialBinding = {nodeIndex: number; materialPresetId: string};
+
+/** Targets are source geometry, independent of the editable grouping tree. */
+export function materialTargets(scene: any, parts: HierarchyPart[]): HierarchyPart[] {
+  const components = componentsOf(scene);
+  return parts.filter(part => components.some(component => component.id === part.componentId) &&
+    (part.id === part.componentId || /^nodes\[\d+\]$/.test(part.sourcePath ?? '') &&
+      part.id === `${part.componentId}::node:${Number(part.sourcePath?.slice(6,-1))}` && !!part.materialSlots?.length));
+}
+
+export function materialOwner(scene: any, parts: HierarchyPart[], partId: string): string | null {
+  const part = parts.find(item => item.id === partId);
+  const component = componentsOf(scene).find(item => item.id === (part?.componentId ?? partId));
+  if (!component) return null;
+  let current = part;
+  const visited = new Set<string>();
+  while (current && current.id !== component.id && !visited.has(current.id)) {
+    visited.add(current.id);
+    const index = Number(current.sourcePath?.match(/^nodes\[(\d+)\]$/)?.[1]);
+    const binding = (component.materialBindings ?? []).find((item: MaterialBinding) => item.nodeIndex === index);
+    if (binding) return binding.materialPresetId;
+    current = parts.find(item => item.id === current?.parentId);
+  }
+  return campaignMaterialPresets(scene).find(preset => preset.sourceComponentId === component.id ||
+    preset.id === component.materialPresetId)?.id ?? null;
+}
+
+/** One transaction moves an object or source section, including its descendants. */
+export function attachMaterialParts(scene: any, presetId: string, partIds: string[], parts: HierarchyPart[]): void {
+  const targets = materialTargets(scene, parts);
+  requireValue(partIds.length > 0 && partIds.every(id => targets.some(part => part.id === id)), 'Choose an available object or section.');
+  const preset = campaignMaterialPresets(scene).find(item => item.id === presetId);
+  requireValue(preset, 'This material is no longer available.');
+  const next = structuredClone(scene);
+  const {sourceComponentId: _source, ...record} = preset;
+  saveMaterialPreset(next, record);
+  const descendants = (id: string, ancestor: string): boolean => {
+    let current = parts.find(part => part.id === id);
+    const visited = new Set<string>();
+    while (current && !visited.has(current.id)) {
+      if (current.id === ancestor) return true;
+      visited.add(current.id); current = parts.find(part => part.id === current?.parentId);
+    }
+    return false;
+  };
+  // Selecting a containing object already includes its sections.
+  for (const id of new Set(partIds.filter(id => !partIds.some(other => id !== other && descendants(id, other))))) {
+    const target = targets.find(part => part.id === id)!;
+    const component = next.product.components.find((item: any) => item.id === target.componentId);
+    component.materialBindings = (component.materialBindings ?? []).filter((binding: MaterialBinding) =>
+      !descendants(`${component.id}::node:${binding.nodeIndex}`, id));
+    if (target.id === component.id) {
+      if (component.shape === 'mesh') component.materialOverride = true;
+      saveMaterialPreset(next, record, [component.id]);
+    } else {
+      requireValue(component.shape === 'mesh', 'Only imported objects have source sections.');
+      const nodeIndex = Number(target.sourcePath!.match(/^nodes\[(\d+)\]$/)![1]);
+      component.materialBindings.push({nodeIndex, materialPresetId: presetId});
+    }
+    if (!component.materialBindings.length) delete component.materialBindings;
+  }
+  scene.product = next.product;
 }
 
 /** First writes retain every existing editable material, including those about to be replaced. */
@@ -123,7 +189,7 @@ export function saveMaterialPreset(scene: any, preset: SavedMaterialPreset, assi
   const components = componentsOf(scene), saved = savedPresetsOf(scene);
   validatePreset(preset);
   requireValue(Array.isArray(assignIds) && assignIds.every(id => typeof id === 'string' && components.some(component => component.id === id)), 'Material presets can only be assigned to product components.');
-  const virtual = virtualPresets(components, saved);
+  const virtual = virtualPresets(scene, components, saved);
   const materialized = new Map(virtual.map(item => [item.sourceComponentId!, item.id]));
   const ids = new Set(assignIds);
   const targets = components.filter(component => ids.has(component.id) || (component.materialPresetId ?? materialized.get(component.id)) === preset.id);

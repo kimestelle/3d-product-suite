@@ -1,8 +1,14 @@
 import {type CameraPose} from './camera';
 
+/** A source camera may finish before, or extend beyond, the editorial shot. */
+export function cameraSourceEndFrame(shot: any): number {
+  return shot.startFrame + (shot.camera.durationFrames ?? shot.endFrame - shot.startFrame + 1) - 1;
+}
+
 /** UI projection of the shared scene sampler's eased camera path. */
 export function cameraPoseAtFrame(shot: any, frame: number): CameraPose {
-  const t = Math.max(0, Math.min(1, (frame - shot.startFrame) / Math.max(1, shot.endFrame - shot.startFrame)));
+  const duration = shot.camera.durationFrames ?? shot.endFrame - shot.startFrame + 1;
+  const t = duration === 1 ? 0 : Math.max(0, Math.min(1, (frame - shot.startFrame) / Math.max(1, duration - 1)));
   const u = t * t * (3 - 2 * t);
   const from = shot.camera.from as CameraPose, to = shot.camera.to as CameraPose;
   return {

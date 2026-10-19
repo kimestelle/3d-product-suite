@@ -28,9 +28,34 @@ export function partName(id: string): string {
   return Object.hasOwn(names, id) ? names[id] : id;
 }
 
+export const PART_NAME_LIMIT = 120;
+
+/** Display aliases never replace stable IDs or names embedded in an import. */
+export function displayPartName(scene: any, id: string, fallback?: string): string {
+  const names=scene?.editorPartNames;
+  const alias=names&&typeof names==='object'&&!Array.isArray(names)&&Object.hasOwn(names,id)?names[id]:undefined;
+  if(typeof alias==='string'&&alias.trim()&&alias.length<=PART_NAME_LIMIT)return alias.trim();
+  const component=scene?.product?.components?.find((item:any)=>item.id===id);
+  return component?.name||component?.displayName||fallback||partName(id);
+}
+
+export function renamePart(scene:any, parts:HierarchyPart[], id:string, value:string):void {
+  const part=parts.find(item=>item.id===id);
+  if(!part||!scene?.product?.components?.some((component:any)=>component.id===part.componentId))
+    throw new Error('This part is no longer available.');
+  const name=value.trim();
+  if(!name)throw new Error('Enter a part name.');
+  if(name.length>PART_NAME_LIMIT)throw new Error(`Use ${PART_NAME_LIMIT} characters or fewer.`);
+  const existing=scene.editorPartNames;
+  const names=existing&&typeof existing==='object'&&!Array.isArray(existing)?{...existing}:{};
+  if(displayPartName(scene,id,part.name)===name)return;
+  names[id]=name;
+  scene.editorPartNames=names;
+}
+
 export function sceneParts(scene: any): HierarchyPart[] {
   return (scene?.product?.components ?? []).map((component: any) => ({
-    id: component.id, componentId: component.id, name: partName(component.id),
+    id: component.id, componentId: component.id, name: displayPartName(scene,component.id),
     parentId: null, source: 'scene', sourceName: component.id,
     dimensionsM: component.sizeM,
   }));
