@@ -30,29 +30,50 @@ describe('Native philosophy scroll playhead',()=>{
 describe('Philosophy stop selection',()=>{
   const stops=[0,660,1363.993,2067.986];
 
-  it('chooses the nearest fractional pose at rest in either direction',()=>{
-    expect(choosePhilosophyStop(960,0,700,stops,2200)).toBe(660);
-    expect(choosePhilosophyStop(1100,0,1400,stops,2200)).toBe(1363.993);
-    expect(choosePhilosophyStop(1363.993,0,1000,stops,2200)).toBe(1363.993);
+  it('finishes only a nearby stop ahead in the final movement direction',()=>{
+    expect(choosePhilosophyStop(612,.4,500,stops,2200)).toBe(660);
+    expect(choosePhilosophyStop(708,-.4,800,stops,2200)).toBe(660);
+    expect(choosePhilosophyStop(1300,.4,1100,stops,2200)).toBe(1363.993);
+    expect(choosePhilosophyStop(1363.993,.4,1100,stops,2200)).toBe(1363.993);
   });
 
-  it('biases the destination toward recent forward or reverse velocity',()=>{
-    expect(choosePhilosophyStop(300,.8,100,stops,2200)).toBe(660);
-    expect(choosePhilosophyStop(400,-.8,560,stops,2200)).toBe(0);
-    expect(choosePhilosophyStop(680,100,500,stops,2200)).toBe(660);
+  it('does not pull backward after crossing a stop or reverse the last gesture',()=>{
+    expect(choosePhilosophyStop(680,.4,500,stops,2200)).toBe(680);
+    expect(choosePhilosophyStop(640,-.4,800,stops,2200)).toBe(640);
+    expect(choosePhilosophyStop(620,-.4,500,stops,2200)).toBe(620);
+    expect(choosePhilosophyStop(90,-.4,0,stops,2200)).toBe(0);
   });
 
-  it('lets meaningful gestures escape the starting stop without paging on tiny nudges',()=>{
-    expect(choosePhilosophyStop(80,.1,0,stops,2200)).toBe(660);
-    expect(choosePhilosophyStop(580,-.1,660,stops,2200)).toBe(0);
-    expect(choosePhilosophyStop(12,.1,0,stops,2200)).toBe(0);
-    expect(choosePhilosophyStop(80,-.1,0,stops,2200)).toBe(0);
+  it('preserves single notches and intermediate reading positions regardless of speed',()=>{
+    for(const position of [12,80,120,300,400,800,1000]){
+      for(const velocity of [.1,1,100]){
+        expect(choosePhilosophyStop(position,velocity,0,stops,2200)).toBe(position);
+      }
+    }
+    expect(choosePhilosophyStop(580,-.1,660,stops,2200)).toBe(580);
+  });
+
+  it('uses the completed gesture direction when its final velocity has decayed to zero',()=>{
+    expect(choosePhilosophyStop(600,0,500,stops,2200)).toBe(660);
+    expect(choosePhilosophyStop(700,0,800,stops,2200)).toBe(660);
+    expect(choosePhilosophyStop(960,0,700,stops,2200)).toBe(960);
+    expect(choosePhilosophyStop(600,0,600,stops,2200)).toBe(600);
+  });
+
+  it('limits attraction to 14 percent of the neighboring gap and at most 96 pixels',()=>{
+    expect(choosePhilosophyStop(86,1,0,[0,100],100)).toBe(100);
+    expect(choosePhilosophyStop(85.9,1,0,[0,100],100)).toBe(85.9);
+    expect(choosePhilosophyStop(14,-1,100,[0,100],100)).toBe(0);
+    expect(choosePhilosophyStop(14.1,-1,100,[0,100],100)).toBe(14.1);
+    expect(choosePhilosophyStop(904,1,0,[0,1000],1000)).toBe(1000);
+    expect(choosePhilosophyStop(903.9,1,0,[0,1000],1000)).toBe(903.9);
   });
 
   it('clamps unreachable stops, removes duplicates, and tolerates an unmeasured page',()=>{
-    expect(choosePhilosophyStop(1900,0,1800,[...stops,2600],2000)).toBe(2000);
-    expect(choosePhilosophyStop(-40,0,0,[-20,0,660],2000)).toBe(0);
-    expect(choosePhilosophyStop(120,0,0,[],2000)).toBe(120);
+    expect(choosePhilosophyStop(1920,.4,1800,[...stops,2600],2000)).toBe(2000);
+    expect(choosePhilosophyStop(40,-.4,100,[-20,0,660],2000)).toBe(0);
+    expect(choosePhilosophyStop(600,.4,0,[0,660,660],2000)).toBe(660);
+    expect(choosePhilosophyStop(120,.4,0,[],2000)).toBe(120);
   });
 });
 
@@ -104,8 +125,9 @@ describe('Philosophy settle trajectory',()=>{
   });
 
   it('bounds duration and safely handles an already-settled frame',()=>{
-    expect(createScrollSettle(0,1,0,0).duration).toBe(320);
-    expect(createScrollSettle(0,10000,0,0).duration).toBe(620);
+    expect(createScrollSettle(0,1,0,0).duration).toBe(160.65);
+    expect(createScrollSettle(0,60,0,0).duration).toBe(199);
+    expect(createScrollSettle(0,10000,0,0).duration).toBe(240);
     const plan=createScrollSettle(660,660,1,0);
     expect(plan.tangent).toBe(0);
     expect(scrollSettlePosition(plan,100)).toBe(660);

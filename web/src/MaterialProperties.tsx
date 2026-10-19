@@ -33,7 +33,7 @@ export default function MaterialProperties({material, onChange, disabled = false
       <button className="gesso-section-toggle" type="button" aria-expanded={open} aria-controls={`${id}-${name}`} onClick={() => onSectionChange(open ? null : name)}>
         <span>{label}</span><small>{summary}</small><UiIcon name={open ? 'down' : 'chevron'} size={14}/>
       </button>
-      <div className="gesso-material-property-body" id={`${id}-${name}`} hidden={!open}>{children}</div>
+      <div className="gesso-material-property-body" id={`${id}-${name}`} hidden={!open} inert={!open} aria-hidden={!open}>{children}</div>
     </section>;
   };
   return <fieldset className="gesso-panel gesso-material-properties" disabled={disabled}>

@@ -51,7 +51,7 @@ export default function WorldObjectEditor({scene, objectId, onChange, onClose, o
     </header>
     <div className="gesso-world-object-body">
       {!isPlinth && <Field label="Name"><input aria-label="Object name" value={prop.displayName ?? prop.id} maxLength={80} onChange={event => {const name = event.target.value; editProp(target => {target.displayName = name;});}}/></Field>}
-      <section className="gesso-section"><div className="gesso-section-heading">{isPlinth ? 'Plinth' : 'Geometry'}</div>
+      <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">{isPlinth ? 'Plinth' : 'Geometry'}</span></div>
         {isPlinth && <label className="gesso-check"><input type="checkbox" checked={prop.visible !== false} onChange={event => {const visible = event.target.checked; editProp(target => {target.visible = visible;});}}/><span>Show plinth</span></label>}
         {!isPlinth && <>
           {prop.shape === 'mesh' ? <p className="gesso-meta">Imported mesh · {prop.materialOverride ? 'material override' : 'original UVs and materials'}</p> : <Field label="Shape"><select value={prop.shape} onChange={event => {const shape = event.target.value as 'box' | 'cylinder'; editProp(target => setPropShape(target, shape));}}><option value="box">Box</option><option value="cylinder">Cylinder</option></select></Field>}</>}
@@ -68,7 +68,7 @@ export default function WorldObjectEditor({scene, objectId, onChange, onClose, o
           {prop.shape === 'cylinder' && <p className="gesso-meta">X and Z share the same diameter.</p>}
         </>}
       </section>
-      <section className="gesso-section"><div className="gesso-section-heading">Surface</div>
+      <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">Surface</span></div>
         {prop.shape === 'mesh' && <label className="gesso-check"><input type="checkbox" checked={prop.materialOverride === true} onChange={event => {const enabled = event.target.checked; editProp(target => {target.materialOverride = enabled;});}}/><span>Override source materials</span></label>}
         {(prop.shape !== 'mesh' || prop.materialOverride === true) && <>
         <ColorField label="Color" value={surface.baseColor} onChange={color => editMaterial(target => {target.baseColor = [...color, target.baseColor[3]];})}/>

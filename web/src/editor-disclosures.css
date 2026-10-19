@@ -1,0 +1,92 @@
+/* Natural-height disclosures keep their native open/hidden semantics. Browsers
+   without intrinsic-size/discrete transitions retain immediate disclosure. */
+@supports (interpolate-size:allow-keywords) and (transition-behavior:allow-discrete) {
+  .gesso-studio :is(.gesso-material-property-body,.gesso-preset-texture-content) {
+    interpolate-size:allow-keywords;
+    height:auto;
+    min-height:0;
+    opacity:1;
+    transition:height 240ms cubic-bezier(.2,.7,.2,1),
+      padding-block 240ms cubic-bezier(.2,.7,.2,1),
+      opacity 160ms ease,
+      display 240ms allow-discrete;
+  }
+  .gesso-studio :is(.gesso-material-property-body,.gesso-preset-texture-content)[hidden] {
+    height:0;
+    padding-block:0;
+    opacity:0;
+    pointer-events:none;
+    transition-duration:240ms,240ms,120ms,240ms;
+  }
+  .gesso-studio :is(.gesso-material-property-body,.gesso-preset-texture-content)>* {
+    --disclosure-delay:0ms;
+    flex-shrink:0;
+    opacity:1;
+    transition:opacity 160ms ease var(--disclosure-delay);
+  }
+  .gesso-studio :is(.gesso-material-property-body,.gesso-preset-texture-content)>:nth-child(2) {--disclosure-delay:16ms}
+  .gesso-studio :is(.gesso-material-property-body,.gesso-preset-texture-content)>:nth-child(3) {--disclosure-delay:32ms}
+  .gesso-studio :is(.gesso-material-property-body,.gesso-preset-texture-content)>:nth-child(4) {--disclosure-delay:48ms}
+  .gesso-studio :is(.gesso-material-property-body,.gesso-preset-texture-content)>:nth-child(n+5) {--disclosure-delay:64ms}
+  .gesso-studio :is(.gesso-material-property-body,.gesso-preset-texture-content)[hidden]>* {
+    opacity:0;
+    transition-duration:120ms;
+    transition-delay:0ms;
+  }
+  @starting-style {
+    .gesso-studio :is(.gesso-material-property-body,.gesso-preset-texture-content):not([hidden]) {
+      height:0;
+      padding-block:0;
+      opacity:0;
+    }
+    .gesso-studio :is(.gesso-material-property-body,.gesso-preset-texture-content):not([hidden])>* {opacity:0}
+  }
+}
+
+@supports (interpolate-size:allow-keywords) and (transition-behavior:allow-discrete) and selector(details::details-content) {
+  .gesso-studio details::details-content {
+    interpolate-size:allow-keywords;
+    opacity:0;
+    transition:height 240ms cubic-bezier(.2,.7,.2,1),
+      opacity 120ms ease,
+      content-visibility 240ms allow-discrete;
+  }
+  .gesso-studio details:not([open])::details-content {pointer-events:none}
+  .gesso-studio details:not(.gesso-product-mechanics)::details-content {height:0;overflow:clip}
+  .gesso-studio details:not(.gesso-product-mechanics)[open]::details-content {height:auto}
+  .gesso-studio details[open]::details-content {
+    opacity:1;
+    transition-duration:240ms,160ms,240ms;
+  }
+  .gesso-studio details:not(.gesso-product-mechanics)>summary {transition:margin-bottom 240ms cubic-bezier(.2,.7,.2,1)}
+  .gesso-studio details>:not(summary) {
+    --disclosure-delay:0ms;
+    opacity:0;
+    transition:opacity 120ms ease;
+  }
+  .gesso-studio details[open]>:not(summary) {
+    opacity:1;
+    transition:opacity 160ms ease var(--disclosure-delay);
+  }
+  .gesso-studio details>:not(summary):nth-child(3) {--disclosure-delay:16ms}
+  .gesso-studio details>:not(summary):nth-child(4) {--disclosure-delay:32ms}
+  .gesso-studio details>:not(summary):nth-child(5) {--disclosure-delay:48ms}
+  .gesso-studio details>:not(summary):nth-child(n+6) {--disclosure-delay:64ms}
+  @starting-style {
+    .gesso-studio details[open]::details-content {opacity:0}
+    .gesso-studio details:not(.gesso-product-mechanics)[open]::details-content {height:0}
+    .gesso-studio details[open]>:not(summary) {opacity:0}
+  }
+}
+
+/* Keep this query in sync with STATIC_MOTION_QUERY. */
+@media(prefers-reduced-motion:reduce), (max-width:760px), (hover:none) and (pointer:coarse) {
+  .gesso-studio :is(.gesso-material-property-body,.gesso-preset-texture-content),
+  .gesso-studio :is(.gesso-material-property-body,.gesso-preset-texture-content)>*,
+  .gesso-studio details::details-content,
+  .gesso-studio details>summary,
+  .gesso-studio details>:not(summary) {
+    transition:none!important;
+    animation:none!important;
+  }
+}

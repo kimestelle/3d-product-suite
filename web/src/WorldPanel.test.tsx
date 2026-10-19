@@ -6,6 +6,21 @@ import WorldObjectEditor from './WorldObjectEditor';
 import {addProp} from './world';
 function render(layer: WorldLayer, scene: any = fixture, selectedObjectId: string | null = null) {return renderToStaticMarkup(<WorldPanel selectedObjectId={selectedObjectId} scene={scene} layer={layer} worlds={[]} onChange={() => {}} onWorld={() => {}} onImport={() => {}}><button>Compare worlds</button></WorldPanel>);}
 describe('World panel', () => {
+  it('marks the selected section without presenting it as a collapsible disclosure', () => {
+    for (const layer of ['Environment', 'Props', 'Lights'] as const) {
+      const html = render(layer);
+      const selectors = html.match(/<button[^>]*class="gesso-section-toggle gesso-section-selector"[\s\S]*?<\/button>/g) ?? [];
+      expect(selectors).toHaveLength(3);
+      expect(selectors.filter(button => button.includes('aria-current="true"'))).toHaveLength(1);
+      expect(selectors.find(button => button.includes('aria-current="true"'))).toContain(`aria-controls="world-section-${layer}"`);
+      for (const selector of selectors) {
+        expect(selector).not.toContain('aria-expanded');
+        expect(selector).not.toContain('gesso-ui-icon');
+      }
+    }
+    expect(render('Props')).toContain('<details class="gesso-disclosure"><summary>Prop library</summary>');
+    expect(render('Lights')).toContain('<details class="gesso-disclosure"><summary>HDRI library</summary>');
+  });
   it('retains advanced world operations and uses a concrete authored environment', () => {const html = render('Environment'); expect(html).toContain('Authored studio'); expect(html).toContain('Compare worlds'); expect(html).toContain('Import world');});
   it('makes the plinth and object creation available before props exist', () => {const html = render('Props'); expect(html).toContain('Plinth'); expect(html).toContain('Add box'); expect(html).toContain('Add cylinder'); expect(html).toContain('Edit Plinth'); expect(html).toContain('mm'); expect(html).not.toContain('Size X'); expect(html).not.toContain('gesso-grid-3'); expect(html).not.toContain('Remove prop');});
   it('shows a checked native plinth control by default and explains the retained contact height when hidden', () => {

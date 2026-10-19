@@ -99,7 +99,7 @@ export default function CameraPanel({scene, frame, samples = [], mode = 'video',
     {still && <p className="gesso-meta gesso-camera-edit-scope">Edits shift the whole shot. Video motion is preserved.</p>}
     <details className="gesso-disclosure gesso-compact-details gesso-camera-options"><summary>Camera options <span>{still ? 'presets / composition' : 'presets / path'}</span></summary><div className="gesso-section">
       <div className="gesso-button-row gesso-lens-presets">{[24, 35, 50, 85].map(value => <button type="button" key={value} aria-pressed={Math.abs(pose.focalLengthMm - value) < .0001} onClick={() => updatePose(next => {next.focalLengthMm = value;}, true)}>{value} mm</button>)}</div>
-    {!still && <section className="gesso-section" aria-label="Path controls"><div className="gesso-section-heading">Path <span>{Number(seconds.toFixed(3))} s · ease in / out</span></div>
+    {!still && <section className="gesso-section" aria-label="Path controls"><div className="gesso-section-heading"><span className="gesso-section-label">Path</span><span>{Number(seconds.toFixed(3))} s · ease in / out</span></div>
       <div className="gesso-button-row"><button type="button" onClick={() => update(next => {const before = next.from; next.from = next.to; next.to = before;})}>Reverse</button><button type="button" onClick={() => update(next => {next.from = structuredClone(pose); next.to = structuredClone(pose);})}>Hold view</button></div>
     </section>}
       {!still && <button type="button" disabled={trimmedEnd || heldCamera || !sampleAt(shot.startFrame) || !sampleAt(sourceEnd)} onClick={() => aim(true)}>Both ends</button>}

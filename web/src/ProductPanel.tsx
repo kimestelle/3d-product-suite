@@ -1,3 +1,4 @@
+import {EditorCabinetBody} from './editorMotion';
 import {UiIcon} from './UiIcon';
 import {useEffect, useRef, useState, type ReactNode} from 'react';
 import PartNameField from './PartNameField';
@@ -131,13 +132,13 @@ export default function ProductPanel(props: ProductPanelProps) {
         <div className="gesso-button-row"><button type="button" onClick={()=>{if(parentDraft&&!parentCandidates(scene,parts,part.id).some(item=>item.id===parentDraft)){setFeedback('That parent is no longer available.');return;}onChange(next=>changeParent(next,parts,part.id,parentDraft||null));setView('parts');}}>Apply parent</button><button type="button" onClick={()=>setView('parts')}>Cancel</button></div>
       </section>}
       {view === 'source' ? <section className="gesso-section">
-        <div className="gesso-section-heading">Object</div>
+        <div className="gesso-section-heading"><span className="gesso-section-label">Object</span></div>
         <div className="gesso-selected-name">{part.name}</div>
         <dl className="gesso-facts"><div><dt>Source object</dt><dd>{part.sourceName}</dd></div>
           <div><dt>Source parent</dt><dd>{hierarchy.sourceParents[part.id] ? parts.find(item => item.id === hierarchy.sourceParents[part.id])?.sourceName : 'Top level'}</dd></div>
           <div><dt>Geometry</dt><dd>{part.source === 'glb' ? 'GLB node' : component.shape}</dd></div>
           {part.sourcePath && <div><dt>Node path</dt><dd>{part.sourcePath}</dd></div>}</dl>
-        {!!part.materialSlots?.length && <><div className="gesso-section-heading">Material slots</div>{part.materialSlots.map(slot => <div className="gesso-source-slot" key={slot.id}>{slot.name || slot.id}</div>)}</>}
+        {!!part.materialSlots?.length && <><div className="gesso-section-heading"><span className="gesso-section-label">Material slots</span></div>{part.materialSlots.map(slot => <div className="gesso-source-slot" key={slot.id}>{slot.name || slot.id}</div>)}</>}
         <p className="gesso-meta">Original source structure. Names and parents are read-only.</p>
         <button type="button" onClick={() => setView('parts')}>Editing hierarchy</button>
       </section> : view === 'parts' && <>
@@ -189,18 +190,18 @@ export default function ProductPanel(props: ProductPanelProps) {
   const showMechanics = mechanicsOpen && !!action && !sourceChild;
   const materialLibrary = workspace === 'material' && activeMaterialLayer === 'Materials';
   return <div className={`gesso-panel gesso-product-panel gesso-condensed-product gesso-workspace-${workspace}`}>
-    {!materialLibrary&&<section className="gesso-fixed-parts"><div className="gesso-section-heading"><span>{scene.product.displayName||(fixtureGrouping?'MORA bottle':'Product')}</span>{workspace==='product'&&<button type="button" className="gesso-text-button" onClick={props.onImport}>Import</button>}</div><div className="gesso-section-heading"><span>{view === 'source' ? 'Source objects' : 'Objects'}</span></div>{tree}{workspace!=='product'&&focusControls}</section>}
+    {!materialLibrary&&<section className="gesso-fixed-parts"><div className="gesso-section-heading"><span>{scene.product.displayName||(fixtureGrouping?'MORA bottle':'Product')}</span>{workspace==='product'&&<button type="button" className="gesso-text-button" onClick={props.onImport}>Import</button>}</div><div className="gesso-section-heading"><span className="gesso-section-label">{view === 'source' ? 'Source objects' : 'Objects'}</span></div>{tree}{workspace!=='product'&&focusControls}</section>}
     {workspace==='product'&&<div className="gesso-control-sections">
       <section className={`gesso-control-section gesso-product-structure${showMechanics?'':' is-open'}`}>
-        <button type="button" className="gesso-section-toggle" aria-expanded={!showMechanics} aria-controls="product-section-Model" onClick={()=>setMechanicsOpen(false)}><span>Part details</span><UiIcon name={showMechanics ? "chevron" : "down"} size={14}/></button>
-        {!showMechanics&&<div id="product-section-Model" className="gesso-section-body">{modelContent}</div>}
+        <button type="button" className="gesso-section-toggle gesso-section-selector" aria-current={!showMechanics ? "true" : undefined} aria-controls="product-section-Model" onClick={()=>setMechanicsOpen(false)}><span className="gesso-section-label">Part details</span></button>
+        <EditorCabinetBody open={!showMechanics} id="product-section-Model">{modelContent}</EditorCabinetBody>
       </section>
       {mechanicsContent}
     </div>}
     {workspace==='material'&&<div className="gesso-control-sections">
       {sections.map((section,index)=><section className={`gesso-control-section${activeMaterialLayer===section.id?' is-open':''}`} key={section.id}>
-        <button type="button" className="gesso-section-toggle" aria-expanded={activeMaterialLayer===section.id} aria-controls={`product-section-${section.id}`} onClick={()=>props.onLayer(section.id)} title={`Option / Alt ${index+5}`}><span>{section.name}</span><small>{section.summary}</small><UiIcon name={activeMaterialLayer===section.id ? "down" : "chevron"} size={14}/></button>
-        {activeMaterialLayer===section.id&&<div id={`product-section-${section.id}`} className="gesso-section-body">{section.content}</div>}
+        <button type="button" className="gesso-section-toggle gesso-section-selector" aria-current={activeMaterialLayer===section.id ? "true" : undefined} aria-controls={`product-section-${section.id}`} onClick={()=>props.onLayer(section.id)} title={`Option / Alt ${index+5}`}><span className="gesso-section-label">{section.name}</span><small>{section.summary}</small></button>
+        <EditorCabinetBody open={activeMaterialLayer===section.id} id={`product-section-${section.id}`}>{section.content}</EditorCabinetBody>
       </section>)}
     </div>}
     {workspace==='animation'&&<div className="gesso-animation-selection"><p className="gesso-meta">Position, rotation, scale + keyframes below.</p></div>}

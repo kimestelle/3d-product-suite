@@ -24,6 +24,8 @@
 }
 .gesso-shape-light::-webkit-scrollbar { display: none; }
 .gesso-shape-light :is(h1,h2,p) { margin: 0; }
+/* Narrative text is Regular; navigation and numbered wayfinding retain emphasis. */
+.gesso-shape-light :is(h1,h2,.shape-light-bridge,.shape-light-copy) { -webkit-font-smoothing: antialiased; }
 .gesso-shape-light a { color: inherit; }
 .gesso-shape-light :is(a,button):focus-visible { outline: 2px solid var(--shape-paper); outline-offset: var(--gesso-space-6); }
 .gesso-shape-light :is(main,section):focus { outline: none; }
@@ -46,13 +48,13 @@
 .shape-light-intro { position: relative; height: calc(100dvh - 140px); min-height: 620px; }
 .shape-light-dictionary { position: absolute; top: var(--gesso-space-72); left: calc(var(--shape-column) + var(--gesso-space-20)); width: calc(2 * var(--shape-column) + 20px); }
 .shape-light-index { font: var(--gesso-type-caption); opacity: 1; }
-.gesso-shape-light h1 { margin-top: var(--gesso-space-8); font: 500 clamp(32px, 3.75vw, 48px)/1.083333 var(--gesso-font-display); letter-spacing: -.4px; }
+.gesso-shape-light h1 { margin-top: var(--gesso-space-8); font: 400 clamp(32px, 3.75vw, 48px)/1.083333 var(--gesso-font-display); letter-spacing: -.4px; }
 .gesso-shape-light .shape-light-bridge { margin-top: var(--gesso-space-24); font: var(--gesso-type-body); }
 .shape-light-chapter { position: relative; height: max(620px, calc(100dvh - var(--shape-header-height))); padding: var(--gesso-space-64) 0 104px; display: flex; align-items: center; }
 .shape-light-chapter-copy { flex: none; width: calc(3 * var(--shape-column) + 40px); }
 .shape-light-chapter-copy[data-flow-side="right"] { margin-left: calc(4 * (var(--shape-column) + var(--gesso-space-20))); }
 .shape-light-chapter-copy[data-flow-side="left"] { margin-left: calc(var(--shape-column) + var(--gesso-space-20)); }
-.gesso-shape-light .shape-light-chapter h2 { margin-top: var(--gesso-space-20); font: 500 clamp(34px, 3.75vw, 52px)/1.08 var(--gesso-font-display); letter-spacing: -.5px; text-wrap: balance; }
+.gesso-shape-light .shape-light-chapter h2 { margin-top: var(--gesso-space-20); font: 400 clamp(34px, 3.75vw, 52px)/1.08 var(--gesso-font-display); letter-spacing: -.5px; text-wrap: balance; }
 .shape-light-chapter .shape-light-copy { max-width: 42ch; padding-top: var(--gesso-space-32); }
 .shape-light-contents { display: grid; width: max-content; max-width: 100%; gap: var(--gesso-space-12); margin-top: var(--gesso-space-40); font: var(--gesso-type-body); }
 .shape-light-contents a { display: flex; align-items: baseline; gap: var(--gesso-space-24); width: fit-content; }

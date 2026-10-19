@@ -34,6 +34,10 @@ import {startExportJobPolling} from './exportJobPolling';
 import {resolveSaveStatus} from './saveStatus';
 import EditorNavigation from './EditorNavigation';
 import {UiIcon} from './UiIcon';
+import {EditorMenu} from './editorMotion';
+import {syncEditorDisclosureState} from './editorDisclosureState';
+import './editor-motion.css';
+import './editor-disclosures.css';
 import KeyframeEditor from './KeyframeEditor';
 import {materializeAnimatedPose} from './keyframes';
 import avatar from './assets/gesso/avatar.png';
@@ -121,6 +125,14 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   const [uvLayout,setUvLayout]=useState<UvLayout|null>(null);
   const [selectedDecalId,setSelectedDecalId]=useState<string|null>(null);
   const [parts,setParts]=useState<ViewportPart[]>([]);const [focused,setFocused]=useState(true);const [inspecting,setInspecting]=useState(false);const [hiddenParts,setHiddenParts]=useState<string[]>([]);
+  const [sectionType,setSectionType]=useState('text');
+  const editorRoot=useRef<HTMLDivElement>(null);
+  useLayoutEffect(()=>{
+    const root=editorRoot.current;if(!root)return;
+    const toggle=(event:Event)=>{if(event.target instanceof HTMLDetailsElement)syncEditorDisclosureState(event.target)};
+    root.addEventListener('toggle',toggle,true);
+    return()=>root.removeEventListener('toggle',toggle,true);
+  },[]);
   const [menu,setMenu]=useState<string|null>(null);const menuHost=useRef<HTMLDivElement>(null);
   const chooseLayer=(name:string)=>{selectLayer(name);setMenu(null)};
   useEffect(()=>{setMenu(null)},[tab,layer]);
@@ -522,7 +534,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     <fieldset className="film-camera-fields" disabled={!!filmCameraOwners.length||busy||!valid}><CameraPanel scene={scene} frame={frame} mode={mode} embedded cameraEnd={filmCamera.end} onCameraEndChange={filmCamera.onEndChange} viewportControls cameraTargetId={filmCamera.targetId} onCameraTargetChange={filmCamera.onTargetChange} samples={valid?samples:[]} onChange={change} onFrame={previewFrame} onResetView={resetView}/></fieldset>
   </>:<FilmPoseInspector scene={scene} frame={frame} target={filmTarget} onChange={change} onMotionSelect={chooseFilmMotion} disabled={busy||!valid}/> ):null;
   const railWidth=340;
-  return <div className="studio gesso-studio" style={{'--rail-width':`${railWidth}px`} as React.CSSProperties}>
+  return <div className="studio gesso-studio" ref={editorRoot} data-section-type={sectionType} style={{'--rail-width':`${railWidth}px`} as React.CSSProperties}>
     <header className="gesso-topbar" ref={menuHost} data-frame-outside>
       <div className="gesso-appbar">
         <a className="gesso-wordmark" href="/landing" aria-label="gesso home">gesso<span>studio</span></a>
@@ -540,13 +552,13 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
         </div>
       </div>
       <EditorNavigation group={tab} onGroup={group=>{chooseGroup(group);setMenu(null)}} mode={mode} onMode={next=>{setPlaying(false);setMode(next);setMenu(null)}}/>
-      {menu&&<div className={`gesso-menu ${menu==='History'?'gesso-menu-right':''}`} aria-label={`${menu} options`}>
-        {menu==='File'&&<><div className="gesso-menu-heading">{project?.name??'Opening project…'}</div><button disabled={!!transformMode||!dirty||busy||evaluating} onClick={()=>{void save();setMenu(null)}}>Save revision <kbd>⌘ S</kbd></button><button onClick={()=>{chooseGroup('product');setShowProductImport(true);setMenu(null)}}>Import product GLB</button><button disabled={!scene||busy} aria-haspopup="dialog" onClick={()=>openExport()}>Export…</button>    <div className="project-switch"><Field label="Campaign"><select aria-label="Campaign" title={dirty?'Save this revision before switching campaigns':undefined} disabled={busy||dirty} value={project?.id??''} onChange={e=>openCampaign(e.target.value)}>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>{dirty&&<p className="gesso-note">Save this revision to switch campaigns.</p>}<button className="text-button" disabled={busy} onClick={()=>perform(async()=>{const p=await api('/api/projects','POST',{name:`Campaign ${projects.length+1}`,scene});loadProject(p);setProjects(await api('/api/projects'))})}>＋ Duplicate as new campaign</button></div>
+      <EditorMenu name={menu} onClose={()=>setMenu(null)}>{shownMenu=><>
+        {shownMenu==='File'&&<><div className="gesso-menu-heading">{project?.name??'Opening project…'}</div><button disabled={!!transformMode||!dirty||busy||evaluating} onClick={()=>{void save();setMenu(null)}}>Save revision <kbd>⌘ S</kbd></button><button onClick={()=>{chooseGroup('product');setShowProductImport(true);setMenu(null)}}>Import product GLB</button><button disabled={!scene||busy} aria-haspopup="dialog" onClick={()=>openExport()}>Export…</button>    <div className="project-switch"><Field label="Campaign"><select aria-label="Campaign" title={dirty?'Save this revision before switching campaigns':undefined} disabled={busy||dirty} value={project?.id??''} onChange={e=>openCampaign(e.target.value)}>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>{dirty&&<p className="gesso-note">Save this revision to switch campaigns.</p>}<button className="text-button" disabled={busy} onClick={()=>perform(async()=>{const p=await api('/api/projects','POST',{name:`Campaign ${projects.length+1}`,scene});loadProject(p);setProjects(await api('/api/projects'))})}>＋ Duplicate as new campaign</button></div>
 </>}
-        {menu==='Edit'&&<><button disabled={!canUndo(history)} onClick={undo}>Undo <kbd>⌘ Z</kbd></button><button disabled={!canRedo(history)} onClick={redo}>Redo <kbd>⇧ ⌘ Z</kbd></button></>}
-        {menu==='View'&&<>{!stillFilm&&!filmWorkspace&&!(tab==='material'&&layer==='Decals')&&<button onClick={()=>{setShowTimeline(!timelineVisible);setMenu(null)}}>{timelineVisible?'Hide':'Show'} timeline</button>}{(tab==='product'||tab==='material'&&layer==='Decals')&&<button onClick={()=>{setFocused(v=>!v);setMenu(null)}}>{focused?'Show assembly':'Focus selected part'}</button>}<button onClick={()=>{framePart();setMenu(null)}}>Frame selected part <kbd>F</kbd></button><button onClick={()=>{resetView();setMenu(null)}}>Return to shot camera <kbd>⇧ F</kbd></button><p className="gesso-note">Option / Alt 1–4 selects a step.<br/>Option / Alt {stillFilm?'5–6':'5–8'} opens its controls.<br/>Drag to orbit. Shift-drag to pan.<br/>Scroll to zoom.</p><a href="/about">About gesso</a><a href="/aperture">Form + light</a></>}
-        {menu==='History'&&<><div className="gesso-menu-heading">{project?.name}</div><p className="gesso-note">{history.past.length} undo steps · {history.future.length} redo steps</p><button disabled={busy||dirty} onClick={approve}>Approve saved revision</button><button disabled={!project?.approvedRevisionId||busy} onClick={restore}>Restore approved scene</button><p className="gesso-note">{dirty?'Unsaved changes':'Current revision saved locally'}</p></>}
-      </div>}
+        {shownMenu==='Edit'&&<><button disabled={!canUndo(history)} onClick={undo}>Undo <kbd>⌘ Z</kbd></button><button disabled={!canRedo(history)} onClick={redo}>Redo <kbd>⇧ ⌘ Z</kbd></button></>}
+        {shownMenu==='View'&&<><Field label="Section headings"><select value={sectionType} onChange={event=>setSectionType(event.target.value)}><option value="text">Halyard Text</option><option value="micro">Halyard Micro</option><option value="display">Halyard Display</option></select></Field>{!stillFilm&&!filmWorkspace&&!(tab==='material'&&layer==='Decals')&&<button onClick={()=>{setShowTimeline(!timelineVisible);setMenu(null)}}>{timelineVisible?'Hide':'Show'} timeline</button>}{(tab==='product'||tab==='material'&&layer==='Decals')&&<button onClick={()=>{setFocused(v=>!v);setMenu(null)}}>{focused?'Show assembly':'Focus selected part'}</button>}<button onClick={()=>{framePart();setMenu(null)}}>Frame selected part <kbd>F</kbd></button><button onClick={()=>{resetView();setMenu(null)}}>Return to shot camera <kbd>⇧ F</kbd></button><p className="gesso-note">Option / Alt 1–4 selects a step.<br/>Option / Alt {stillFilm?'5–6':'5–8'} opens its controls.<br/>Drag to orbit. Shift-drag to pan.<br/>Scroll to zoom.</p><a href="/about">About gesso</a><a href="/aperture">Form + light</a></>}
+        {shownMenu==='History'&&<><div className="gesso-menu-heading">{project?.name}</div><p className="gesso-note">{history.past.length} undo steps · {history.future.length} redo steps</p><button disabled={busy||dirty} onClick={approve}>Approve saved revision</button><button disabled={!project?.approvedRevisionId||busy} onClick={restore}>Restore approved scene</button><p className="gesso-note">{dirty?'Unsaved changes':'Current revision saved locally'}</p></>}
+      </>}</EditorMenu>
     </header>
     <div className={`gesso-workspace ${sideEditorVisible?'with-material-editor':''} ${filmWorkspace?'with-film-workspace':''} ${filmCurves?'film-curves-open':''} ${filmLegacy?'film-legacy-open':''}`}>
       <aside className="gesso-sidebar" data-frame-outside aria-label={`${groupName} controls`}>

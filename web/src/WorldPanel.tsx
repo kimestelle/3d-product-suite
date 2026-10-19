@@ -1,4 +1,4 @@
-import {UiIcon} from './UiIcon';
+import {EditorCabinetBody} from './editorMotion';
 import {useEffect, useRef, useState, type ReactNode} from 'react';
 import {createPortal} from 'react-dom';
 import WorldObjectPreviews from './WorldObjectPreviews';
@@ -59,10 +59,10 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
   return <div ref={root} className="gesso-panel gesso-condensed-world gesso-control-sections">
     {editorHost && editor ? createPortal(editor, editorHost) : editor}
     <section className={`gesso-control-section${layer==='Environment'?' is-open':''}`}>
-      <button type="button" className="gesso-section-toggle" aria-expanded={layer==='Environment'} aria-controls="world-section-Environment" onClick={()=>onLayer?.('Environment')}><span>Environment</span><small>World + background</small><UiIcon name={layer==='Environment' ? "down" : "chevron"} size={14}/></button>
-      {layer === 'Environment' && <div className="gesso-section-body" id="world-section-Environment">
+      <button type="button" className="gesso-section-toggle gesso-section-selector" aria-current={layer==='Environment' ? "true" : undefined} aria-controls="world-section-Environment" onClick={()=>onLayer?.('Environment')}><span className="gesso-section-label">Environment</span><small>World + background</small></button>
+      <EditorCabinetBody open={layer==='Environment'} id="world-section-Environment">
       {!scene.comparison && <>
-        <section className="gesso-section"><div className="gesso-section-heading">Surroundings</div>
+        <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">Surroundings</span></div>
           <Field label="World"><select value={environment.kind === 'authored' ? 'authored' : matchWorldRevision(worlds, environment)?.id ?? ''} onChange={event => onWorld(event.target.value)}>
             <option value="authored">Authored studio</option>{environment.kind !== 'authored' && !matchWorldRevision(worlds, environment) && <option value="">Saved custom world</option>}
             {worlds.map(world => <option key={world.id} value={world.id}>{world.name}</option>)}
@@ -77,28 +77,28 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
           <p className="gesso-meta">Moves the imported world. Product and props keep their positions.</p>
         </section></details>}
       </>}
-      <section className="gesso-section"><div className="gesso-section-heading">Background</div><ColorField label="World color" value={environment.worldColor} onChange={color => onChange(next => {next.environment.worldColor = color;})}/>
+      <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">Background</span></div><ColorField label="World color" value={environment.worldColor} onChange={color => onChange(next => {next.environment.worldColor = color;})}/>
         <p className="gesso-meta">Visible beyond the world geometry. Also colors ambient light in the final render.</p>
       </section>
       {children}
-      </div>}
+      </EditorCabinetBody>
     </section>
 
     <section className={`gesso-control-section${layer==='Props'?' is-open':''}`}>
-      <button type="button" className="gesso-section-toggle" aria-expanded={layer==='Props'} aria-controls="world-section-Props" onClick={()=>onLayer?.('Props')}><span>Objects</span><small>Props + surfaces</small><UiIcon name={layer==='Props' ? "down" : "chevron"} size={14}/></button>
-      {layer === 'Props' && <div className="gesso-section-body" id="world-section-Props">
+      <button type="button" className="gesso-section-toggle gesso-section-selector" aria-current={layer==='Props' ? "true" : undefined} aria-controls="world-section-Props" onClick={()=>onLayer?.('Props')}><span className="gesso-section-label">Objects</span><small>Props + surfaces</small></button>
+      <EditorCabinetBody open={layer==='Props'} id="world-section-Props">
       <div className="gesso-world-object-actions">
         <div className="gesso-button-row">{(['box', 'cylinder'] as const).map(shape => <button key={shape} type="button" onClick={() => {const id = addProp(structuredClone(scene), shape); onChange(next => {addProp(next, shape);}); onSelectObject?.(id);}}>Add {shape}</button>)}</div>
         <details className="gesso-disclosure"><summary>Prop library</summary><PolyHavenLibrary kind="models" scopeKey={scene.sceneId} onImport={result => {const id = addPropFromLibrary(structuredClone(scene), result.entry); onChange(next => {addPropFromLibrary(next, result.entry);}); onSelectObject?.(id);}}/></details>
       </div>
       <WorldObjectPreviews items={objects} selectedId={selectedObjectId ?? undefined} onSelect={id => onSelectObject?.(id)}/>
-      </div>}
+      </EditorCabinetBody>
     </section>
 
     <section className={`gesso-control-section${layer==='Lights'?' is-open':''}`}>
-      <button type="button" className="gesso-section-toggle" aria-expanded={layer==='Lights'} aria-controls="world-section-Lights" onClick={()=>onLayer?.('Lights')}><span>Lighting</span><small>HDRI + studio rig</small><UiIcon name={layer==='Lights' ? "down" : "chevron"} size={14}/></button>
-      {layer === 'Lights' && <div className="gesso-section-body" id="world-section-Lights">
-      <section className="gesso-section"><div className="gesso-section-heading">Environment light</div>
+      <button type="button" className="gesso-section-toggle gesso-section-selector" aria-current={layer==='Lights' ? "true" : undefined} aria-controls="world-section-Lights" onClick={()=>onLayer?.('Lights')}><span className="gesso-section-label">Lighting</span><small>HDRI + studio rig</small></button>
+      <EditorCabinetBody open={layer==='Lights'} id="world-section-Lights">
+      <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">Environment light</span></div>
         {lighting.hdri && <>
           <p className="gesso-meta">{lighting.hdri.name}</p>
           <NumberField label="Intensity" value={lighting.hdri.intensity} min={0} max={10} step={.1} onChange={value => onChange(next => {ensureLighting(next).hdri!.intensity = value;})}/>
@@ -109,7 +109,7 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
         <details className="gesso-disclosure"><summary>HDRI library</summary><PolyHavenLibrary kind="hdris" scopeKey={scene.sceneId} onImport={result => onChange(next => setHdriFromLibrary(next, result.entry))}/></details>
         <p className="gesso-meta">HDRI lights the scene and appears in reflections. The background keeps its current color.</p>
       </section>
-      <section className="gesso-section"><div className="gesso-section-heading">Studio rig</div>
+      <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">Studio rig</span></div>
         <ul className="gesso-part-tree" aria-label="Studio lights">{lighting.lights.map((item: any) => <li key={item.id} className={`gesso-part-row ${light?.id === item.id ? 'selected' : ''}`}>
           <button type="button" className="gesso-part-select" aria-pressed={light?.id === item.id} onClick={() => setSelectedLight(item.id)}><span className="gesso-part-name">{item.name}</span><span className="gesso-status">{item.enabled ? 'On' : 'Off'}</span></button>
         </li>)}</ul>
@@ -126,12 +126,12 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
           <VectorField label="Aim at · m" values={light.targetM} onChange={(axis, value) => editLight(target => {target.targetM[axis] = value; if (target.positionM.every((item: number, index: number) => Math.abs(item - target.targetM[index]) < .00001)) target.targetM[axis] += .001;})}/>
         </section>
       </>}
-      <section className="gesso-section"><div className="gesso-section-heading">Ambient</div>
+      <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">Ambient</span></div>
         <NumberField label="Strength" value={lighting.ambientStrength} min={0} max={10} step={.05} onChange={value => onChange(next => {ensureLighting(next).ambientStrength = value;})}/>
         <button type="button" onClick={() => onChange(next => {const hdri = next.lighting?.hdri; next.lighting = defaultLighting(next); if (hdri) next.lighting.hdri = hdri;})}>Reset studio rig</button>
         <p className="gesso-meta">Preview approximates area lights. Cycles renders the saved power, diameter and position. Baked light in an imported world stays in its source texture.</p>
       </section>
-      </div>}
+      </EditorCabinetBody>
     </section>
   </div>;
 }

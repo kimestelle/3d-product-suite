@@ -1,7 +1,7 @@
 import {memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {CURVE_PRESETS, CURVE_PRESET_ALIASES} from './curvePresets';
 import {frameBounds, framePath, type FrameNodes} from './frameGeometry';
-import {frameGuidePath} from './frameGuides';
+import {frameGuidePaths} from './frameGuides';
 import {createFrameMorph} from './frameMorph';
 import {STATIC_MOTION_QUERY} from './motionPolicy';
 import './curve-demo.css';
@@ -61,7 +61,7 @@ export default function CurveDemo() {
   const [staticMotion,setStaticMotion] = useState(()=>matchMedia(STATIC_MOTION_QUERY).matches);
   const [direction,setDirection] = useState<1|-1>(1);
   const [notice,setNotice] = useState('');
-  const path = useRef<SVGPathElement>(null), dots = useRef<SVGGElement>(null), guides = useRef<SVGPathElement>(null);
+  const path = useRef<SVGPathElement>(null), dots = useRef<SVGGElement>(null), guides = useRef<SVGPathElement>(null), guideCrosses = useRef<SVGPathElement>(null);
   const scrubber = useRef<HTMLInputElement>(null), readout = useRef<HTMLOutputElement>(null);
   const progress = useRef(start.progress), directionRef = useRef<1|-1>(1);
   const persistTimer = useRef<number|undefined>(undefined);
@@ -82,7 +82,9 @@ export default function CurveDemo() {
   const paint = useCallback((value:number)=>{
     const t=clamp(value);progress.current=t;nodes.current=animator(t);
     path.current?.setAttribute('d',framePath(nodes.current));
-    guides.current?.setAttribute('d',frameGuidePath(nodes.current,1000,600));
+    const guidePaths=frameGuidePaths(nodes.current,1000,600);
+    guides.current?.setAttribute('d',guidePaths.lines);
+    guideCrosses.current?.setAttribute('d',guidePaths.crosses);
     if(anchors&&dots.current)Array.from(dots.current.children).forEach((dot,i)=>{
       dot.setAttribute('cx',String(nodes.current[i].point.x));dot.setAttribute('cy',String(nodes.current[i].point.y));
     });
@@ -174,7 +176,8 @@ export default function CurveDemo() {
           </div></div>
           <svg className="curve-specimen" viewBox="0 0 1000 600" role="img" aria-label={`64-anchor curve between ${presets[pair.a].name} and ${presets[pair.b].name}`}>
             <path ref={path} className="curve-live" d={framePath(animator(progress.current))}/>
-            <path ref={guides} className="frame-boundary-guides" d={frameGuidePath(animator(progress.current),1000,600)} aria-hidden="true"/>
+            <path ref={guides} className="frame-boundary-guides" aria-hidden="true"/>
+            <path ref={guideCrosses} className="frame-boundary-crosses" aria-hidden="true"/>
             {endpoints&&<g className="curve-endpoint-guides" aria-hidden="true"><path d={presets[pair.a].path}/><path d={presets[pair.b].path} strokeDasharray="4 5"/></g>}
             {anchors&&<g ref={dots} className="curve-anchor-guides" aria-hidden="true">{Array.from({length:64},(_,i)=><circle key={i} r="2.2"/>)}</g>}
           </svg>

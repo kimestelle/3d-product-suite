@@ -12,30 +12,26 @@ export function philosophyScrollProgress(scroll:number,stops:readonly number[]):
 const clamp=(value:number,low:number,high:number)=>Math.max(low,Math.min(high,value));
 export type ScrollSettle={from:number;to:number;start:number;duration:number;tangent:number};
 
-/** Project only within the neighboring poses. A decisive gesture can leave its
- * starting pose; a slow stop chooses the closest one, including in reverse. */
+/** A small correction ahead of the final gesture, never a compulsory page turn.
+ * Read freely between poses and do not pull back toward the pose just departed. */
 export function choosePhilosophyStop(position:number,velocity:number,origin:number,stops:readonly number[],maximum:number):number {
-  const points=[...new Set(stops.map(stop=>clamp(stop,0,maximum)))];
+  const points=[...new Set(stops.map(stop=>clamp(stop,0,maximum)))].sort((a,b)=>a-b);
   if(!points.length)return position;
-  const lower=points.filter(stop=>stop<=position).at(-1)??points[0];
-  const upper=points.find(stop=>stop>position)??points.at(-1)!;
-  const gap=Math.max(1,upper-lower);
-  const projected=position+clamp(velocity*200,-gap*.45,gap*.45);
-  let target=points.reduce((best,stop)=>Math.abs(stop-projected)<Math.abs(best-projected)?stop:best,points[0]);
-  const startedAt=points.find(stop=>Math.abs(stop-origin)<=4);
-  const direction=Math.sign(position-origin);
-  if(startedAt!==undefined&&target===startedAt&&direction&&Math.sign(velocity)===direction&&Math.abs(velocity)>.08) {
-    const neighbor=direction>0?points.find(stop=>stop>startedAt):points.filter(stop=>stop<startedAt).at(-1);
-    if(neighbor!==undefined&&Math.abs(position-origin)>=Math.min(80,Math.abs(neighbor-startedAt)*.12))target=neighbor;
-  }
-  return target;
+  const direction=Math.sign(velocity)||Math.sign(position-origin);
+  if(!direction)return position;
+  const target=direction>0?points.find(stop=>stop>position):points.filter(stop=>stop<position).at(-1);
+  if(target===undefined)return position;
+  const neighbor=points[points.indexOf(target)-direction];
+  if(neighbor===undefined)return position;
+  const reach=Math.min(96,Math.abs(target-neighbor)*.14);
+  return Math.abs(target-position)<=reach?target:position;
 }
 
 /** Quintic endpoint interpolation: bounded initial velocity, zero final
  * velocity/acceleration, no overshoot or spring. Always starts where we are. */
 export function createScrollSettle(from:number,to:number,velocity:number,start:number):ScrollSettle {
   const distance=to-from;
-  let duration=clamp(280+Math.abs(distance)*.35,320,620);
+  let duration=clamp(160+Math.abs(distance)*.65,160,240);
   if(distance*velocity>0)duration=Math.min(duration,Math.max(120,2*Math.abs(distance/velocity)));
   const tangent=distance?clamp(velocity*duration/distance,0,2):0;
   return {from,to,start,duration,tangent};

@@ -25,8 +25,8 @@ describe('Product panel capability boundaries', () => {
     expect(html).toContain('aria-label="Hide Front print"');
     expect(html).toContain('<dt>Parent</dt><dd>Glass body</dd>');
     expect(html).toContain('Double-click or press F2 to rename');
-    expect(html).toContain('<span>Part details</span>');
-    expect(html).toContain('<span>Objects</span>');
+    expect(html).toContain('<span class="gesso-section-label">Part details</span>');
+    expect(html).toContain('<span class="gesso-section-label">Objects</span>');
     const materials = render({scene, workspace: 'material', layer: 'Materials', partId: 'cap'});
     expect(materials).toContain('aria-label="Lid material"');
   });
@@ -45,9 +45,32 @@ describe('Product panel capability boundaries', () => {
     expect(html).toContain('aria-controls="product-section-Model"');
     for (const section of ['Materials', 'Decals', 'Animation']) expect(html).not.toContain(`aria-controls="product-section-${section}"`);
     expect(html).toContain('>Import</button>');
-    expect(html.match(/class="gesso-section-toggle" aria-expanded="true"/g)).toHaveLength(1);
+    expect(html.match(/class="gesso-section-toggle gesso-section-selector" aria-current="true"/g)).toHaveLength(1);
     expect(html).toContain('id="product-section-Model"');
     expect(html).not.toContain('id="product-section-Materials"');
+  });
+
+  it('distinguishes layer selection from genuine tree and mechanism disclosures', () => {
+    for (const layer of ['Materials', 'Decals'] as const) {
+      const html = render({workspace: 'material', layer});
+      const selectors = html.match(/<button[^>]*class="gesso-section-toggle gesso-section-selector"[\s\S]*?<\/button>/g) ?? [];
+      expect(selectors).toHaveLength(2);
+      expect(selectors.filter(button => button.includes('aria-current="true"'))).toHaveLength(1);
+      const current = selectors.find(button => button.includes('aria-current="true"'))!;
+      expect(current).toContain(`aria-controls="product-section-${layer}"`);
+      for (const selector of selectors) {
+        expect(selector).not.toContain('aria-expanded');
+        expect(selector).not.toContain('gesso-ui-icon');
+      }
+    }
+    const product = render({partId: 'cap'});
+    const detailsSelector = product.match(/<button[^>]*class="gesso-section-toggle gesso-section-selector"[\s\S]*?<\/button>/)![0];
+    expect(detailsSelector).toContain('aria-current="true"');
+    expect(detailsSelector).not.toContain('aria-expanded');
+    expect(detailsSelector).not.toContain('gesso-ui-icon');
+    expect(product).toContain('class="gesso-tree-toggle"');
+    expect(product).toMatch(/class="gesso-tree-toggle"[^>]*aria-expanded="true"[^>]*>[\s\S]*?gesso-ui-icon/);
+    expect(product).toContain('<details class="gesso-disclosure gesso-product-mechanics"><summary>Mechanics');
   });
 
   it('uses readable fixture part names while retaining exact source IDs', () => {

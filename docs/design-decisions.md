@@ -39,7 +39,7 @@ For future changes, append a dated entry with a stable ID, **decision, reason, s
 
 **Direction / partially in code.** Replace “Brand Manifesto” with a dictionary treatment of *gesso*. Use **“A ground applied to a surface before painting.”** as the philosophy cover title, followed by a short bridge to the product. About carries product description and audience; the philosophy page carries design intent. Copy should also work as a marketing pitch without repeating About. Estelle's [notes](https://softcopy.digital/notes/) informed the requested brevity; no authorship or quotations are transferred from unrelated work.
 
-**Open:** the user rejected “Keep what’s been decided” and its surrounding abstract copy as ambiguous. That passage remains in [ShapeLightPage.tsx](../web/src/ShapeLightPage.tsx) at this recording. A requested Figma copy revision must not be treated as already deployed.
+**Resolved in the app by D52:** the user rejected “Keep what’s been decided” and its surrounding abstract copy as ambiguous. The passage was still present at the retrospective recording; D52 replaces it with concrete scene/product language. No corresponding Figma update is claimed.
 
 ### D07 — References inform a mechanism, not vague endorsements
 
@@ -195,7 +195,7 @@ For future changes, append a dated entry with a stable ID, **decision, reason, s
 
 ### D43 — Scroll should settle without stopping twice
 
-**Direction / in code.** Settle toward finished philosophy keyframes in the direction of scroll momentum. Avoid a visible pause followed by a second abrupt snap, fighting active input, flickering contents or jumping line breaks. Keep shape, text and material updates coordinated, with interruption and reduced-motion handling. This is a perceptual constraint, not proof that every device feels identical. See [philosophy motion](../web/src/philosophyMotion.ts), [text motion](../web/src/philosophyTextMotion.ts) and [ShapeLightPage](../web/src/ShapeLightPage.tsx).
+**Direction / in code; settling policy refined by D51.** Settle toward finished philosophy keyframes in the direction of scroll momentum. Avoid a visible pause followed by a second abrupt snap, fighting active input, flickering contents or jumping line breaks. Keep shape, text and material updates coordinated, with interruption and reduced-motion handling. This is a perceptual constraint, not proof that every device feels identical. See [philosophy motion](../web/src/philosophyMotion.ts), [text motion](../web/src/philosophyTextMotion.ts) and [ShapeLightPage](../web/src/ShapeLightPage.tsx).
 
 ### D44 — Glassine is the opening material study
 
@@ -217,7 +217,7 @@ For future changes, append a dated entry with a stable ID, **decision, reason, s
 
 **In code; revised.** Marketing shape guides are fine white dotted hairlines at **50% opacity**, tracking the animated opening and aligning settled poses to the layout grid where possible. Thicker and fully opaque experiments were superseded. Guides sit behind interactive UI; menus appear above them.
 
-The latest editor correction removes the decorative viewport-spanning guides from studio. Dotted rules instead separate meaningful groups **within the same sidebar's margins**—for example Objects / Part details, Geometry / Surface, or material properties. Retain short tree stems that express actual assignment/hierarchy. See [frame guides](../web/src/frame-guides.css), [guide geometry](../web/src/frameGuides.ts) and [interface system](../web/src/interface-system.css).
+An earlier interpretation removed viewport-spanning guides from studio; **superseded by D56**, which restores them alongside the sidebar rules. Dotted rules separate meaningful groups **within the same sidebar's margins**—for example Objects / Part details, Geometry / Surface, or material properties—with their inline header placement defined by D55. Retain short tree stems that express actual assignment/hierarchy. See [frame guides](../web/src/frame-guides.css), [guide geometry](../web/src/frameGuides.ts) and [interface system](../web/src/interface-system.css).
 
 ### D49 — “Form + light” is the public name
 
@@ -244,3 +244,64 @@ Scope: Affected views/data; any intentional limits.
 Replaces: Dxx, if applicable.
 Source / verification: Request, code/design links, and checks actually performed.
 ```
+
+### 2026-10-19 — D50 — Regular prose, selective emphasis
+
+**In code.** About's product description, process note and main narrative heading, plus Form + Light's narrative headings and prose, use Halyard Regular. Preserve the existing four-step section, numbered wayfinding, navigation and footer emphasis. Hierarchy should come from role and scale instead of making every paragraph look important.
+
+Body copy already requested weight 400 and the installed Halyard Regular faces resolved correctly. A browser comparison identified heavier white-on-dark edge rendering; scope `-webkit-font-smoothing: antialiased` to the reading text on supporting browsers instead of substituting a lighter font and calling it Regular. Narrative display headings change from 500 to 400. Keep layout, type families, sizes, colors and the shared text-flow engine intact. Extends D05 and D40–D42. See [About styles](../web/src/about.css) and [Form + Light styles](../web/src/shape-light.css).
+
+### 2026-10-19 — D51 — Scroll leads; snapping only finishes a nearby position
+
+**In code.** Let wheel gestures stop between Form + Light keyframes. Settle only toward a stop ahead in the final scroll direction, within 14% of its neighboring interval and at most 96px. Never pull backward toward a departed frame or turn a small notch into a whole-page movement. Shorten the correction to 160–240ms (down to 120ms for a fast continuation); preserve a bounded, monotone trajectory. New wheel input or resumed native movement cancels the correction, including compositor movement that arrives before its scroll callback. Mobile, reduced motion, selected text and fine keyboard reading retain their existing exclusions.
+
+The earlier mandatory nearest-stop policy could turn a roughly 133px wheel gesture into a 660px page turn. A native CSS proximity experiment was discarded because the same small gesture returned to the starting stop in the tested browser. The accepted rule preserves that 133px reading position, settles only when approaching the next stop, and allows immediately leaving it in reverse. Shape and text still use the actual scroll offset and the existing shared renderer; no independent visual scroll clock was added. Refines D43. See [stop selection](../web/src/philosophyMotion.ts), [scroll controller](../web/src/philosophyScroll.ts), and their regression tests. Verified through local wheel/anchor interactions, the focused motion/layout tests, and the production build.
+
+### 2026-10-19 — D52 — Name what changes and what stays
+
+**In code.** Replace the Product principle's abstract language about interpretation and approval with **“Same product. Different scene.”** and **“Change the room, light, or camera. Your product keeps its dimensions, parts, materials, artwork, and motion.”** Name the actual editable things and the consequence; omit an implied approval workflow. This resolves the stale passage recorded under D06. Scope: [Form + Light Product principle](../web/src/ShapeLightPage.tsx); no Figma change. Keep its existing frame, typography and text-flow renderer.
+
+
+### 2026-10-19 — D53 — Arrows promise disclosure; section labels have a type role
+
+**In code; optical-family comparison available.** Remove disclosure arrows from Product's Part details, Material's Library/Decals, World's Environment/Objects/Lighting, and Film's section selectors. These buttons select one active section and cannot collapse it. Use `aria-current` for that selection, retain their button identity, focus and shortcuts, and reserve chevrons plus expanded-state semantics for actual disclosures: the object tree, Mechanics, material properties, libraries and camera options.
+
+The original section-label treatment used uppercase Halyard Regular with 0.04em tracking at the existing sizes; **superseded by D55**. Preserve mixed-case product/part/shot names, values, units, summary text, and ordinary controls. **View → Section headings** compares Halyard Text (default), Micro and Display; only the optical family changes between treatments. This is session-local UI state, separate from the scene and undo history. The installed Halyard faces do not provide OpenType `smcp`/`c2sc`; the original treatment used regular capitals, not synthesized small caps. Micro resolves licensed local fonts, with Text as fallback; no font files are redistributed.
+
+Reason: an arrow should predict a real action, and a section should be distinguishable from an editable name without shrinking the type. Scope: editor sidebars, their actual disclosures and fixed section labels; page typography and top-level navigation remain unchanged. Source: user's hierarchy correction; [interface styles](../web/src/interface-system.css), [View comparison](../web/src/App.tsx), and Product/World/Film panel selectors. Verification: 40 focused panel tests and production build passed; browser checks compared all three families, exercised mouse/keyboard section selection and real Alignment/material-property collapse.
+
+### 2026-10-19 — D54 — Menus and cabinets reveal their contents in place
+
+**In code.** File, Edit, View and History share a persistent menu surface that transitions to its measured content height. Sidebar cabinets transfer their available height over 240ms; content fades in over 160ms with a short 16ms row cascade capped at 64ms. Closing fades take 120ms without stagger. New input reverses the current transition. Preserve the existing typography, spacing, selection rules, scene state and scrollable controls.
+
+Retain outgoing cabinet content only for the closing transition, including its existing portal destination. Closing controls become inert and leave the accessibility tree; Escape from menu fields returns focus to the menu trigger. Genuine native disclosures and material-property groups animate intrinsic height where supported, with ordinary functional disclosure as fallback. Film's Output inspector keeps its natural content height. Compact/touch layouts and reduced-motion preferences use the existing static-motion policy.
+
+Reason: reveal the relationship between a section and its controls without a sudden height jump or a long decorative sequence. Scope: [shared menu/cabinet components](../web/src/editorMotion.tsx), [motion styles](../web/src/editor-motion.css), [native/material disclosures](../web/src/editor-disclosures.css), and [disclosure focus/inert handling](../web/src/editorDisclosureState.ts). Verification: production build and 45 focused panel/disclosure tests passed. Browser checks exercised menu switching, Escape from a field, rapid cabinet reversals, material properties, native Alignment and Mechanics disclosure, and Film Output sizing.
+
+### 2026-10-19 — D55 — Section labels lead into dotted rules
+
+**In code.** Restore section names to their authored case, use Halyard at weight 600 with normal tracking, and place the existing fine dotted rule in the same row after the label. Where a summary, count, or action appears on the right, the rule fills the space between it and the label. Remove the earlier separate rules above these groups. Keep metadata at regular weight, existing sizes and spacing, and real disclosure chevrons and animation behavior.
+
+Reason: distinguish sections through weight and a visible boundary without uppercase styling. Scope: Product, Material, World and Film sidebar section selectors, fixed section labels, and disclosures; object names, field labels, top navigation, and public pages keep their existing roles. Supersedes D53's uppercase treatment and refines D48's placement of sidebar rules. See [interface styles](../web/src/interface-system.css). Verification: production build and diff whitespace checks passed; browser checks covered Product, both Material panels, World, and Film headers.
+
+### 2026-10-19 — D56 — Frame guides remain visible in studio and loading
+
+**In code.** Restore the shared dotted boundaries around the editor window and the morphing studio loader. Sidebar header rules coexist with these frame guides. Remove the studio-route visibility override, which also hid the loader because it uses the same route. Let the shared ground provide the topbar and sidebar backdrops so opaque chrome does not conceal the guides; controls and menus keep their own surfaces. Preserve the original .75px rounded dots at 50% white opacity, the shared curve-extrema geometry, and the layer beneath content and menus. This corrects D48's overbroad interpretation of the sidebar-divider request; it does not change D55's header treatment. See [frame guides](../web/src/frame-guides.css), [shared frame styles](../web/src/dynamic-frame.css), and [shared renderer](../web/src/DynamicFrame.tsx).
+
+Verification for D56: production build and diff whitespace checks passed. Browser captures confirmed the dynamic loader and settled editor guides; the File popup remains opaque above them.
+
+### 2026-10-19 — D57 — Solid crosses mark guide intersections
+
+**In code.** Place an 8-unit solid white plus mark with a 1px stroke at each of the four dotted-guide intersections. The lines retain their .75px stroke and 50% opacity. Compute both paths from the same displayed curve bounds and update them on the shared render clock, including morphs, loading, and resizing. Markers share the guides' layer beneath controls and menus, with no pointer interaction. Apply the same geometry in the curve catalog.
+
+Reason: make the intersections explicit while preserving the fine dotted boundaries. Scope: shared page/editor/loader frame renderer and curve demo. Extends D48 and D56. See [guide geometry](../web/src/frameGuides.ts), [guide styles](../web/src/frame-guides.css), [shared renderer](../web/src/DynamicFrame.tsx), and [curve demo](../web/src/CurveDemo.tsx).
+
+Verification for D57: production build, 69 existing shared-frame tests, and diff whitespace checks passed. Browser captures confirmed crosses on the loading shape and all four settled editor intersections.
+
+### 2026-10-19 — D58 — Left sidebar dividers reach the screen edge
+
+**In code.** Extend the dotted section rules through the left sidebar's outer gutter to the screen edge. Leave an 8px gap before each label; keep labels, controls, metadata and the existing trailing rules on their grid. Expand the clipping boxes with compensating padding so cabinet and disclosure height transitions retain their existing behavior. Keep the right inspector and shared frame guides unchanged.
+
+Reason: section boundaries should reach the outside edge instead of appearing inset with the controls. Scope: Product, Material, World and Film left sidebar section headings and disclosures. Extends D55's inline rule treatment. See [interface styles](../web/src/interface-system.css).
+
+Verification for D58: production build and diff whitespace checks passed. Browser checks covered all four left rails and opening/closing Original materials; heading boxes start at x=0 with their original 40px content padding and no horizontal overflow.

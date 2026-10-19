@@ -7,6 +7,15 @@
   vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
+.frame-boundary-crosses {
+  fill: none;
+  stroke: white;
+  stroke-width: 1;
+  stroke-dasharray: none;
+  stroke-linecap: butt;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
 .dynamic-frame-guides {
   position: fixed;
   inset: 0;
@@ -17,5 +26,3 @@
   overflow: hidden;
   pointer-events: none;
 }
-/* In the editor, dividers belong to sidebar sections rather than viewport bounds. */
-.dynamic-frame-shell[data-page="studio"] .dynamic-frame-guides { display: none; }

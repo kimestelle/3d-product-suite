@@ -48,10 +48,26 @@ describe('Combined editor panels', () => {
     expect(html).not.toContain('aria-label="Camera shot"');
     expect(html.match(/class="gesso-section-body"/g)).toHaveLength(1);
     expect(html).toContain('Camera options');
-    expect(html).toContain('aria-expanded="true" aria-controls="film-section-Framing"');
+    expect(html).toContain('aria-current="true" aria-controls="film-section-Framing"');
     expect(html).toContain('aria-controls="film-section-Animation"');
     expect(html).toContain('aria-controls="film-section-Sequence"');
     expect(html).toContain('aria-controls="film-section-Output"');
+  });
+  it('keeps Film section selectors arrow-free while preserving shortcuts and real disclosures', () => {
+    for (const layer of ['Framing', 'Animation', 'Sequence', 'Output'] as const) {
+      const html = renderToStaticMarkup(<FilmPanel scene={fixture} layer={layer} frame={1} onChange={noop} onFrame={noop}/>);
+      const selectors = html.match(/<button[^>]*class="gesso-section-toggle gesso-section-selector"[\s\S]*?<\/button>/g) ?? [];
+      expect(selectors).toHaveLength(4);
+      expect(selectors.filter(button => button.includes('aria-current="true"'))).toHaveLength(1);
+      expect(selectors.find(button => button.includes('aria-current="true"'))).toContain(`aria-controls="film-section-${layer}"`);
+      for (const [index, selector] of selectors.entries()) {
+        expect(selector).not.toContain('aria-expanded');
+        expect(selector).not.toContain('gesso-ui-icon');
+        expect(selector).toContain(`aria-keyshortcuts="Alt+${index + 5}"`);
+      }
+    }
+    const framing = renderToStaticMarkup(<FilmPanel scene={fixture} frame={1} onChange={noop} onFrame={noop}/>);
+    expect(framing).toContain('<details class="gesso-disclosure gesso-compact-details gesso-camera-options"><summary>Camera options');
   });
   it('offers an actual frame in Still and hides video-only controls without changing the scene', () => {
     const scene = structuredClone(fixture), before = JSON.stringify(scene);
@@ -60,7 +76,7 @@ describe('Combined editor panels', () => {
     const edited = JSON.stringify(scene);
     const html = renderToStaticMarkup(<FilmPanel scene={scene} mode="still" layer="Sequence" frame={scene.shots[0].startFrame} onChange={noop} onFrame={noop} onExport={noop}/>);
     expect(html).toContain('aria-label="Frame"');
-    expect(html).toContain('aria-expanded="true" aria-controls="film-section-Framing"');
+    expect(html).toContain('aria-current="true" aria-controls="film-section-Framing"');
     expect(html).toContain('Frame position X');
     expect(html).toContain('Edits shift the whole shot. Video motion is preserved.');
     expect(html).toContain('>Export still…</button>');
@@ -71,10 +87,10 @@ describe('Combined editor panels', () => {
   it('opens the shared animation workspace in Video and falls back to Framing in Still', () => {
     const content = <div aria-label="Animation workspace">Part movement</div>;
     const video = renderToStaticMarkup(<FilmPanel scene={fixture} mode="video" layer="Animation" frame={1} onChange={noop} onFrame={noop} animationContent={content}/>);
-    expect(video).toContain('aria-expanded="true" aria-controls="film-section-Animation"');
+    expect(video).toContain('aria-current="true" aria-controls="film-section-Animation"');
     expect(video).toContain('aria-label="Animation workspace"');
     const still = renderToStaticMarkup(<FilmPanel scene={fixture} mode="still" layer="Animation" frame={1} onChange={noop} onFrame={noop} animationContent={content}/>);
-    expect(still).toContain('aria-expanded="true" aria-controls="film-section-Framing"');
+    expect(still).toContain('aria-current="true" aria-controls="film-section-Framing"');
     expect(still).not.toContain('aria-label="Animation workspace"');
   });
   it('commits retimed animation keys along with a frame-rate change', () => {

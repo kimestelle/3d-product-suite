@@ -4,12 +4,12 @@ import {entranceEase} from './studioEntrance';
 import {createFrameMorph} from './frameMorph';
 import {STATIC_MOTION_QUERY} from './motionPolicy';
 import {createStudioExpansion,studioLoadingNodes} from './studioLoading';
-import {frameGuidePath} from './frameGuides';
+import {frameGuidePaths} from './frameGuides';
 import './dynamic-frame.css';
 
 export type FrameRoute = 'landing' | 'about' | 'philosophy' | 'studio';
 export type FrameVisual = {nodes:FrameNodes; ground:string; fill:string; halo:{color:string; blur:number; spread:number; opacity:number}};
-type FrameElements = {root:HTMLElement; path:SVGPathElement; outside?:SVGPathElement; guides?:SVGPathElement; halo:SVGUseElement; fill:SVGUseElement; blur:SVGFEGaussianBlurElement};
+type FrameElements = {root:HTMLElement; path:SVGPathElement; outside?:SVGPathElement; guides?:SVGPathElement; guideCrosses?:SVGPathElement; halo:SVGUseElement; fill:SVGUseElement; blur:SVGFEGaussianBlurElement};
 type Travel = {from:FrameVisual; weights:Record<FrameRoute,number>; destination:FrameRoute; start:number; duration:number; loading:boolean; opening:boolean; to:FrameVisual; morph:ReturnType<typeof createFrameMorph>};
 const routes:FrameRoute[] = ['landing','about','philosophy','studio'];
 const weights = (page?:FrameRoute):Record<FrameRoute,number> => Object.fromEntries(routes.map(route=>[route,route===page?1:0])) as Record<FrameRoute,number>;
@@ -52,6 +52,7 @@ export class FrameDriver {
   private pathNodes:FrameNodes|null=null;
   private pathData='';
   private guideData='';
+  private guideCrossData='';
   private guideViewport='';
   readonly ready=new Set<FrameRoute>(['landing','about','philosophy']);
   elements:FrameElements|null=null;
@@ -210,13 +211,15 @@ export class FrameDriver {
   }
   private paint() {
     if(!this.current||!this.elements)return;
-    const {root,path,outside,guides,fill,halo,blur}=this.elements,v=this.current;
+    const {root,path,outside,guides,guideCrosses,fill,halo,blur}=this.elements,v=this.current;
     const viewport=`${innerWidth},${innerHeight}`;
     if(this.pathNodes!==v.nodes||this.guideViewport!==viewport) {
-      this.guideData=frameGuidePath(v.nodes,innerWidth,innerHeight);this.guideViewport=viewport;
+      const guidePaths=frameGuidePaths(v.nodes,innerWidth,innerHeight);
+      this.guideData=guidePaths.lines;this.guideCrossData=guidePaths.crosses;this.guideViewport=viewport;
     }
     if(this.pathNodes!==v.nodes){this.pathNodes=v.nodes;this.pathData=framePath(v.nodes);}
     if(guides)this.attribute(guides,'d',this.guideData);
+    if(guideCrosses)this.attribute(guideCrosses,'d',this.guideCrossData);
     this.attribute(path,'d',this.pathData);
     if(outside)this.attribute(outside,'d',`M 0 0 H ${innerWidth} V ${innerHeight} H 0 Z ${this.pathData}`);
     this.attribute(fill,'fill',v.fill);
@@ -285,7 +288,7 @@ export const FrameOutside=forwardRef<HTMLElement,HTMLAttributes<HTMLElement>&{as
 });
 
 export function FrameRenderer({driver}:{driver:FrameDriver}) {
-  const root=useRef<HTMLDivElement>(null),path=useRef<SVGPathElement>(null),outside=useRef<SVGPathElement>(null),guides=useRef<SVGPathElement>(null),halo=useRef<SVGUseElement>(null),fill=useRef<SVGUseElement>(null),blur=useRef<SVGFEGaussianBlurElement>(null);
-  useLayoutEffect(()=>{if(root.current&&path.current&&halo.current&&fill.current&&blur.current)return driver.attach({root:root.current,path:path.current,outside:outside.current??undefined,guides:guides.current??undefined,halo:halo.current,fill:fill.current,blur:blur.current});},[driver]);
-  return <><div className="dynamic-frame-renderer" ref={root} aria-hidden="true"><svg className="dynamic-frame-artwork"><defs><path id={driver.pathId} ref={path}/><path id={`${driver.pathId}-outside`} ref={outside} fillRule="evenodd"/><filter id={`${driver.pathId}-light`} x="-70%" y="-100%" width="240%" height="300%" colorInterpolationFilters="sRGB"><feGaussianBlur ref={blur} stdDeviation="0"/></filter></defs><use ref={halo} href={`#${driver.pathId}`} strokeLinejoin="round" filter={`url(#${driver.pathId}-light)`}/><use ref={fill} href={`#${driver.pathId}`}/></svg></div><svg className="dynamic-frame-guides" aria-hidden="true"><path ref={guides} className="frame-boundary-guides"/></svg></>;
+  const root=useRef<HTMLDivElement>(null),path=useRef<SVGPathElement>(null),outside=useRef<SVGPathElement>(null),guides=useRef<SVGPathElement>(null),guideCrosses=useRef<SVGPathElement>(null),halo=useRef<SVGUseElement>(null),fill=useRef<SVGUseElement>(null),blur=useRef<SVGFEGaussianBlurElement>(null);
+  useLayoutEffect(()=>{if(root.current&&path.current&&halo.current&&fill.current&&blur.current)return driver.attach({root:root.current,path:path.current,outside:outside.current??undefined,guides:guides.current??undefined,guideCrosses:guideCrosses.current??undefined,halo:halo.current,fill:fill.current,blur:blur.current});},[driver]);
+  return <><div className="dynamic-frame-renderer" ref={root} aria-hidden="true"><svg className="dynamic-frame-artwork"><defs><path id={driver.pathId} ref={path}/><path id={`${driver.pathId}-outside`} ref={outside} fillRule="evenodd"/><filter id={`${driver.pathId}-light`} x="-70%" y="-100%" width="240%" height="300%" colorInterpolationFilters="sRGB"><feGaussianBlur ref={blur} stdDeviation="0"/></filter></defs><use ref={halo} href={`#${driver.pathId}`} strokeLinejoin="round" filter={`url(#${driver.pathId}-light)`}/><use ref={fill} href={`#${driver.pathId}`}/></svg></div><svg className="dynamic-frame-guides" aria-hidden="true"><path ref={guides} className="frame-boundary-guides"/><path ref={guideCrosses} className="frame-boundary-crosses"/></svg></>;
 }

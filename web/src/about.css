@@ -14,6 +14,10 @@
 .about-description-row{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));column-gap:var(--gesso-space-20);align-items:start}
 .about-description-row>h1,.about-description-row>h2{grid-column:1 / span 2;justify-self:end;width:min(250px,100%)}
 .about-description-row>h1,.about-description-row>h2{font:500 28px/34px var(--gesso-font-display);letter-spacing:-.4px}
+/* Reading copy stays Regular; steps and footer keep their existing emphasis.
+   Grayscale edges avoid the heavier white-on-dark rendering on macOS. */
+.about-description-row>h1{font-weight:400;-webkit-font-smoothing:antialiased}
+.about-description-row:not(.about-endnote) .about-description-body>p{-webkit-font-smoothing:antialiased}
 .about-description-row>h1:focus{outline:none}
 .about-description-body{grid-column:3 / span 4;min-width:0;font:400 16px/24px var(--gesso-font-text)}
 .about-description-body>p+p{margin-top:var(--gesso-space-24)}

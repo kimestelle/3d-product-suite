@@ -1,0 +1,61 @@
+/* One clock transfers height between cabinets; only the outgoing fade is faster. */
+.gesso-studio{
+  --editor-height-time:240ms;
+  --editor-enter-time:160ms;
+  --editor-exit-time:120ms;
+  --editor-ease:cubic-bezier(.2,.7,.2,1);
+}
+.gesso-studio .gesso-control-section,
+.gesso-studio .gesso-product-mechanics{
+  flex:0 1 36px;min-height:36px;overflow:hidden;
+  transition:flex-grow var(--editor-height-time) var(--editor-ease);
+}
+.gesso-studio .gesso-control-section.is-open,
+.gesso-studio .gesso-product-mechanics[open]{flex:1 1 36px}
+.gesso-studio .gesso-control-section>[data-editor-cabinet]{
+  flex:1 1 0;height:0;min-height:0;opacity:0;
+  transition:opacity var(--editor-exit-time) ease-out;
+}
+.gesso-studio .gesso-control-section>[data-editor-cabinet][data-open=true]{opacity:1;transition-duration:var(--editor-enter-time)}
+.gesso-studio [data-editor-cabinet][data-open=false]{pointer-events:none}
+.gesso-studio .gesso-product-mechanics{display:flex;flex-direction:column}
+.gesso-studio .gesso-product-mechanics>summary{flex:none;min-height:36px;margin-bottom:0}
+.gesso-studio .gesso-product-mechanics::details-content{flex:1 1 0;min-height:0;overflow:auto;scrollbar-width:thin;overscroll-behavior:contain}
+.gesso-studio .gesso-mechanics-body{padding-top:var(--gesso-space-8)}
+
+.gesso-studio .gesso-motion-menu{
+  padding:0;overflow:hidden;opacity:0;visibility:hidden;pointer-events:none;
+  transition:height var(--editor-height-time) var(--editor-ease),opacity var(--editor-exit-time) ease-out,visibility 0s var(--editor-height-time);
+}
+.gesso-studio .gesso-motion-menu[data-open=true]{opacity:1;visibility:visible;pointer-events:auto;transition-duration:var(--editor-height-time),var(--editor-enter-time),0s}
+.gesso-menu-content{padding:var(--gesso-space-12);max-height:calc(100dvh - var(--topbar-inset) - 56px);overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.gesso-menu-content>button{display:flex;align-items:center;width:100%;text-align:left;border:0;background:transparent;padding:var(--gesso-space-4) var(--gesso-space-8)}
+.gesso-menu-content>button:hover{background:#383838}
+
+/* A small row cascade, capped at 64ms regardless of content length. */
+.gesso-studio :is([data-editor-cabinet],.gesso-motion-menu) > *,
+.gesso-studio .gesso-menu-content>*{--editor-row-delay:0ms}
+.gesso-studio :is([data-editor-cabinet],.gesso-menu-content)>:nth-child(2){--editor-row-delay:16ms}
+.gesso-studio :is([data-editor-cabinet],.gesso-menu-content)>:nth-child(3){--editor-row-delay:32ms}
+.gesso-studio :is([data-editor-cabinet],.gesso-menu-content)>:nth-child(4){--editor-row-delay:48ms}
+.gesso-studio :is([data-editor-cabinet],.gesso-menu-content)>:nth-child(n+5){--editor-row-delay:64ms}
+.gesso-studio [data-editor-cabinet]>* {opacity:0;translate:0 -2px;transition:opacity var(--editor-exit-time) ease-out,translate var(--editor-exit-time) ease-out}
+.gesso-studio [data-editor-cabinet][data-open=true]>*,
+.gesso-studio .gesso-motion-menu[data-open=true]>.gesso-menu-content>*{
+  opacity:1;translate:0 0;transition:opacity var(--editor-enter-time) ease-out var(--editor-row-delay),translate var(--editor-enter-time) var(--editor-ease) var(--editor-row-delay);
+}
+.gesso-studio .gesso-motion-menu[data-open=false]>.gesso-menu-content>*{opacity:0;translate:0 -2px;transition:opacity var(--editor-exit-time) ease-out,translate var(--editor-exit-time) ease-out}
+@starting-style{
+  .gesso-studio .gesso-motion-menu[data-open=true]{height:0!important;opacity:0}
+  .gesso-studio [data-editor-cabinet][data-open=true]{opacity:0}
+  .gesso-studio [data-editor-cabinet][data-open=true]>*,
+  .gesso-studio .gesso-motion-menu[data-open=true]>.gesso-menu-content>*{opacity:0;translate:0 -2px}
+}
+@media(prefers-reduced-motion:reduce),(max-width:760px),(hover:none) and (pointer:coarse){
+  .gesso-studio{--editor-height-time:0ms;--editor-enter-time:0ms;--editor-exit-time:0ms}
+  .gesso-studio :is([data-editor-cabinet],.gesso-menu-content)>*{transition:none;translate:none}
+}
+
+/* Output is a natural-height inspector, not one of the bounded cabinet rails. */
+.gesso-studio .film-delivery-panel .gesso-control-section.is-open{flex:none;min-height:0;overflow:visible}
+.gesso-studio .film-delivery-panel .gesso-control-section>[data-editor-cabinet]{flex:none;height:auto;overflow:visible}

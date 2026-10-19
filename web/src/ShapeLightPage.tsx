@@ -21,7 +21,7 @@ export const PHILOSOPHY_INTRO = {
 };
 export const PHILOSOPHY_ROWS = [
   {id:'result', label:'01 / the result', title:'A finished image. At any step.', side:'right', paragraphs:['From any step, jump to a polished still or film. Gesso fills the gaps around the decisions you’ve made. Everything it adds stays inspectable and editable.']},
-  {id:'product', label:'02 / the product', title:'Keep what’s been decided.', side:'left', paragraphs:['Generate what is open to interpretation. Preserve what has been approved.', 'Dimensions, parts, artwork, and movement belong to the product. They should survive a change of scene.']},
+  {id:'product', label:'02 / the product', title:'Same product. Different scene.', side:'left', paragraphs:['Change the room, light, or camera. Your product keeps its dimensions, parts, materials, artwork, and motion.']},
   {id:'interface', label:'03 / the interface', title:'One opening. Different work.', side:'right', paragraphs:['The same boundary makes room for a parts tree, a material, a camera, a timeline. The product stays visible. Controls appear where their effects can be seen.']},
   {id:'person', label:'04 / the person', title:'For the person making the next version.', side:'left', paragraphs:['A supplier or CG artist prepares the asset. The designer directs, revises, and exports.', 'A new label. Another finish. A different room. The scene stays editable for whatever comes next.']},
 ] as const;

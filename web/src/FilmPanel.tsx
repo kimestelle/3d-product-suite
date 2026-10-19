@@ -1,4 +1,4 @@
-import {UiIcon} from './UiIcon';
+import {EditorCabinetBody} from './editorMotion';
 import {useEffect, useState, type ReactNode} from 'react';
 import {addShot, duplicateShot, moveShot, removeShot, sequenceEnd, setFrameRate, setOutputDimensions, setShotFrames, shotAtFrame, shotFrames} from './sequence';
 import {NumberControl as StepNumber} from './EditorControls';
@@ -7,8 +7,8 @@ import CameraPanel from './CameraPanel';
 
 function FilmSectionBlock({name, description, active, shortcut, onSelect, children}: {name: FilmSection; description: ReactNode; active: boolean; shortcut: number; onSelect: () => void; children: ReactNode}) {
   return <section className={`gesso-control-section${active ? ' is-open' : ''}`}>
-    <button type="button" className="gesso-section-toggle" aria-expanded={active} aria-controls={`film-section-${name}`} aria-keyshortcuts={`Alt+${shortcut}`} title={`Option / Alt ${shortcut}`} onClick={onSelect}><span>{name}</span><small>{description}</small><UiIcon name={active ? "down" : "chevron"} size={14}/></button>
-    {active && <div id={`film-section-${name}`} className="gesso-section-body">{children}</div>}
+    <button type="button" className="gesso-section-toggle gesso-section-selector" aria-current={active ? "true" : undefined} aria-controls={`film-section-${name}`} aria-keyshortcuts={`Alt+${shortcut}`} title={`Option / Alt ${shortcut}`} onClick={onSelect}><span className="gesso-section-label">{name}</span><small>{description}</small></button>
+    <EditorCabinetBody open={active} id={`film-section-${name}`}>{children}</EditorCabinetBody>
   </section>;
 }
 function StepField({label, children}: {label: string; children: ReactNode}) {return <label className="gesso-field gesso-inline-field"><span>{label}</span>{children}</label>;}
@@ -91,7 +91,7 @@ export default function FilmPanel({scene, layer, onLayerChange, mode = 'video', 
 
     {!still && <FilmSectionBlock name="Sequence" shortcut={7} description={<>{scene.shots.length} {scene.shots.length === 1 ? 'shot' : 'shots'} · {Number((total / fps).toFixed(3))} s</>} active={section === 'Sequence'} onSelect={() => selectSection('Sequence')}>
       <div className="gesso-panel gesso-compact-panel">
-        <section className="gesso-section" aria-label="Film sequence"><div className="gesso-section-heading gesso-section-toolbar"><span>Shots</span><button type="button" aria-label="Add shot" onClick={() => edit(draft => addShot(draft, shot.id))}>Add</button><button type="button" onClick={() => edit(draft => duplicateShot(draft, shot.id))}>Duplicate</button></div>
+        <section className="gesso-section" aria-label="Film sequence"><div className="gesso-section-heading gesso-section-toolbar"><span className="gesso-section-label">Shots</span><button type="button" aria-label="Add shot" onClick={() => edit(draft => addShot(draft, shot.id))}>Add</button><button type="button" onClick={() => edit(draft => duplicateShot(draft, shot.id))}>Duplicate</button></div>
           <div className="gesso-shot-list gesso-bounded-shot-list" aria-label="Shots">{scene.shots.map((item: any, position: number) => <button type="button" key={item.id} aria-pressed={shot.id === item.id} onClick={() => onFrame(item.startFrame)}>
             <span>{String(position + 1).padStart(2, '0')} / {item.name || 'Untitled shot'}</span><small>{Number((shotFrames(item) / fps).toFixed(2))} s</small>
           </button>)}</div>

@@ -190,13 +190,13 @@ export default function MaterialLibrary({scene, componentId, parts, onSelect, on
       </section>
       <MaterialProperties material={draft.material} activeSection={activeSection==='textures' ? null : activeSection} onSectionChange={setActiveSection} onChange={material=>setDraft({...draft,material})}/>
     </>}
-    <div className="gesso-preset-textures" hidden={!draft}>
-      <button className="gesso-section-toggle" type="button" aria-expanded={activeSection==='textures'} aria-controls={textureContentId} onClick={()=>setActiveSection(activeSection==='textures' ? null : 'textures')}><span>Texture library</span><small>Browse</small><UiIcon name={activeSection==='textures' ? 'down' : 'chevron'} size={14}/></button><div className="gesso-preset-texture-content" id={textureContentId} hidden={activeSection!=='textures'}>
+    <div className="gesso-preset-textures" hidden={!draft} inert={!draft} aria-hidden={!draft}>
+      <button className="gesso-section-toggle" type="button" aria-expanded={activeSection==='textures'} aria-controls={textureContentId} onClick={()=>setActiveSection(activeSection==='textures' ? null : 'textures')}><span>Texture library</span><small>Browse</small><UiIcon name={activeSection==='textures' ? 'down' : 'chevron'} size={14}/></button><div className="gesso-preset-texture-content" id={textureContentId} hidden={activeSection!=='textures'} inert={activeSection!=='textures'} aria-hidden={activeSection!=='textures'}>
         {!!entries.length && <MaterialSwatches items={entries} onSelect={id=>{const entry=entries.find(item=>item.id===id);if(entry)useTexture(entry);}}/>}
         {entries.filter(entry=>!!entry.sourceUrl).map(entry=><p className="gesso-meta" key={entry.id}><a href={entry.sourceUrl} target="_blank" rel="noreferrer">{entry.name} · Poly Haven ↗</a> · CC0</p>)}
         <PolyHavenLibrary kind="textures" scopeKey={scene.sceneId + ':' + (draft?.id ?? 'library')} disabled={!draft} onImport={({entry})=>useTexture(entry)}/>
         <section className="gesso-section gesso-material-generator" aria-label="Generate material">
-          <div className="gesso-section-heading"><span>Generate texture</span><span>fal · Patina</span></div>
+          <div className="gesso-section-heading"><span className="gesso-section-label">Generate texture</span><span>fal · Patina</span></div>
           <label className="gesso-field"><span className="gesso-sr-only">Texture description</span><textarea aria-label="Texture description" value={prompt} maxLength={1200} rows={2} placeholder="Brushed aluminium, fine horizontal grain…" onChange={event=>setPrompt(event.target.value)}/></label>
           <div className="gesso-material-generate-row"><button type="button" disabled={!draft||!configured||!prompt.trim()||busy||pending(job)} onClick={generate}>{busy&&!job ? 'Submitting…' : 'Generate'}</button><span className="gesso-meta">1K · 5 maps · ≈ $0.08</span></div>
           {configured===false&&<p className="gesso-meta">Set FAL_KEY on the local server to enable generation. <button className="gesso-text-button" type="button" onClick={()=>setRetry(value=>value+1)}>Check connection</button></p>}

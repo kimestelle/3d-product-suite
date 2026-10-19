@@ -15,7 +15,7 @@
 .gesso-control-section>.gesso-section-toggle{display:flex;align-items:center;gap:var(--gesso-space-10);min-height:36px;width:100%;text-align:left;border:0;background:transparent;padding:var(--gesso-space-8) 0;font-size:13px;color:#999;flex-shrink:0}
 .gesso-section-toggle>span:first-child{color:#b5b5b5;flex-shrink:0}
 .gesso-section-toggle>small{font-size:10px;color:#777;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-left:auto}
-.gesso-section-toggle>span:last-child{width:10px;color:#777;font-size:14px;flex-shrink:0;text-align:right}
+.gesso-section-toggle>.gesso-ui-icon:last-child{width:10px;color:#777;font-size:14px;flex-shrink:0;text-align:right}
 .gesso-section-toggle[aria-expanded=true]>span:first-child{color:#fff}
 .gesso-control-section .gesso-section-body{min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;display:flex;flex-direction:column;gap:var(--gesso-space-10);padding:0 0 var(--gesso-space-12)}
 .gesso-section-body>.gesso-section{gap:var(--gesso-space-6)}

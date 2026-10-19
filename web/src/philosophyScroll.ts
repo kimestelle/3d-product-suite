@@ -3,14 +3,14 @@ import {choosePhilosophyStop,createScrollSettle,scrollSettlePosition,type Scroll
 export const PHILOSOPHY_SETTLE_QUERY='(min-width: 901px) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)';
 type Options={stops:()=>readonly number[];schedule:()=>void};
 
-/** Native input owns the gesture. Only its released endpoint is animated, using
+/** Native input owns the gesture. Only a nearby stop ahead is approached, using
  * the page's existing RAF and real scrollTop. No wheel interception, second
  * visual playhead, or competing CSS snap animation. */
 export function createPhilosophyScroll(root:HTMLElement,{stops,schedule}:Options) {
   const policy=matchMedia(PHILOSOPHY_SETTLE_QUERY);
   const hasScrollEnd='onscrollend' in root;
   const fallbackQuiet=80;
-  let plan:ScrollSettle|null=null,timer=0,armed=false,heldKey=false,pointerDown=false,nativeEnded=false;
+  let plan:ScrollSettle|null=null,timer=0,armed=false,heldKey=false,pointerDown=false,nativeEnded=false,writing=false;
   let origin=root.scrollTop,lastY=origin,lastSample=0,lastInput=0,velocity=0;
   const clearTimer=()=>{window.clearTimeout(timer);timer=0;};
   const cancel=()=>{plan=null;armed=false;nativeEnded=false;velocity=0;clearTimer();};
@@ -49,6 +49,9 @@ export function createPhilosophyScroll(root:HTMLElement,{stops,schedule}:Options
     if(!hasScrollEnd)queue(fallbackQuiet);
   };
   const scroll=()=>{
+    // Our own scroll events may arrive after the write, or synchronously in a
+    // host. Any different native offset means momentum/input has taken over.
+    if(plan&&!writing&&Math.abs(root.scrollTop-lastY)>.5)cancel();
     if(!armed||plan){lastY=root.scrollTop;lastSample=performance.now();return;}
     nativeEnded=false;
     const now=performance.now(),y=root.scrollTop,dy=y-lastY;
@@ -94,9 +97,11 @@ export function createPhilosophyScroll(root:HTMLElement,{stops,schedule}:Options
     /** Called before the page samples scrollTop; true requests another frame. */
     advance(now:number){
       if(!plan)return false;
-      if(!enabled()){cancel();return false;}
+      if(!enabled()||Math.abs(root.scrollTop-lastY)>.5){cancel();return false;}
       const finished=now>=plan.start+plan.duration;
-      root.scrollTo({top:finished?plan.to:scrollSettlePosition(plan,now),behavior:'instant'});
+      writing=true;
+      try{root.scrollTo({top:finished?plan.to:scrollSettlePosition(plan,now),behavior:'instant'});}
+      finally{writing=false;}
       lastY=root.scrollTop;lastSample=now;
       if(finished)plan=null;
       return !finished;
