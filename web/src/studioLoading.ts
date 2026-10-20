@@ -15,7 +15,9 @@ export function studioLoadingNodes(elapsedMs:number,center:{x:number;y:number}):
   const phase=(elapsed%STUDIO_LOADING_CYCLE_MS)/STUDIO_LOADING_CYCLE_MS;
   if(phase===0)return loadingFrameNodes(center);
   return transformFrameNodes(circle,{
-    scaleY:1-.58*Math.sin(Math.PI*phase)**2,
+    // A near-edge-on view makes the changing perspective visible at loader size.
+    // Keep a finite minor axis so the disk never disappears or flips winding.
+    scaleY:1-.82*Math.sin(Math.PI*phase)**2,
     rotation:360*phase,translateX:center.x,translateY:center.y,
   });
 }

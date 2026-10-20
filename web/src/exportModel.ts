@@ -1,7 +1,7 @@
 export type ExportMode = 'still' | 'video';
 export type ExportFormat = 'png' | 'jpeg' | 'webp' | 'mp4' | 'prores' | 'png-sequence';
 export type ExportScale = .5 | 1 | 2;
-export type ExportScene = {render: {width: number; height: number; fps: number; samples: number}; shots?: {endFrame: number}[]; comparison?: unknown};
+export type ExportScene = {render: {width: number; height: number; fps: number; samples: number; durationFrames?: number}; shots?: {endFrame: number}[]; comparison?: unknown};
 export type ExportCapabilities = {blenderAvailable?: boolean; ffmpegAvailable?: boolean; blenderIssue?: string; ffmpegIssue?: string};
 export type ExportPayload = {kind: 'still' | 'reel'; format: ExportFormat; filename: string; frame: number; width: number; height: number; samples: number};
 export type ExportArtifact = {name: string; url: string; downloadName?: string; bytes?: number};
@@ -32,7 +32,7 @@ export function exportDimensions(scene: ExportScene, scale: ExportScale): {width
   if (![width, height].every(value => Number.isSafeInteger(value) && value >= 2 && value <= 16384 && value % 2 === 0)) throw new Error('This scale needs even dimensions between 2 and 16,384 px. Choose another scale.');
   return {width, height};
 }
-export function totalExportFrames(scene: ExportScene): number {return scene.shots?.at(-1)?.endFrame ?? 1;}
+export function totalExportFrames(scene: ExportScene): number {return scene.render.durationFrames ?? Math.max(1, ...(scene.shots ?? []).map(shot => shot.endFrame));}
 export function exportBlockReason(capabilities: ExportCapabilities, format: ExportFormat, blockedReason?: string): string {
   if (blockedReason) return blockedReason;
   if (capabilities.blenderAvailable !== true) return capabilities.blenderIssue || (capabilities.blenderAvailable === undefined ? 'Checking the local renderer…' : 'Blender 4.3.2 is required to render.');

@@ -1,14 +1,21 @@
 /* Film keeps one specimen and a single timeline between two mounted rails. */
-.gesso-studio .gesso-workspace.with-film-workspace{--workspace-rail-width:280px;grid-template-columns:280px minmax(0,1fr) 300px}
+.gesso-studio .gesso-workspace.with-film-workspace{--workspace-rail-width:280px;--film-right-width:300px;--film-dock-height:calc(136px + var(--film-track-rows,0)*32px);grid-template-columns:var(--workspace-rail-width) minmax(0,1fr) var(--film-right-width);grid-template-rows:minmax(0,1fr) 0px;transition:grid-template-columns var(--frame-duration) var(--frame-easing),grid-template-rows var(--frame-duration) var(--frame-easing)}
+.gesso-studio .gesso-workspace.with-film-workspace.film-has-timeline{grid-template-rows:minmax(0,1fr) var(--film-dock-height)}
+.gesso-studio .with-film-workspace:is(.film-curves-open,.film-legacy-open){--film-dock-height:min(360px,48dvh)}
+.with-film-workspace>.gesso-sidebar:first-child{grid-column:1;grid-row:1}
+.with-film-workspace>.gesso-stage{grid-column:2;grid-row:1}
+.with-film-workspace>.film-inspector-rail{grid-column:3;grid-row:1}
+.film-timeline-dock{grid-column:1/-1;grid-row:2;min-width:0;min-height:0;--film-label-width:calc(var(--workspace-rail-width) - var(--rail-gutter));background:var(--chrome);visibility:hidden;opacity:0;transform:translateY(12px);transition:opacity 180ms ease,transform var(--frame-duration) var(--frame-easing),visibility 0s var(--frame-duration)}
+.film-has-timeline>.film-timeline-dock{visibility:visible;opacity:1;transform:translateY(0);transition-delay:0s}
+.film-return-context{align-self:flex-start;margin:var(--gesso-space-4) var(--rail-gutter) 0;padding:3px 0 5px;border:0;background:transparent;color:var(--gesso-text-secondary);font-size:11px}
+@media(prefers-reduced-motion:reduce){.gesso-studio .gesso-workspace.with-film-workspace,.film-timeline-dock{transition:none}}
 .gesso-studio .with-film-workspace>.gesso-material-editor{display:none}
 .gesso-studio .with-film-workspace>.gesso-sidebar:first-child .gesso-sidebar-content{padding-top:var(--gesso-space-16);display:flex;flex-direction:column;gap:var(--gesso-space-16)}
 .gesso-studio .with-film-workspace>.gesso-sidebar:first-child .gesso-sidebar-content>*{flex-shrink:0}
 .gesso-studio .with-film-workspace .gesso-panel-title{padding-top:var(--gesso-space-20)}
-.gesso-studio .with-film-workspace .gesso-stage{--timeline-height:192px;border-radius:20px;margin-bottom:var(--gesso-space-8)}
-.gesso-studio .with-film-workspace.film-curves-open .gesso-stage{--timeline-height:370px}
-.gesso-studio .with-film-workspace.film-legacy-open .gesso-stage{--timeline-height:350px}
+.gesso-studio .with-film-workspace .gesso-stage{border-radius:20px;margin-bottom:var(--gesso-space-8)}
 .gesso-studio .with-film-workspace .viewport-wrap{border-radius:20px}
-.gesso-studio .with-film-workspace .film-inspector-rail .gesso-sidebar-content{padding-top:var(--gesso-space-16);padding-bottom:var(--gesso-space-24)}
+.gesso-studio .with-film-workspace .film-inspector-rail .gesso-sidebar-content{padding-top:var(--gesso-space-20);padding-bottom:var(--gesso-space-24)}
 .gesso-studio .with-film-workspace .gesso-sidebar-footer{height:32px;min-height:32px;padding-bottom:var(--gesso-space-8)}
 .film-camera-fields{display:flex;flex-direction:column;gap:var(--gesso-space-16);border:0;padding:0;margin:0;min-width:0}
 .gesso-studio .film-inspector .gesso-camera-panel{gap:var(--gesso-space-16)}
@@ -35,11 +42,19 @@
 .film-legacy-editor .gesso-keyframe-editor{flex:1;min-height:0}
 .film-legacy-editor>.film-owner-note{padding:0 var(--gesso-space-16);margin-bottom:var(--gesso-space-4);font-size:11px}
 /* Compact rails retain the page margin at the outside edge and free room toward the viewport. */
-@media(min-width:900px) and (max-width:1199px){.gesso-studio .gesso-workspace.with-film-workspace{grid-template-columns:230px minmax(0,1fr) 250px}.gesso-studio .with-film-workspace>.gesso-sidebar:first-child :is(.gesso-sidebar-content,.gesso-sidebar-footer,.film-shot-header){padding-right:var(--gesso-space-16)}.gesso-studio .with-film-workspace .film-inspector-rail :is(.gesso-sidebar-content,.film-shot-header){padding-left:var(--gesso-space-16)}.gesso-studio .with-film-workspace .gesso-stage{--timeline-height:224px}.film-delivery-entry>button:first-child span{display:none}}
+@media(min-width:900px) and (max-width:1199px){.gesso-studio .gesso-workspace.with-film-workspace{--workspace-rail-width:230px;--film-right-width:250px}.gesso-studio .with-film-workspace>.gesso-sidebar:first-child :is(.gesso-sidebar-content,.gesso-sidebar-footer,.film-shot-header){padding-right:var(--gesso-space-16)}.gesso-studio .with-film-workspace .film-inspector-rail :is(.gesso-sidebar-content,.film-shot-header){padding-left:var(--gesso-space-16)}.film-delivery-entry>button:first-child span{display:none}}
 
-@media(min-width:900px) and (max-width:1199px){.gesso-studio .with-film-workspace.film-curves-open .gesso-stage{--timeline-height:400px}}
+
 
 /* The shot remains visible while its controls scroll below. */
-.film-shot-header{display:flex;align-items:baseline;gap:var(--gesso-space-8);flex:none;min-width:0;margin:0;padding:var(--gesso-space-20) var(--rail-gutter) 0;color:var(--gesso-text-primary);font:500 14px/20px var(--gesso-font-text)}
+.film-shot-header{display:flex;flex-direction:column;align-items:stretch;gap:var(--gesso-space-4);flex:none;min-width:0;margin:0;padding:var(--gesso-space-20) var(--rail-gutter) 0;color:var(--gesso-text-primary);font:500 14px/20px var(--gesso-font-text)}
 .film-shot-number{flex:none;color:var(--gesso-text-secondary);font:400 11px/20px var(--gesso-font-text);font-variant-numeric:tabular-nums}
 .film-shot-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Panel identity stays mounted; only its controls consume the rail's scroll space. */
+.gesso-studio .with-film-workspace .gesso-sidebar-content:has(>.film-rail-panel){display:flex;flex-direction:column;overflow:hidden}
+.gesso-studio .with-film-workspace>.gesso-sidebar .gesso-sidebar-content>.film-rail-panel{flex:1 1 auto;min-height:0;overflow:hidden}
+.film-rail-panel>:not(.film-rail-scroll){flex-shrink:0}
+.film-rail-scroll{display:flex;flex-direction:column;gap:inherit;flex:0 1 auto;min-height:0;min-width:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#484848 transparent}
+.film-rail-scroll>*{flex-shrink:0}
+.frame-setup-fixed-heading{display:flex;flex-direction:column;gap:inherit}

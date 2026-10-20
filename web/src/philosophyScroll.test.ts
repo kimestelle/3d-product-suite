@@ -1,231 +1,110 @@
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {createPhilosophyScroll} from './philosophyScroll';
+import {DEFAULT_SCROLL_TUNING} from './philosophyScrollPhysics';
 
+const stops=[0,660,1363.993,2067.986,2771.979,3475.972];
 class ScrollRoot extends EventTarget {
-  scrollTop=0;
-  scrollHeight=4200;
-  clientHeight=800;
-  editable=false;
-  closest(){return this.editable?this:null;}
-  scrollTo=vi.fn(({top}:{top:number;behavior:string})=>{
-    this.scrollTop=top;
-    this.dispatchEvent(new Event('scroll'));
-    this.dispatchEvent(new Event('scrollend'));
-  });
+  scrollTop=0;scrollHeight=4276;clientHeight=800;parentElement=null;
+  editable=false;debug=false;
+  closest(selector:string){return (selector.includes('data-scroll-debug')&&this.debug)||(selector.includes('input')&&this.editable)?this:null;}
+  scrollTo=vi.fn(({top}:{top:number;behavior:string})=>{this.scrollTop=top;this.dispatchEvent(new Event('scroll'));this.dispatchEvent(new Event('scrollend'));});
 }
-
 function event(target:EventTarget,type:string,fields:Record<string,unknown>={}){
-  const value=Object.assign(new Event(type,{cancelable:true}),fields);
-  const accepted=target.dispatchEvent(value);
-  return {value,accepted};
+  const value=Object.assign(new Event(type,{cancelable:true}),fields);target.dispatchEvent(value);return value;
 }
-
-function fixture({nativeEnd=true,enabled=true,position=0}={}){
+function fixture({enabled=true,position=0}={}){
   const root=new ScrollRoot();root.scrollTop=position;
-  if(nativeEnd)Object.assign(root,{onscrollend:null});
   const policy=Object.assign(new EventTarget(),{matches:enabled});
   const doc=Object.assign(new EventTarget(),{hidden:false});
-  let selectionCollapsed=true;
-  const win=Object.assign(new EventTarget(),{
-    setTimeout:globalThis.setTimeout,clearTimeout:globalThis.clearTimeout,
-    getSelection:()=>({isCollapsed:selectionCollapsed}),
-  });
-  vi.stubGlobal('window',win);vi.stubGlobal('document',doc);
-  vi.stubGlobal('matchMedia',vi.fn(()=>policy));
+  let selected=false;
+  const win=Object.assign(new EventTarget(),{getSelection:()=>({isCollapsed:!selected})});
+  const tuning={...DEFAULT_SCROLL_TUNING,enabled:true};
+  vi.stubGlobal('window',win);vi.stubGlobal('document',doc);vi.stubGlobal('HTMLElement',ScrollRoot);
+  vi.stubGlobal('matchMedia',()=>policy);
   const schedule=vi.fn();
-  const control=createPhilosophyScroll(root as unknown as HTMLElement,{
-    stops:()=>[0,660,1363.993,2067.986,2771.979,3475.972],schedule,
-  });
-  const wheel=(dy=120)=>event(root,'wheel',{deltaY:dy,deltaX:0,ctrlKey:false});
-  const move=(to:number)=>{root.scrollTop=to;event(root,'scroll');};
-  const end=()=>event(root,'scrollend');
-  const gesture=(to=600)=>{wheel(to-root.scrollTop);vi.advanceTimersByTime(40);move(to);vi.advanceTimersByTime(100);end();};
-  return {root,policy,doc,win,schedule,control,wheel,move,end,gesture,
-    select:()=>{selectionCollapsed=false;}};
+  const control=createPhilosophyScroll(root as unknown as HTMLElement,{stops:()=>stops,schedule,tuning:()=>tuning});
+  const wheel=(dy=120,fields={})=>event(root,'wheel',{deltaY:dy,deltaX:0,deltaMode:0,ctrlKey:false,metaKey:false,shiftKey:false,...fields});
+  const advance=(ms=16)=>{vi.advanceTimersByTime(ms);return control.advance(performance.now());};
+  const settle=()=>{for(let i=0;i<700;i++)if(!advance())return;throw new Error('motion did not settle');};
+  return {root,policy,doc,win,tuning,schedule,control,wheel,advance,settle,select:()=>{selected=true;}};
 }
-
 beforeEach(()=>vi.useFakeTimers({toFake:['setTimeout','clearTimeout','performance']}));
 afterEach(()=>{vi.useRealTimers();vi.unstubAllGlobals();});
 
-describe('Philosophy proximity settling',()=>{
-  it('leaves native wheel input unprevented and only finishes a nearby pose after release',()=>{
-    const f=fixture();const wheel=f.wheel(600);
-    expect(wheel.accepted).toBe(true);expect(wheel.value.defaultPrevented).toBe(false);
-    vi.advanceTimersByTime(40);f.move(600);
-    expect(f.schedule).not.toHaveBeenCalled();expect(f.root.scrollTo).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(100);f.end();
-    expect(f.schedule).toHaveBeenCalledTimes(1);
-    expect(f.control.advance(performance.now()+40)).toBe(true);
-    expect(f.root.scrollTop).toBeGreaterThan(600);expect(f.root.scrollTop).toBeLessThan(660);
-    f.control.dispose();
-  });
-
-  it('allows a single notch and arbitrary reading positions without jumping to a section',()=>{
-    const f=fixture();
-    for(const position of [120,240,400,800,1000]){
-      f.gesture(position);
-      expect(f.control.advance(performance.now()+1000)).toBe(false);
-      expect(f.root.scrollTop).toBe(position);
-    }
-    expect(f.schedule).not.toHaveBeenCalled();expect(f.root.scrollTo).not.toHaveBeenCalled();
-    f.control.dispose();
-  });
-
-  it('reaches the exact fractional stop without re-arming from immediate or deferred own events',()=>{
-    const f=fixture({position:1100});f.gesture(1300);
-    const started=performance.now();
-    expect(f.control.advance(started+40)).toBe(true);
-    expect(f.control.advance(started+1000)).toBe(false);
-    expect(f.root.scrollTop).toBe(1363.993);
+describe('Philosophy continuous desktop scrolling',()=>{
+  it('starts on the first frame and uses one real offset without a scrollend timer',()=>{
+    const f=fixture();expect(f.wheel(120).defaultPrevented).toBe(true);
+    expect(f.schedule).toHaveBeenCalled();expect(vi.getTimerCount()).toBe(0);
+    expect(f.advance()).toBe(true);expect(f.root.scrollTop).toBeGreaterThan(0);expect(f.root.scrollTop).toBeLessThan(120);
+    f.settle();expect(f.root.scrollTop).toBeCloseTo(120,0);
     expect(f.root.scrollTo.mock.calls.every(([options])=>options.behavior==='instant')).toBe(true);
-    vi.advanceTimersByTime(1000);event(f.root,'scroll');f.end();f.end();
-    expect(f.schedule).toHaveBeenCalledTimes(1);
-    expect(f.control.advance(performance.now()+1000)).toBe(false);
     f.control.dispose();
   });
-
-  it('cancels immediately on a reversed wheel gesture and leaves its reading position alone',()=>{
-    const f=fixture();f.gesture();f.control.advance(performance.now()+40);
-    const interrupted=f.root.scrollTop;f.wheel(-80);
-    expect(f.control.advance(performance.now()+2000)).toBe(false);
-    expect(f.root.scrollTop).toBe(interrupted);
-    vi.advanceTimersByTime(40);f.move(interrupted-80);vi.advanceTimersByTime(100);f.end();
-    expect(f.control.advance(performance.now()+1000)).toBe(false);
-    expect(f.root.scrollTop).toBe(interrupted-80);
-    expect(f.schedule).toHaveBeenCalledTimes(1);
-    f.control.dispose();
-  });
-
-  it('uses the final movement direction even when the gesture originated on the other side',()=>{
-    const f=fixture({position:500});f.wheel(150);vi.advanceTimersByTime(40);f.move(650);
-    f.wheel(-30);vi.advanceTimersByTime(40);f.move(620);vi.advanceTimersByTime(100);f.end();
-    expect(f.schedule).not.toHaveBeenCalled();expect(f.root.scrollTop).toBe(620);
-    f.control.dispose();
-  });
-
-  it('retains reverse intent when compositor scrolling precedes the passive wheel callback',()=>{
-    const f=fixture({position:780});vi.advanceTimersByTime(40);
-    f.root.scrollTop=700;f.wheel(-80);event(f.root,'scroll');vi.advanceTimersByTime(100);f.end();
-    expect(f.schedule).toHaveBeenCalledTimes(1);
-    f.control.advance(performance.now()+1000);expect(f.root.scrollTop).toBe(660);
-    f.control.dispose();
-  });
-
-  it('allows a single notch away from a completed stop before its deferred scroll event',()=>{
-    const f=fixture();f.gesture();
-    f.root.scrollTo.mockImplementation(({top})=>{f.root.scrollTop=top;});
-    f.control.advance(performance.now()+1000);expect(f.root.scrollTop).toBe(660);
-    f.root.scrollTop=740;f.wheel(80);event(f.root,'scroll');vi.advanceTimersByTime(100);f.end();
-    expect(f.control.advance(performance.now()+1000)).toBe(false);
-    expect(f.root.scrollTop).toBe(740);expect(f.schedule).toHaveBeenCalledTimes(1);
-    f.gesture(700);f.control.advance(performance.now()+1000);
-    expect(f.root.scrollTop).toBe(660);expect(f.schedule).toHaveBeenCalledTimes(2);
-    f.control.dispose();
-  });
-
-  it('yields to resumed native momentum without requiring another wheel event',()=>{
-    const f=fixture();f.gesture();f.control.advance(performance.now()+40);
-    const nativePosition=f.root.scrollTop+12;f.move(nativePosition);
-    expect(f.control.advance(performance.now()+1000)).toBe(false);
-    expect(f.root.scrollTop).toBe(nativePosition);
-    f.end();vi.advanceTimersByTime(1000);
-    expect(f.schedule).toHaveBeenCalledTimes(1);
-    f.control.dispose();
-  });
-
-  it('yields to a compositor position change before its deferred scroll callback',()=>{
-    const f=fixture();f.gesture();f.control.advance(performance.now()+40);
-    const nativePosition=f.root.scrollTop+12;f.root.scrollTop=nativePosition;
-    expect(f.control.advance(performance.now()+1000)).toBe(false);
-    expect(f.root.scrollTop).toBe(nativePosition);
-    event(f.root,'scroll');f.end();
-    expect(f.schedule).toHaveBeenCalledTimes(1);f.control.dispose();
-  });
-
-  it('uses an idle fallback only when native scrollend is unavailable',()=>{
-    const fallback=fixture({nativeEnd:false});fallback.wheel(600);vi.advanceTimersByTime(40);fallback.move(600);
-    vi.advanceTimersByTime(79);expect(fallback.schedule).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(1);expect(fallback.schedule).toHaveBeenCalledTimes(1);fallback.control.dispose();
-    const native=fixture();native.wheel(600);vi.advanceTimersByTime(40);native.move(600);
-    vi.advanceTimersByTime(1000);expect(native.schedule).not.toHaveBeenCalled();
-    native.end();expect(native.schedule).toHaveBeenCalledTimes(1);native.control.dispose();
-  });
-
-  it('continues immediately at native scrollend with the available release velocity',()=>{
-    const f=fixture({position:570});f.wheel(30);vi.advanceTimersByTime(40);f.move(600);f.end();
-    expect(f.schedule).toHaveBeenCalledTimes(1);expect(vi.getTimerCount()).toBe(0);
-    const release=performance.now();expect(f.control.advance(release+.01)).toBe(true);
-    expect((f.root.scrollTop-600)/.01).toBeCloseTo(.75,5);
-    f.control.dispose();
-  });
-
-  it('keeps a held PageDown native and waits for key release at a nearby stop',()=>{
-    const f=fixture();const down=event(f.root,'keydown',{key:'PageDown'});
-    expect(down.accepted).toBe(true);expect(down.value.defaultPrevented).toBe(false);
-    vi.advanceTimersByTime(40);f.move(600);vi.advanceTimersByTime(200);f.end();
-    expect(f.schedule).not.toHaveBeenCalled();event(f.win,'keyup',{key:'PageDown'});
-    expect(f.schedule).toHaveBeenCalledTimes(1);
-    f.control.advance(performance.now()+1000);expect(f.root.scrollTop).toBe(660);f.control.dispose();
-  });
-
-  it('does not compete with native paging momentum after a quick key release',()=>{
-    const f=fixture();event(f.root,'keydown',{key:'PageDown'});
-    vi.advanceTimersByTime(40);f.move(120);event(f.win,'keyup',{key:'PageDown'});
-    vi.advanceTimersByTime(60);f.move(320);vi.advanceTimersByTime(40);expect(f.schedule).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(20);f.move(600);vi.advanceTimersByTime(80);f.end();
-    expect(f.schedule).toHaveBeenCalledTimes(1);f.control.dispose();
-  });
-
-  it('does not arm fine keyboard reading, editable input, Find, focus, or programmatic scrolling',()=>{
-    const f=fixture();
-    for(const key of ['ArrowDown','ArrowUp','Home','End',' ','f']){
-      event(f.root,'keydown',{key});f.move(600);f.end();
+  it('settles into03 after approaching or slightly passing it',()=>{
+    for(const [position,delta] of [[2700,30],[2840,-30]]){
+      const f=fixture({position});f.wheel(delta);f.settle();
+      expect(f.root.scrollTop).toBeCloseTo(stops[4],4);expect(f.control.snapshot().phase).toBe('resting');f.control.dispose();
     }
-    f.root.editable=true;event(f.root,'keydown',{key:'PageDown'});
-    f.move(620);event(f.win,'keyup',{key:'PageDown'});f.end();
-    event(f.root,'focusin');f.move(640);f.end();vi.advanceTimersByTime(1000);
-    expect(f.schedule).not.toHaveBeenCalled();expect(f.root.scrollTo).not.toHaveBeenCalled();f.control.dispose();
   });
-
-  it('cancels on pointer contact and never settles while the pointer is held',()=>{
-    const f=fixture();f.gesture();event(f.root,'pointerdown');
-    expect(f.control.advance(performance.now()+1000)).toBe(false);
-    f.wheel(20);vi.advanceTimersByTime(40);f.move(620);vi.advanceTimersByTime(200);f.end();
-    expect(f.schedule).toHaveBeenCalledTimes(1);
-    event(f.win,'pointerup');expect(f.schedule).toHaveBeenCalledTimes(2);f.control.dispose();
+  it('retains velocity between trackpad events and accepts immediate reversal',()=>{
+    const f=fixture();f.wheel(120);f.advance();
+    const before=f.control.snapshot().velocity;f.wheel(60);
+    expect(f.control.snapshot().velocity).toBeGreaterThan(before);
+    f.wheel(-180);expect(f.control.snapshot().velocity).toBeLessThan(0);f.advance();f.control.dispose();
   });
-
-  it('releases held input state when the window loses focus',()=>{
-    const f=fixture();event(f.root,'keydown',{key:'PageDown'});vi.advanceTimersByTime(40);f.move(600);
-    event(f.win,'blur');vi.advanceTimersByTime(200);f.end();expect(f.schedule).not.toHaveBeenCalled();
-    f.gesture(620);expect(f.schedule).toHaveBeenCalledTimes(1);f.control.dispose();
+  it('allows small departures without pulling repeatedly back to the same stop',()=>{
+    const f=fixture({position:660});f.wheel(50);f.settle();const first=f.root.scrollTop;
+    expect(first).toBeGreaterThan(700);expect(first).toBeLessThan(720);
+    f.wheel(50);f.settle();expect(f.root.scrollTop).toBeGreaterThan(first+40);f.control.dispose();
   });
-
-  it('does not interfere with zoom, horizontal gestures, or selected text',()=>{
-    const f=fixture();f.gesture();
-    const zoom=event(f.root,'wheel',{deltaY:100,deltaX:0,ctrlKey:true});
-    expect(zoom.value.defaultPrevented).toBe(false);expect(f.control.advance(performance.now()+1000)).toBe(false);
-    event(f.root,'wheel',{deltaY:20,deltaX:100,ctrlKey:false});f.move(620);f.end();
-    expect(f.schedule).toHaveBeenCalledTimes(1);
-    f.select();f.gesture(640);expect(f.schedule).toHaveBeenCalledTimes(1);f.control.dispose();
+  it('keeps native keyboard navigation, and yields to native scroll before deferred events',()=>{
+    const f=fixture();f.wheel();f.advance();
+    const key=event(f.root,'keydown',{key:'PageDown'});expect(key.defaultPrevented).toBe(false);expect(f.advance()).toBe(false);
+    f.wheel();f.advance();f.root.scrollTop+=30;const native=f.root.scrollTop;
+    expect(f.advance()).toBe(false);expect(f.root.scrollTop).toBe(native);f.control.dispose();
   });
-
-  it('honors desktop and motion policy and cancels if it changes while settling',()=>{
-    const f=fixture({enabled:false});f.gesture();expect(f.schedule).not.toHaveBeenCalled();
-    f.policy.matches=true;event(f.policy,'change');f.gesture(620);expect(f.schedule).toHaveBeenCalledTimes(1);
-    f.policy.matches=false;event(f.policy,'change');expect(f.control.advance(performance.now()+1000)).toBe(false);f.control.dispose();
+  it('ignores its own synchronous and deferred scroll events after settling',()=>{
+    const f=fixture({position:2700});f.wheel(30);f.settle();
+    const count=f.schedule.mock.calls.length;event(f.root,'scroll');event(f.root,'scrollend');
+    expect(f.advance()).toBe(false);expect(f.schedule).toHaveBeenCalledTimes(count);f.control.dispose();
   });
-
-  it('cancels on visibility loss and explicit navigation or resize cancellation',()=>{
-    const f=fixture();f.gesture();f.doc.hidden=true;event(f.doc,'visibilitychange');
-    expect(f.control.advance(performance.now()+1000)).toBe(false);
-    f.doc.hidden=false;f.gesture(620);f.control.cancel();expect(f.control.advance(performance.now()+1000)).toBe(false);f.control.dispose();
+  it('normalizes line and page deltas rather than treating them as pixels',()=>{
+    const f=fixture();f.wheel(3,{deltaMode:1});f.settle();expect(f.root.scrollTop).toBeCloseTo(48,0);f.control.dispose();
+    const page=fixture();page.wheel(1,{deltaMode:2});expect(page.control.snapshot().velocity).toBeGreaterThan(1000);page.control.dispose();
   });
-
-  it('cleans pending timers and removes listeners on disposal',()=>{
-    const f=fixture({nativeEnd:false});f.wheel(600);vi.advanceTimersByTime(40);f.move(600);
-    f.control.dispose();vi.advanceTimersByTime(1000);
-    f.wheel();f.move(620);f.end();event(f.root,'keydown',{key:'PageDown'});event(f.win,'keyup',{key:'PageDown'});vi.advanceTimersByTime(1000);
-    expect(f.schedule).not.toHaveBeenCalled();expect(f.root.scrollTo).not.toHaveBeenCalled();expect(f.control.advance(performance.now())).toBe(false);
+  it('never takes over zoom, horizontal input, text selection or editable controls',()=>{
+    const f=fixture();
+    for(const flags of [{ctrlKey:true},{metaKey:true},{shiftKey:true},{deltaX:240}])expect(f.wheel(120,flags).defaultPrevented).toBe(false);
+    f.root.editable=true;expect(f.wheel().defaultPrevented).toBe(false);f.root.editable=false;
+    f.select();expect(f.wheel().defaultPrevented).toBe(false);expect(f.root.scrollTo).not.toHaveBeenCalled();f.control.dispose();
+  });
+  it('debug controls keep native wheel and do not cancel a running seek on focus',()=>{
+    const f=fixture();f.control.seek(4);f.root.debug=true;
+    event(f.root,'focusin');event(f.root,'keydown',{key:'Tab'});
+    expect(f.wheel().defaultPrevented).toBe(false);expect(f.advance()).toBe(true);
+    f.settle();expect(f.root.scrollTop).toBe(stops[4]);f.control.dispose();
+  });
+  it('uses native motion on compact/reduced-motion devices or when disabled',()=>{
+    const f=fixture({enabled:false});expect(f.wheel().defaultPrevented).toBe(false);
+    f.control.seek(4);expect(f.root.scrollTop).toBe(stops[4]);expect(f.control.snapshot().phase).toBe('native');f.control.dispose();
+    const live=fixture();live.wheel();live.advance();live.tuning.enabled=false;expect(live.advance()).toBe(false);expect(live.wheel().defaultPrevented).toBe(false);live.control.dispose();
+  });
+  it('cancels on motion policy, visibility, pointer contact, focus or explicit resize/navigation',()=>{
+    const f=fixture();
+    for(const cancel of [()=>event(f.policy,'change'),()=>{f.doc.hidden=true;event(f.doc,'visibilitychange');},()=>event(f.root,'pointerdown'),()=>event(f.root,'focusin'),()=>f.control.cancel()]){
+      f.doc.hidden=false;event(f.win,'pointerup');f.wheel(30);f.advance();cancel();expect(f.advance()).toBe(false);
+    }
+    f.control.dispose();
+  });
+  it('interrupts explicit stop navigation with a new wheel gesture',()=>{
+    const f=fixture();f.control.seek(4);f.advance(80);const before=f.root.scrollTop;
+    f.wheel(-120);f.advance();expect(f.control.snapshot().velocity).toBeLessThan(0);
+    f.settle();expect(f.root.scrollTop).toBeLessThan(before);f.control.dispose();
+  });
+  it('leaves outward wheel at boundaries native and removes every listener on teardown',()=>{
+    const f=fixture();expect(f.wheel(-120).defaultPrevented).toBe(false);
+    f.wheel(120);f.control.dispose();const count=f.schedule.mock.calls.length;
+    expect(f.wheel(120).defaultPrevented).toBe(false);event(f.root,'scroll');event(f.policy,'change');
+    expect(f.advance()).toBe(false);expect(f.schedule).toHaveBeenCalledTimes(count);
   });
 });

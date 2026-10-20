@@ -435,12 +435,17 @@ def verify_scene_assets(scene, source_dir):
     if hdri:
         references.append((validate_hdri_asset(hdri.get("asset")), "hdri"))
     references.extend((asset, "material-image") for asset in iter_material_assets(scene))
+    from .film_images import validate_film_image_asset, verify_film_image
+    references.extend((validate_film_image_asset(shot["image"]["asset"]), "film-image")
+                      for shot in scene.get("shots", []) if shot.get("kind") == "image")
     records = {}
     for asset, component in references:
         path = safe_asset_path(source_dir, asset["path"])
         payload = _read_asset(path)
         _require(hashlib.sha256(payload).hexdigest() == asset["sha256"], "Asset hash does not match the immutable scene revision")
-        if component == "material-image":
+        if component == "film-image":
+            metadata = verify_film_image(payload, asset)
+        elif component == "material-image":
             metadata = validate_png(payload)
         elif component == "hdri":
             from .polyhaven import validate_hdri

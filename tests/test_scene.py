@@ -274,10 +274,10 @@ class SceneTests(unittest.TestCase):
                         scene["actions"][0]["evidenceIds"] = [value]
                     self.assertInvalid(scene)
 
-    def test_shot_ranges_must_be_contiguous_integer_frames(self):
+    def test_shot_ranges_must_be_ordered_nonoverlapping_integer_frames(self):
         for index, key, value in (
             (0, "startFrame", 0), (0, "endFrame", 0),
-            (1, "startFrame", 120), (1, "startFrame", 122),
+            (1, "startFrame", 120),
             (1, "endFrame", 119), (0, "startFrame", True),
             (0, "endFrame", 120.0),
         ):

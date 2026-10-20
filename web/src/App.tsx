@@ -12,15 +12,20 @@ import FilmPanel from './FilmPanel';
 import CameraPanel from './CameraPanel';
 import {FilmObjects, FilmInspector, FilmTimeline, FilmShotHeader, type FilmWorkspaceProps} from './FilmWorkspace';
 import FilmPoseInspector from './FilmPoseInspector';
+import {FilmClipDetails} from './FilmClipDetails';
+import {addImageShot, closeSequenceGaps, exactShotAtFrame, sequenceEnd, shotAtFrame} from './sequence';
 import {FrameSetupObjects, FrameSetupInspector} from './NewFrameFlow';
 import {createFrameSetup, setFrameObjects, setFrameCamera, patchFrameMotions, type FrameSetup} from './frameSetup';
 import {listMotions, motionLabel} from './filmMotion';
+import {timelineMotions} from './filmTimelineModel';
+import {legacyMotions} from './FilmWorkspaceShared';
 import './film-shell.css';
 import ExportPanel from './ExportPanel';
 import {combinedExportJobs, normalizePairExportJob, exportBlockReason, type ExportJob, type ExportMode, type ExportPayload} from './exportModel';
 import FilmViewportControls from './FilmViewportControls';
 import ViewportLoading from './ViewportLoading';
 import {useFilmCamera} from './useFilmCamera';
+import {useFilmPlayhead} from './useFilmPlayhead';
 import type {FilmGuideProjection} from './filmGuides';
 import TransformShortcuts from './TransformShortcuts';
 import type {TransformMode,TransformTarget} from './transforms';
@@ -79,7 +84,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   const [pairJobs,setPairJobs]=useState<PairJob[]>([]);const [comparisonInfo,setComparisonInfo]=useState<any>(null);const [comparisonMode,setComparisonMode]=useState<ComparisonMode>('split');
   const [calibrationDrafts,setCalibrationDrafts]=useState<Record<Side,CalibrationDraft>>({a:emptyCalibration(),b:emptyCalibration()});const [picking,setPicking]=useState<PickRequest>(null);
   const [caps,setCaps]=useState<any>({}); const [samples,setSamples]=useState<any[]>([]);const [digest,setDigest]=useState('');
-  const [frame,setFrame]=useState(1);const [playing,setPlaying]=useState(false); const [selected,setSelected]=useState<string|null>('bottle-body');
+  const {frame,editingFrame:filmEditFrame,setFrame,setPlaybackFrame,restoreEditingFrame}=useFilmPlayhead();const [playing,setPlaying]=useState(false); const [selected,setSelected]=useState<string|null>('bottle-body');
   const [error,setError]=useState('');const [validationError,setValidationError]=useState(''); const [notice,setNotice]=useState('');const [busy,setBusy]=useState(false);const [saving,setSaving]=useState(false);const [evaluating,setEvaluating]=useState(false);
   const [showExport,setShowExport]=useState(false);const [exportMode,setExportMode]=useState<ExportMode>('still');
   const [showProductImport,setShowProductImport]=useState(false);const [productImporting,setProductImporting]=useState(false);
@@ -94,6 +99,8 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   const [frameSetupError,setFrameSetupError]=useState('');
   const frameSetupBaseline=useRef<{history:typeof history;frame:number;target:string;layer:string;selected:string|null;space:'world'|'local'}|null>(null);
   const [filmLegacy,setFilmLegacy]=useState(false);
+  const imageFile=useRef<HTMLInputElement>(null);
+  const [importingFilmImage,setImportingFilmImage]=useState(false);
   const filmReturn=useRef<{frame:number;target:string}|null>(null);
   const animatorVisible=tab==='renders'&&mode==='video'&&layer==='Animation';
   const stillFilm=tab==='renders'&&mode==='still';
@@ -233,15 +240,19 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
 
   const pickHandler=useRef<(side:Side,point:any)=>void>(()=>{});
   const [worldName,setWorldName]=useState('Campaign room');const [owner,setOwner]=useState('');const [reuse,setReuse]=useState('');const [sourceUp,setSourceUp]=useState('Y');
-  const file=useRef<HTMLInputElement>(null);const total=scene?.shots.at(-1)?.endFrame??360;const fps=scene?.render.fps??24;
-  const shot=scene?.shots.find((s:any)=>frame>=s.startFrame&&frame<=s.endFrame)??scene?.shots[0];
+  const file=useRef<HTMLInputElement>(null);const total=scene?sequenceEnd(scene):360;const fps=scene?.render.fps??24;
+  const shot=scene?exactShotAtFrame(scene,frame):undefined;
+  const filmEditShot=scene?exactShotAtFrame(scene,filmEditFrame):undefined;
+  const filmSceneSelected=!!filmEditShot&&filmEditShot.kind!=='image';
+  const filmSceneVisible=!!shot&&shot.kind!=='image';
   const setupShot=frameSetup?scene?.shots.find((item:any)=>item.id===frameSetup.shotId):null;
   const playbackStart=setupShot?.startFrame??1, playbackEnd=setupShot?.endFrame??total;
-  const togglePlayback=()=>{if(frameRef.current>=playbackEnd||frameRef.current<playbackStart)setFrame(playbackStart);setPlaying(value=>!value)};
+  const togglePlayback=()=>{if(frameRef.current>=playbackEnd||frameRef.current<playbackStart)setPlaybackFrame(playbackStart);setPlaying(value=>!value)};
+  useEffect(()=>{if(!scene)return;if(filmEditFrame>total)setFrame(total);else if(frame>total)setPlaybackFrame(total);},[scene,total,filmEditFrame,frame,setFrame,setPlaybackFrame]);
   const dirty=!!scene&&!equalJson(scene,project?.scene);
-  const saveStatus=resolveSaveStatus({saving,loaded:!!project,busy:busy||productImporting||importing,dirty});
+  const saveStatus=resolveSaveStatus({saving,loaded:!!project,busy:busy||productImporting||importing||importingFilmImage,dirty});
   const valid=!!scene&&!!samples.length&&!evaluating&&!validationError&&evaluatedScene.current===scene;
-  const visibleViewportLoading=!validationError&&((viewportLoading.a&&(!showComparison||comparisonMode!=='b'))||(viewportLoading.b&&showComparison&&comparisonMode!=='a'));
+  const visibleViewportLoading=productImporting||!validationError&&((viewportLoading.a&&(!showComparison||comparisonMode!=='b'))||(viewportLoading.b&&showComparison&&comparisonMode!=='a'));
   useEffect(() => {
     const report = () => {
       if (entranceReported.current) return;
@@ -263,7 +274,9 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   const calibrationWorldKey=JSON.stringify([scene?.environment,scene?.comparison?.alternative].map(environment=>[environment?.asset?.sha256,environment?.asset?.sourceUp,environment?.revisionId]));
   useEffect(()=>{const saved=JSON.parse(calibrationKey);const draft=(side:Side):CalibrationDraft=>({floor:saved[side]?.sourceFloorPoint,points:saved[side]?.measurement?.sourcePoints??[],distance:saved[side]?.measurement?.realDistanceM?.toString()??'',yaw:''});setCalibrationDrafts({a:draft('a'),b:draft('b')});setPicking(null)},[calibrationKey,calibrationWorldKey,project?.id]);
   const change=(edit:(s:Scene)=>void)=>{setPlaying(false);setPicking(null);setNotice('');setError('');setHistory(previous=>{if(!previous.present)return previous;const next=clone(previous.present);edit(next);return commitHistory(previous,next)})};
-  const loadProject=(p:Project)=>{clearMaterialPreview();viewport.current?.resetFraming();viewportB.current?.resetFraming();try{localStorage.setItem('gesso.project',p.id)}catch{}setProject(p);setHistory(createHistory(p.scene));setFilmTarget('$camera');setFilmMotionId(null);setFilmCurves(false);setFilmLegacy(false);setFrameSetup(null);frameSetupBaseline.current=null;setFrameSetupError('');filmReturn.current=null;setFrame(1);setPlaying(false);setPicking(null);setError('');setValidationError('');setParts([]);setUvLayout(null);setSelectedDecalId(null);setSelected(p.scene.product.label?.componentId??p.scene.product.components[0]?.id??null);setFocused(true);setInspecting(false);setHiddenParts([]);setNotice('Project opened')};
+  const resumeFilmEditing=()=>{setPlaying(false);restoreEditingFrame();};
+  const changeFilm=(edit:(s:Scene)=>void)=>{resumeFilmEditing();change(edit);};
+  const loadProject=(p:Project)=>{clearMaterialPreview();viewport.current?.resetFraming();viewportB.current?.resetFraming();try{localStorage.setItem('gesso.project',p.id)}catch{}setProject(p);const opened=clone(p.scene);let compacted=false,compactionError='';try{compacted=closeSequenceGaps(opened)}catch(reason){compactionError=reason instanceof Error?reason.message:'Could not close film gaps.'}setHistory(compacted?commitHistory(createHistory(p.scene),opened):createHistory(p.scene));setFilmTarget('$camera');setFilmMotionId(null);setFilmCurves(false);setFilmLegacy(false);setFrameSetup(null);frameSetupBaseline.current=null;setFrameSetupError('');filmReturn.current=null;setFrame(1);setPlaying(false);setPicking(null);setError('');setValidationError('');setParts([]);setUvLayout(null);setSelectedDecalId(null);setSelected(p.scene.product.label?.componentId??p.scene.product.components[0]?.id??null);setFocused(true);setInspecting(false);setHiddenParts([]);setNotice(compacted?'Film gaps closed · Undo to restore':compactionError||'Project opened')};
   useEffect(()=>{const abort=new AbortController();api('/api/bootstrap','GET',undefined,abort.signal).then(async b=>{let remembered:string|null=null;try{remembered=localStorage.getItem('gesso.project')}catch{}let opened=b.project;if(remembered&&remembered!==opened.id&&b.projects.some((p:any)=>p.id===remembered)){try{opened=await api(`/api/projects/${remembered}`,'GET',undefined,abort.signal)}catch{}}if(abort.signal.aborted)return;loadProject(opened);setProjects(b.projects);setWorlds(b.worlds);setCaps(b.capabilities);setJobs(b.jobs)}).catch(e=>{if(!abort.signal.aborted)setError(e.message)});return()=>abort.abort()},[]);
   useEffect(()=>{const hostElement=host.current;const secondHost=hostB.current;if(!hostElement||!secondHost)return;const view=createViewport(hostElement,{studioMode:true,onPresented:()=>setPresented(value=>({...value,a:true})),onLoading:loading=>setViewportLoading(value=>({...value,a:loading})),onFilmGuide:setFilmGuide,onInteract:()=>{setPlaying(false);setInspecting(true)},onParts:setParts,onError:setValidationError,onWorldPoint:point=>pickHandler.current('a',point)});const second=createViewport(secondHost,{studioMode:true,onPresented:()=>setPresented(value=>({...value,b:true})),onLoading:loading=>setViewportLoading(value=>({...value,b:loading})),onInteract:()=>{setPlaying(false);setInspecting(true)},onError:message=>{if(sceneRef.current?.comparison)setValidationError(message)},onWorldPoint:point=>pickHandler.current('b',point)});viewport.current=view;viewportB.current=second;
     return()=>{++previewRequest.current;currentPreviewScope.current=null;view.dispose();second.dispose();viewport.current=null;viewportB.current=null}},[]);
@@ -273,9 +286,10 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
       await Promise.all([viewport.current?.setScene(result.comparison?.a??result.scene,sampled),result.comparison?viewportB.current?.setScene(result.comparison.b,sampled):Promise.resolve()]);
       if(request!==newest.current)return;const currentFrame=Math.min(frameRef.current,result.frames.length);const currentSample=result.frames[currentFrame-1];
       await Promise.all([viewport.current?.setSample(currentSample),result.comparison?viewportB.current?.setSample(currentSample):Promise.resolve()]);
-      if(request===newest.current){evaluatedScene.current=scene;transformCommitPending.current=false;flushMaterialPreviewClear();setSamples(result.frames);setDigest(result.digest);setComparisonInfo(result.comparison??null);setFrame(currentFrame);setValidationError('');setEvaluating(false)}
+      if(request===newest.current){evaluatedScene.current=scene;transformCommitPending.current=false;flushMaterialPreviewClear();setSamples(result.frames);setDigest(result.digest);setComparisonInfo(result.comparison??null);setPlaybackFrame(currentFrame);setValidationError('');setEvaluating(false)}
     }).catch(e=>{if(request===newest.current){setValidationError(e.message);setEvaluating(false)}})
   },180);return()=>{clearTimeout(timer);abort.abort();++newest.current}},[scene]);
+  useEffect(()=>{viewport.current?.setFilmContent(filmWorkspace);viewportB.current?.setFilmContent(filmWorkspace)},[filmWorkspace]);
   useEffect(()=>{viewport.current?.setFilmGuides(filmGuidesVisible)},[filmGuidesVisible]);
   useEffect(()=>{const sample=samples[frame-1];if(sample&&evaluatedScene.current===scene)void Promise.all([viewport.current?.setSample(sample),scene?.comparison?viewportB.current?.setSample(sample):Promise.resolve()]).catch(e=>setValidationError(e.message))},[samples,frame,scene]);
   useEffect(()=>{setUvLayout(selected?viewport.current?.getUvLayout(selected)??null:null)},[parts,selected]);
@@ -302,7 +316,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   useEffect(()=>{const hidden=()=>{if(document.hidden)setPlaying(false)};document.addEventListener('visibilitychange',hidden);
     const observer=new IntersectionObserver(entries=>{if(!entries[0]?.isIntersecting)setPlaying(false)});if(stageHost.current)observer.observe(stageHost.current);
     return()=>{document.removeEventListener('visibilitychange',hidden);observer.disconnect()}},[]);
-  useEffect(()=>{if(!playing)return;setPicking(null);let raf=0;let start=performance.now();const first=frame;const tick=(time:number)=>{const next=first+Math.floor((time-start)/1000*fps);if(next>playbackEnd){setPlaying(false);setFrame(playbackEnd);return}setFrame(next);raf=requestAnimationFrame(tick)};raf=requestAnimationFrame(tick);return()=>cancelAnimationFrame(raf)},[playing,fps,playbackEnd]);
+  useEffect(()=>{if(!playing)return;setPicking(null);let raf=0;let start=performance.now();const first=frame;const tick=(time:number)=>{const next=first+Math.floor((time-start)/1000*fps);if(next>playbackEnd){setPlaying(false);setPlaybackFrame(playbackEnd);return}setPlaybackFrame(next);raf=requestAnimationFrame(tick)};raf=requestAnimationFrame(tick);return()=>cancelAnimationFrame(raf)},[playing,fps,playbackEnd]);
   useEffect(()=>{if(!active||showExport)return;const key=(e:KeyboardEvent)=>{const target=e.target as HTMLElement;if(e.defaultPrevented||transformModeRef.current)return;if(e.isComposing||['INPUT','TEXTAREA','SELECT'].includes(target?.tagName)||target?.isContentEditable)return;
     const destination=shortcutDestination(e,tab,mode);if(destination){e.preventDefault();if(target?.closest('.timeline')){const label=destination.group?groups.find(group=>group.id===destination.group)?.label:destination.layer;menuHost.current?.querySelector<HTMLButtonElement>(`.gesso-navrow button[aria-label="${label}"]`)?.focus()}if(destination.group)chooseGroup(destination.group);if(destination.layer)selectLayer(destination.layer);setMenu(null);return}
     if(!e.altKey&&!e.ctrlKey&&!e.metaKey&&e.code==='KeyF'){e.preventDefault();setPlaying(false);if(e.shiftKey){setInspecting(false);viewport.current?.resetFraming();viewportB.current?.resetFraming()}else{setInspecting(true);viewport.current?.frameSelection();viewportB.current?.frameSelection()}return}
@@ -379,7 +393,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   useEffect(()=>{if(!showExport)return;const close=()=>setShowExport(false);window.addEventListener('popstate',close);return()=>window.removeEventListener('popstate',close)},[showExport]);
   const replaceWorld=(id:string)=>change(s=>{if(id==='authored'){const e=clone(s.environment);delete e.asset;delete e.fixture;e.kind='authored';e.revisionId='neutral-studio-v1';e.displayName='Authored studio';e.provenance={source:'Original authored studio',owner:'3d-product-suite',reuseBasis:'Original project geometry',allowedExternalDestinations:[]};s.environment=e;return}const world=worlds.find(w=>w.id===id);if(!world)return;const e=clone(world.environment);e.plinth=clone(s.environment.plinth);if(s.environment.props)e.props=clone(s.environment.props);s.environment=e});
   const importFile=async()=>{const chosen=file.current?.files?.[0];if(!chosen)return;setImporting(true);setError('');try{const q=new URLSearchParams({name:worldName,owner,reuseBasis:reuse,sourceUp});const result=await fetch(`/api/worlds/import?${q}`,{method:'POST',headers:{'X-Product-Suite':'1','Content-Type':'application/octet-stream','X-Asset-Filename':chosen.name},body:chosen});const data=await result.json();if(!result.ok)throw new Error(data.error);setWorlds(await api('/api/worlds'));setShowImport(false);setNotice(`${data.name} imported; review its alignment before rendering`)}catch(e:any){setError(e.message)}finally{setImporting(false)}};
-  const importProduct=async()=>{const chosen=productFile.current?.files?.[0];if(!chosen)return;setProductImporting(true);setError('');try{const q=new URLSearchParams({name:productName,owner:productOwner,reuseBasis:productReuse,source:productSource});const result=await fetch(`/api/products/import?${q}`,{method:'POST',headers:{'X-Product-Suite':'1','Content-Type':'application/octet-stream','X-Asset-Filename':chosen.name},body:chosen});const data=await result.json();if(!result.ok)throw new Error(data.error);loadProject(data);setProjects(await api('/api/projects'));setShowProductImport(false);setNotice('Product imported with its original geometry and materials.')}catch(e:any){setError(e.message)}finally{setProductImporting(false)}};
+  const importProduct=async()=>{const chosen=productFile.current?.files?.[0];if(!chosen)return;setProductImporting(true);setError('');try{const q=new URLSearchParams({name:productName,owner:productOwner,reuseBasis:productReuse,source:productSource});const result=await fetch(`/api/products/import?${q}`,{method:'POST',headers:{'X-Product-Suite':'1','Content-Type':'application/octet-stream','X-Asset-Filename':chosen.name},body:chosen});const data=await result.json();if(!result.ok)throw new Error(data.error);loadProject(data);setProjects(await api('/api/projects'));setShowProductImport(false);setNotice(chosen.name.toLowerCase().endsWith('.blend')?['Blender product imported at its saved frame. Materials use glTF-compatible settings.',...(data.scene?.product?.metadata?.blendImport?.warnings??[])].join(' '):'Product imported with its original geometry and materials.')}catch(e:any){setError(e.message)}finally{setProductImporting(false)}};
   const generate=()=>perform(async()=>{const result=await api('/api/github-worlds/generate','POST',{imageUrl,preset,budgetCredits:creditLimit});setNotice(`World comparison submitted to GitHub Actions. Experiment ${result.id.slice(0,8)}. Both final alternatives will be meshes.`);setRemoteRuns(await api('/api/github-worlds/runs'))});
   const refreshRuns=()=>perform(async()=>{setRemoteRuns(await api('/api/github-worlds/runs'))});
   const importRun=(id:number)=>perform(async()=>{await api(`/api/github-worlds/runs/${id}/import`,'POST');setWorlds(await api('/api/worlds'));setNotice('World Labs mesh, Gaussian-derived mesh, and native splat imported. Review alignment before approval.')});
@@ -416,7 +430,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     invalidateFrame('studio');
   },[active,sideEditorVisible,filmWorkspace,timelineVisible,animatorVisible,filmCurves,filmLegacy,showComparison,comparisonMode,invalidateFrame]);
   const previewFrame=(next:number)=>{setPlaying(false);setFrame(next)};
-  const filmCamera=useFilmCamera({scene,samples:valid?samples:[],frame,mode,active:active&&filmGuidesVisible&&filmTarget==='$camera'&&layer!=='Output',enabled:active&&valid&&!playing&&!busy,guide:filmGuide,viewport,onChange:change,onFrame:previewFrame,onResetView:resetView});
+  const filmCamera=useFilmCamera({scene,samples:valid?samples:[],frame:filmWorkspace?filmEditFrame:frame,mode,active:active&&filmSceneSelected&&filmGuidesVisible&&filmTarget==='$camera'&&layer!=='Output',enabled:active&&valid&&!playing&&!busy&&(!filmWorkspace||filmSceneSelected&&frame===filmEditFrame),guide:filmGuide,viewport,onChange:changeFilm,onFrame:previewFrame,onResetView:resetView});
   const activeDecal=decalForPart(scene,selected,selectedDecalId);
   const selectedPart=parts.find(part=>part.id===selected)??sceneParts(scene).find(part=>part.id===selected);
   const transformPart=selectedPart??(parts.length?parts:sceneParts(scene))[0];
@@ -441,18 +455,19 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     const target=next.product.decals?.find((item:ProductDecal)=>item.id===activeDecal.id);if(target)target.centerUv=centerUv;
   })};
   const productPanel=scene?<ProductPanel workspace={tab==='renders'?'animation':tab==='material'?'material':'product'} key={`${project?.id ?? ''}:${scene.sceneId}`} onPreview={previewMaterial} onMaterialHover={hoverMaterial} editorHost={materialEditorVisible?sideEditorHost:null} positionSpace={positionSpace} onPositionSpace={setPositionSpace} transformMode={transformMode} scene={transformDraft??scene} partId={selected} parts={parts} layer={layer as ProductLayer} onSelect={choosePart} onChange={change} onLayer={name=>chooseLayer(name)} focused={focused} onToggleFocus={()=>setFocused(value=>!value)} onFrame={framePart} hiddenParts={hiddenParts} onToggleVisibility={toggleVisibility} onImport={()=>setShowProductImport(value=>!value)} frame={frame} onPreviewFrame={previewFrame} decal={activeDecal} uvLayout={uvLayout} onAddDecal={addDecal} onSelectDecal={setSelectedDecalId}/>:null;
-  const filmEntries=scene&&shot?listMotions(scene,shot.id):[];
+  const filmEntries=scene&&filmEditShot?listMotions(scene,filmEditShot.id):[];
+  const filmTimelineRows=scene?timelineMotions(scene,filmTarget).length+legacyMotions(scene).filter(item=>item.target===filmTarget).length:0;
   const filmOwners=filmEntries.filter(entry=>entry.motion.enabled&&entry.motion.target===filmTarget);
   const filmCameraOwners=filmEntries.filter(entry=>entry.motion.enabled&&entry.motion.target==='$camera');
   useEffect(()=>{if(!filmWorkspace)return;if(layer==='Framing'&&filmTarget!=='$camera'){setFilmTarget('$camera');setFilmMotionId(null);setFilmLegacy(false);}else if(layer==='Animation'&&filmTarget==='$camera'){setFilmTarget('$product');setPositionSpace('world');}else if(layer==='Sequence'){setFilmLegacy(false);setFilmCurves(false);}},[tab,layer]);
   const chooseFilmTarget=(id:string)=>{
-    finishFrameSetup();setPlaying(false);setFilmTarget(id);setFilmMotionId(null);setFilmCurves(false);setFilmLegacy(false);
+    finishFrameSetup();resumeFilmEditing();setFilmTarget(id);setFilmMotionId(null);setFilmCurves(false);setFilmLegacy(false);
     if(id==='$product')setPositionSpace('world');
     else if(id!=='$camera'){setPositionSpace('local');setSelected(id);}
     navigate('renders',id==='$camera'?'Framing':'Animation');
   };
   const chooseFilmMotion=(id:string|null)=>{
-    finishFrameSetup();setFilmMotionId(id);setFilmLegacy(false);if(!id){setFilmCurves(false);return;}
+    finishFrameSetup();resumeFilmEditing();setFilmMotionId(id);setFilmLegacy(false);if(!id){setFilmCurves(false);return;}
     const item=filmEntries.find(entry=>entry.motion.id===id);
     if(item){setFilmTarget(item.motion.target);setPositionSpace(item.motion.target==='$product'?'world':'local');if(!item.motion.target.startsWith('$'))setSelected(item.motion.target);navigate('renders',item.motion.target==='$camera'?'Framing':'Animation');}
     resetView();
@@ -460,7 +475,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   useEffect(()=>{
     if(filmMotionId&&!filmEntries.some(entry=>entry.motion.id===filmMotionId)){setFilmMotionId(null);setFilmCurves(false);}
     if(scene&&filmTarget[0]!=='$'&&!scene.product.components.some((part:any)=>part.id===filmTarget))setFilmTarget('$camera');
-  },[shot?.id,scene,filmMotionId,filmTarget]);
+  },[filmEditShot?.id,scene,filmMotionId,filmTarget]);
   function finishFrameSetup(){
     const baseline=frameSetupBaseline.current;
     if(!baseline)return;
@@ -477,12 +492,12 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     setFilmMotionId(null);setFilmCurves(false);setFilmLegacy(false);navigate('renders',baseline.layer);resetView();
   }
   function beginFrameSetup(){
-    if(!scene||!shot||!valid||busy)return;
-    finishFrameSetup();
+    if(!scene||!valid||busy)return;
+    finishFrameSetup();resumeFilmEditing();
     try{
-      const draft=clone(scene), setup=createFrameSetup(draft,shot.id);
-      frameSetupBaseline.current={history:historyRef.current,frame,target:filmTarget,layer,selected,space:positionSpace};
-      change(next=>{next.shots=draft.shots});
+      const draft=clone(scene), setup=createFrameSetup(draft,shotAtFrame(scene,filmEditFrame)?.id);
+      frameSetupBaseline.current={history:historyRef.current,frame:filmEditFrame,target:filmTarget,layer,selected,space:positionSpace};
+      change(next=>{next.shots=draft.shots;next.render=draft.render});
       setFrameSetup(setup);setFrameSetupError('');setFilmTarget('$product');setPositionSpace('world');
       setFilmMotionId(null);setFilmCurves(false);setFilmLegacy(false);
       setFrame(draft.shots.find((item:any)=>item.id===setup.shotId).startFrame);navigate('renders','Animation');resetView();
@@ -492,7 +507,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     if(!frameSetup||!scene||!valid||busy)return;
     try{
       const draft=clone(scene),nextSetup=edit(draft,frameSetup);
-      change(next=>{next.shots=draft.shots});setFrameSetup(nextSetup);setFrameSetupError('');
+      change(next=>{next.shots=draft.shots;next.render=draft.render});setFrameSetup(nextSetup);setFrameSetupError('');
       setFilmMotionId(nextSetup.stage==='camera'?nextSetup.cameraMotionId:nextSetup.objectMotionIds[0]??null);
       return nextSetup;
     }catch(reason){setFrameSetupError(reason instanceof Error?reason.message:'This change could not be applied.');}
@@ -520,21 +535,41 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     onPatchMotion:(patch:Parameters<typeof patchFrameMotions>[2])=>editFrameSetup((draft,setup)=>{patchFrameMotions(draft,setup,patch);return setup;}),
     onStage:setupStage,onComplete:finishFrameSetup,onDiscard:()=>discardFrameSetup()}:null;
   useEffect(()=>{
-    if(frameSetup&&(!active||!filmWorkspace||stillFilm||shot?.id!==frameSetup.shotId||layer!==(frameSetup.stage==='objects'?'Animation':'Framing')))finishFrameSetup();
-  },[active,filmWorkspace,stillFilm,layer,shot?.id,frameSetup?.shotId,frameSetup?.stage]);
-  const filmProps:FilmWorkspaceProps={scene,frame,onFrame:previewFrame,onChange:change,selectedTarget:filmTarget,onTargetChange:chooseFilmTarget,
+    if(frameSetup&&(!active||!filmWorkspace||stillFilm||filmEditShot?.id!==frameSetup.shotId||layer!==(frameSetup.stage==='objects'?'Animation':'Framing')))finishFrameSetup();
+  },[active,filmWorkspace,stillFilm,layer,filmEditShot?.id,frameSetup?.shotId,frameSetup?.stage]);
+  const filmProps:FilmWorkspaceProps={scene,frame,editingFrame:filmEditFrame,onFrame:previewFrame,onChange:changeFilm,selectedTarget:filmTarget,onTargetChange:chooseFilmTarget,
     selectedMotionId:mode==='still'?null:filmMotionId,onMotionSelect:chooseFilmMotion,mode,playing,
-    onPlay:()=>{resetView();togglePlayback()},onCreateShot:beginFrameSetup,disabled:showExport||!!transformMode||!valid||busy,
+    onPlay:()=>{resetView();togglePlayback()},onCreateShot:beginFrameSetup,disabled:showExport||!!transformMode||!valid||busy||importingFilmImage,
     editCurves:filmCurves,onEditCurves:setFilmCurves,onResetView:resetView,
-    onLegacyAnimation:()=>{setFilmLegacy(true);setFilmCurves(false);setFilmMotionId(null);navigate('renders','Animation');}};
-  const editFilmMechanism=()=>{filmReturn.current={frame,target:filmTarget};if(!filmTarget.startsWith('$'))setSelected(filmTarget);navigate('product','Model');};
+    onOutput:()=>{finishFrameSetup();resumeFilmEditing();setFilmMotionId(null);chooseLayer('Output')},
+    onLegacyAnimation:()=>{resumeFilmEditing();setFilmLegacy(true);setFilmCurves(false);setFilmMotionId(null);navigate('renders','Animation');}};
+  const editFilmMechanism=()=>{filmReturn.current={frame:filmEditFrame,target:filmTarget};if(!filmTarget.startsWith('$'))setSelected(filmTarget);navigate('product','Model');};
   const returnToFilm=()=>{const saved=filmReturn.current;filmReturn.current=null;if(saved){chooseFilmTarget(saved.target);previewFrame(saved.frame);}};
   const filmPoseContent=scene?(filmTarget==='$camera'?<>
     {filmCameraOwners.length>0&&<div className="film-owner-note"><span>Position follows {motionLabel(filmCameraOwners[0].motion).toLowerCase()}. Pause that motion to edit the base view.</span><button type="button" onClick={()=>chooseFilmMotion(filmCameraOwners[0].motion.id)}>Edit motion</button></div>}
-    <fieldset className="film-camera-fields" disabled={!!filmCameraOwners.length||busy||!valid}><CameraPanel scene={scene} frame={frame} mode={mode} embedded cameraEnd={filmCamera.end} onCameraEndChange={filmCamera.onEndChange} viewportControls cameraTargetId={filmCamera.targetId} onCameraTargetChange={filmCamera.onTargetChange} samples={valid?samples:[]} onChange={change} onFrame={previewFrame} onResetView={resetView}/></fieldset>
-  </>:<FilmPoseInspector scene={scene} frame={frame} target={filmTarget} onChange={change} onMotionSelect={chooseFilmMotion} disabled={busy||!valid}/> ):null;
+    <fieldset className="film-camera-fields" disabled={!!filmCameraOwners.length||busy||!valid}><CameraPanel scene={scene} frame={filmEditFrame} mode={mode} embedded cameraEnd={filmCamera.end} onCameraEndChange={filmCamera.onEndChange} viewportControls cameraTargetId={filmCamera.targetId} onCameraTargetChange={filmCamera.onTargetChange} samples={valid?samples:[]} onChange={changeFilm} onFrame={previewFrame} onResetView={resetView}/></fieldset>
+  </>:<FilmPoseInspector scene={scene} frame={filmEditFrame} target={filmTarget} onChange={changeFilm} onMotionSelect={chooseFilmMotion} disabled={busy||!valid}/> ):null;
+  const importFilmImage=async()=>{
+    const chosen=imageFile.current?.files?.[0];if(imageFile.current)imageFile.current.value='';
+    const source=sceneRef.current;if(!chosen||!source)return;
+    finishFrameSetup();setPlaying(false);setImportingFilmImage(true);setError('');
+    try{
+      const result=await fetch('/api/film/images/import',{method:'POST',headers:{'X-Product-Suite':'1','Content-Type':'application/octet-stream','X-Asset-Filename':chosen.name},body:chosen});
+      const asset=await result.json();if(!result.ok)throw new Error(asset.error||'The image could not be imported.');
+      if(sceneRef.current!==source)throw new Error('The scene changed during import. Add the image again to place it in this version.');
+      const draft=clone(source),id=addImageShot(draft,asset,chosen.name.replace(/\.[^.]+$/,''),shotAtFrame(source,filmEditFrame)?.id);
+      change(next=>{next.shots=draft.shots;next.render=draft.render});
+      setFrame(draft.shots.find((item:any)=>item.id===id).startFrame);setFilmMotionId(null);setFilmCurves(false);setFilmLegacy(false);setMode('video');navigate('renders','Sequence');resetView();
+      setNotice('Image added to film');
+    }catch(reason){setError(reason instanceof Error?reason.message:'The image could not be imported.');}
+    finally{setImportingFilmImage(false);}
+  };
+  const chooseFilmImage=()=>imageFile.current?.click();
+  const filmClipProps={...filmProps,onImportImage:chooseFilmImage,importingImage:importingFilmImage};
+  useEffect(()=>{if(!filmSceneSelected){setFilmMotionId(null);setFilmCurves(false);setFilmLegacy(false)}},[filmSceneSelected]);
   const railWidth=340;
   return <div className="studio gesso-studio" ref={editorRoot} data-section-type={sectionType} style={{'--rail-width':`${railWidth}px`} as React.CSSProperties}>
+    <input hidden type="file" ref={imageFile} accept="image/png,image/jpeg,image/webp" aria-label="Film image file" onChange={()=>{void importFilmImage()}}/>
     <header className="gesso-topbar" ref={menuHost} data-frame-outside>
       <div className="gesso-appbar">
         <a className="gesso-wordmark" href="/landing" aria-label="gesso home">gesso<span>studio</span></a>
@@ -551,7 +586,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
           <img className="gesso-avatar" src={avatar} alt=""/>
         </div>
       </div>
-      <EditorNavigation group={tab} onGroup={group=>{chooseGroup(group);setMenu(null)}} mode={mode} onMode={next=>{setPlaying(false);setMode(next);setMenu(null)}}/>
+      <EditorNavigation group={tab} onGroup={group=>{chooseGroup(group);setMenu(null)}} mode={mode} onMode={next=>{resumeFilmEditing();setMode(next);setMenu(null)}}/>
       <EditorMenu name={menu} onClose={()=>setMenu(null)}>{shownMenu=><>
         {shownMenu==='File'&&<><div className="gesso-menu-heading">{project?.name??'Opening project…'}</div><button disabled={!!transformMode||!dirty||busy||evaluating} onClick={()=>{void save();setMenu(null)}}>Save revision <kbd>⌘ S</kbd></button><button onClick={()=>{chooseGroup('product');setShowProductImport(true);setMenu(null)}}>Import product GLB</button><button disabled={!scene||busy} aria-haspopup="dialog" onClick={()=>openExport()}>Export…</button>    <div className="project-switch"><Field label="Campaign"><select aria-label="Campaign" title={dirty?'Save this revision before switching campaigns':undefined} disabled={busy||dirty} value={project?.id??''} onChange={e=>openCampaign(e.target.value)}>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>{dirty&&<p className="gesso-note">Save this revision to switch campaigns.</p>}<button className="text-button" disabled={busy} onClick={()=>perform(async()=>{const p=await api('/api/projects','POST',{name:`Campaign ${projects.length+1}`,scene});loadProject(p);setProjects(await api('/api/projects'))})}>＋ Duplicate as new campaign</button></div>
 </>}
@@ -560,55 +595,56 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
         {shownMenu==='History'&&<><div className="gesso-menu-heading">{project?.name}</div><p className="gesso-note">{history.past.length} undo steps · {history.future.length} redo steps</p><button disabled={busy||dirty} onClick={approve}>Approve saved revision</button><button disabled={!project?.approvedRevisionId||busy} onClick={restore}>Restore approved scene</button><p className="gesso-note">{dirty?'Unsaved changes':'Current revision saved locally'}</p></>}
       </>}</EditorMenu>
     </header>
-    <div className={`gesso-workspace ${sideEditorVisible?'with-material-editor':''} ${filmWorkspace?'with-film-workspace':''} ${filmCurves?'film-curves-open':''} ${filmLegacy?'film-legacy-open':''}`}>
+    <div className={`gesso-workspace ${sideEditorVisible?'with-material-editor':''} ${filmWorkspace?'with-film-workspace':''} ${filmWorkspace&&!stillFilm?'film-has-timeline':''} ${filmTimelineRows>0?'film-has-motions':''} ${filmCurves?'film-curves-open':''} ${filmLegacy?'film-legacy-open':''}`} style={{'--film-track-rows':Math.min(filmTimelineRows,3)} as React.CSSProperties}>
       <aside className="gesso-sidebar" data-frame-outside aria-label={`${groupName} controls`}>
         {tab!=='product'&&!filmWorkspace&&<h1 className="gesso-panel-title">{groupName}</h1>}
-        {scene&&filmWorkspace&&<FilmShotHeader scene={scene} frame={frame}/>}
+        {scene&&filmWorkspace&&<FilmShotHeader scene={scene} frame={filmEditFrame}/>}
+        {scene&&filmWorkspace&&filmEditShot&&shot?.id!==filmEditShot.id&&<button type="button" className="film-return-context" onClick={()=>{resumeFilmEditing();resetView()}}>Return to {filmEditShot.kind==='image'?'Image':'Scene'} {String(scene.shots.indexOf(filmEditShot)+1).padStart(2,'0')}</button>}
         <div className={`gesso-sidebar-content gesso-condensed-sidebar ${tab==='product'&&showProductImport?'has-import':''}`}>
           {transformError&&<div className="message error" role="alert">{transformError}</div>}{materialEditorVisible&&materialPreviewError&&<div className="message error" role="alert">Material preview: {materialPreviewError}</div>}{validationError&&<div className="message error" role="alert">{validationError}</div>}{error&&<div className="message error" role="alert">{error}</div>}
           {!scene&&<p className="gesso-note">{error?'The project could not be opened.':'Opening project…'}</p>}
           {scene&&productWorkspace&&productPanel}{tab==='product'&&filmReturn.current&&<button type="button" className="film-return" onClick={returnToFilm}>Return to shot</button>}
-          {tab==='product'&&<>{showProductImport&&<div className="import-form control-section"><div className="gesso-section-heading">Import product <button aria-label="Close import" onClick={()=>setShowProductImport(false)}>×</button></div><Field label="Product name"><input value={productName} onChange={e=>setProductName(e.target.value)}/></Field><Field label="Product owner"><input value={productOwner} onChange={e=>setProductOwner(e.target.value)}/></Field><Field label="Source URL or reference"><input value={productSource} onChange={e=>setProductSource(e.target.value)}/></Field><Field label="Usage permission or license"><input value={productReuse} onChange={e=>setProductReuse(e.target.value)}/></Field><p className="small-copy">Use a static, self-contained GLB in meters, centered at its bounding-box origin. CAD needs conversion first.</p><input aria-label="Product GLB file" type="file" accept=".glb" ref={productFile}/><button disabled={!productName||!productOwner||!productReuse||!productSource||productImporting} onClick={importProduct}>{productImporting?'Importing…':'Import product'}</button></div>}</>}
+          {tab==='product'&&<>{showProductImport&&<div className="import-form control-section"><div className="gesso-section-heading">Import product <button aria-label="Close import" onClick={()=>setShowProductImport(false)}>×</button></div><div className="gesso-import-body"><Field label="Product name"><input value={productName} onChange={e=>setProductName(e.target.value)}/></Field><Field label="Product owner"><input value={productOwner} onChange={e=>setProductOwner(e.target.value)}/></Field><Field label="Source URL or reference"><input value={productSource} onChange={e=>setProductSource(e.target.value)}/></Field><Field label="Usage permission or license"><input value={productReuse} onChange={e=>setProductReuse(e.target.value)}/></Field><p className="small-copy">GLB or Blender (.blend), up to 128 MB. Blender imports the active scene at its saved frame; pack textures before saving. Cameras, lights and animation are excluded. GLBs must be self-contained, centered and in meters.</p><input aria-label="Product file" type="file" accept=".glb,.blend" ref={productFile}/><button disabled={!productName||!productOwner||!productReuse||!productSource||productImporting} onClick={importProduct}>{productImporting?'Importing…':'Import product'}</button></div></div>}</>}
           {scene&&tab==='world'&&<WorldPanel selectedObjectId={worldObjectId} onSelectObject={setWorldObjectId} editorHost={sideEditorHost} onLayer={chooseLayer} onFrameProp={frameProp} scene={scene} layer={layer as WorldLayer} worlds={worlds} onChange={change} onWorld={replaceWorld} onImport={()=>setShowImport(value=>!value)}>
             {showImport&&<div className="import-form"><Field label="World name"><input value={worldName} onChange={e=>setWorldName(e.target.value)}/></Field><Field label="Asset owner"><input value={owner} onChange={e=>setOwner(e.target.value)} placeholder="Your company or creator"/></Field><Field label="Reuse basis"><input value={reuse} onChange={e=>setReuse(e.target.value)} placeholder="License or permission"/></Field><Field label="Source up axis"><select value={sourceUp} onChange={e=>setSourceUp(e.target.value)}><option>Y</option><option>Z</option></select></Field><input aria-label="World export file" type="file" accept=".glb,.spz,.ply" ref={file}/><button disabled={!owner||!reuse||importing} onClick={importFile}>{importing?'Importing…':'Import GLB / SPZ / PLY'}</button></div>}
             <details className="gesso-disclosure" open={scene.comparison?true:undefined}><summary>Compare environments</summary><ComparisonPanel scene={scene} worlds={worlds} info={comparisonInfo} busy={busy} ready={valid} mode={comparisonMode} drafts={calibrationDrafts} picking={picking} onMode={changeComparisonMode} onEnable={startComparison} onDisable={()=>change(s=>{delete s.comparison})} onWorld={comparisonWorld} onTransform={comparisonTransform} onDraft={draftCalibration} onPick={startPick} onCancelPick={()=>setPicking(null)} onCalibrate={applyCalibration} onReview={reviewComparison}/></details>
             <details className="gesso-disclosure"><summary>Generate environment</summary><section className="control-section"><p className="small-copy">Choose a default above to start immediately. Or generate one world and compare World Labs’ mesh with a mesh reconstructed from its Gaussians.</p><Field label="Generation preset"><select value={preset} onChange={e=>setPreset(e.target.value)}><option value="botanical-studio">Botanical studio</option><option value="warm-gallery">Warm limestone gallery</option><option value="modern-loft">Modern loft</option></select></Field><Field label="Reference image URL (optional)"><input type="url" value={imageUrl} onChange={e=>setImageUrl(e.target.value)} placeholder="https://…/reference.jpg"/></Field><p className="small-copy">Use a public HTTPS image URL, or leave blank to generate from the preset. Private image files can use the local CLI. Your key stays encrypted in GitHub.</p><NumberControl label="API credit limit" value={creditLimit} min={5080} max={6000} step={100} onChange={setCreditLimit}/><p className="small-copy">Standard world + textured mesh: about 5,080 API credits ($4.06). No automatic paid retries.</p><button className="wide" disabled={busy||!caps.githubWorldsAvailable} onClick={generate}>Generate mesh comparison ↗</button><a className="text-link" style={{marginTop:12}} href={caps.githubWorkflowUrl??'https://github.com/kimestelle/3d-product-suite/actions/workflows/worldlabs-pair.yml'} target="_blank" rel="noreferrer">Open GitHub workflow ↗</a><button className="text-button" disabled={busy} onClick={refreshRuns}>Refresh generation runs</button>{remoteRuns.map(run=><article key={run.id} className="job"><div className="job-heading"><b>{run.name}</b><span className="job-state">{run.conclusion??run.status}</span></div><a className="text-link" href={run.url} target="_blank" rel="noreferrer">View generation ↗</a>{run.conclusion==='success'&&<button className="wide" style={{marginTop:12}} disabled={busy} onClick={()=>importRun(run.id)}>Import both meshes</button>}</article>)}</section></details>
           </WorldPanel>}
-          {scene&&filmWorkspace&&<>{frameSetupProps?<FrameSetupObjects {...frameSetupProps}/>:<FilmObjects {...filmProps}/>}<div className="film-delivery-entry"><button type="button" aria-pressed={layer==='Output'} onClick={()=>{finishFrameSetup();setFilmMotionId(null);chooseLayer('Output')}}>Output settings <span>{scene.render.width} × {scene.render.height}</span></button><button type="button" aria-haspopup="dialog" onClick={()=>openExport()} disabled={busy}>Export {mode==='still'?'still':'film'} <span className="gesso-ui-icon gesso-export-arrow" aria-hidden="true"/></button></div></>}
+          {scene&&filmWorkspace&&(frameSetupProps?<FrameSetupObjects {...frameSetupProps}/>:!filmSceneSelected?<FilmClipDetails {...filmClipProps} side="objects"/>:<FilmObjects {...filmProps}/>)}
 
         </div>
         <footer className="gesso-sidebar-footer"><span>{productWorkspace||animatorVisible?`${parts.length||scene?.product.components.length||0} parts · millimeters`:project?.name??'Local workspace'}</span><span title={validationError||'Live preview'}>{evaluating?'Updating…':validationError?'Needs attention':'Live'}</span></footer>
       </aside>
-      <main className={`gesso-stage ${timelineVisible?'with-timeline':''} ${filmWorkspace?'with-film-timeline':animatorVisible?'with-keyframes':''}`} aria-label="Product window">
+      <main className={`gesso-stage ${timelineVisible&&!filmWorkspace?'with-timeline':''} ${filmWorkspace?'with-film-timeline':animatorVisible?'with-keyframes':''}`} aria-label="Product window">
         {showComparison&&<div className="comparison-toolbar" data-frame-outside><div className="segmented" aria-label="Comparison display">{(['a','b','split'] as const).map(mode=><button key={mode} aria-pressed={comparisonMode===mode} onClick={()=>changeComparisonMode(mode)}>{mode==='split'?'Split':mode.toUpperCase()}</button>)}</div><span className="comparison-status">{valid&&comparisonInfo?.alignmentStatus==='reviewed'?'Placement reviewed':'Draft placement'}</span><button onClick={()=>{navigate('world','Environment')}}>Adjust placement</button></div>}
         <FrameWindow className={`viewport-wrap ${showComparison?'has-comparison':''} ${filmGuidesVisible?'with-film-guides':''}`} ref={stageHost}>
           <div className={`comparison-stage ${showComparison&&comparisonMode==='split'?'split':''}`} aria-busy={visibleViewportLoading}>
             <div className={`comparison-pane ${showComparison&&comparisonMode==='b'?'pane-hidden':''} ${picking?.side==='a'?'picking':''}`}><div className="viewport" ref={host} tabIndex={0} aria-label={showComparison?'Environment A scene':'Interactive product scene'}/>{showComparison&&<div className="comparison-view-label"><b>A</b><span>{labels.a}</span></div>}</div>
             <div className={`comparison-pane ${!showComparison||comparisonMode==='a'?'pane-hidden':''} ${picking?.side==='b'?'picking':''}`}><div className="viewport" ref={hostB} aria-label="Environment B scene"/>{showComparison&&<div className="comparison-view-label"><b>B</b><span>{labels.b}</span></div>}</div>
           </div>
-          {scene&&filmGuidesVisible&&<FilmViewportControls {...filmCamera} scene={scene} frame={frame} mode={mode} editing={filmTarget==='$camera'&&layer!=='Output'} disabled={!valid||playing||busy}/>}
+          {scene&&filmGuidesVisible&&filmSceneVisible&&<FilmViewportControls {...filmCamera} scene={scene} frame={frame} mode={mode} editing={filmTarget==='$camera'&&layer!=='Output'&&!playing&&frame===filmEditFrame} disabled={!valid||playing||busy||frame!==filmEditFrame}/>}
           {scene&&tab==='material'&&layer==='Decals'&&<UvDecalOverlay layout={uvLayout} decal={activeDecal} partName={selectedPart?displayPartName(scene,selectedPart.id,selectedPart.name):'Part'} onPlace={placeDecal} onAdd={addDecal} onHover={hoverUv} onInteractionSurface={decalInteractionSurface}/>}
-          {scene&&<TransformShortcuts scene={scene} frame={frame} target={transformTarget} enabled={active&&!showExport&&!frameSetup&&filmWorkspace&&filmTarget!=='$camera'&&layer!=='Output'&&!filmOwners.length&&valid&&!busy&&!materialPreview} viewport={host.current} createGesture={(target,pointer)=>viewport.current?.createTransformGesture(target,pointer,materializeAnimatedPose(transformDraft??scene,frame))??null} onStart={startTransform} onPreview={previewTransform} onCommit={commitTransform} onMode={updateTransformMode}/>}
+          {scene&&<TransformShortcuts scene={scene} frame={frame} target={transformTarget} enabled={active&&!showExport&&!frameSetup&&!playing&&frame===filmEditFrame&&filmWorkspace&&filmSceneSelected&&filmTarget!=='$camera'&&layer!=='Output'&&!filmOwners.length&&valid&&!busy&&!materialPreview} viewport={host.current} createGesture={(target,pointer)=>viewport.current?.createTransformGesture(target,pointer,materializeAnimatedPose(transformDraft??scene,frame))??null} onStart={startTransform} onPreview={previewTransform} onCommit={commitTransform} onMode={updateTransformMode}/>}
           {materialPreview&&materialEditorVisible&&<div className="gesso-material-preview-label" role="status" aria-label="Material preview"><UiIcon name="circle"/>Preview</div>}
           {picking&&<div className="pick-hint" role="status">View {picking.side.toUpperCase()}: click {picking.kind==='floor'?'the floor':`measurement point ${calibrationDrafts[picking.side].points.length+1} of 2`}<button onClick={()=>setPicking(null)}>Cancel</button></div>}
-          <div className="gesso-view-toolbar"><button onClick={resetView} title="Return to the saved shot framing">{inspecting?'Return to shot':'Shot camera'}</button><span>{inspecting?'Inspection view · shot unchanged':`${shot?.name??''} · ${((frame-1)/fps).toFixed(2)}s`}</span>{!stillFilm&&<button aria-label={playing?'Pause playback':'Play preview'} disabled={!!transformMode||!valid} onClick={togglePlayback}>{playing?'Pause':'Play'} <kbd>Space</kbd></button>}</div>
+          <div className="gesso-view-toolbar">{(!filmWorkspace||filmSceneVisible)&&<button onClick={resetView} title="Return to the saved shot framing">{inspecting?'Return to shot':'Shot camera'}</button>}<span>{inspecting&&(!filmWorkspace||filmSceneVisible)?'Inspection view · shot unchanged':`${shot?.name??'Black'} · ${((frame-1)/fps).toFixed(2)}s`}</span>{filmWorkspace&&!playing&&frame!==filmEditFrame&&<button onClick={()=>previewFrame(frame)}>Edit this frame</button>}{!stillFilm&&!filmWorkspace&&<button aria-label={playing?'Pause playback':'Play preview'} disabled={!!transformMode||!valid} onClick={togglePlayback}>{playing?'Pause':'Play'} <kbd>Space</kbd></button>}</div>
           <ViewportLoading loading={visibleViewportLoading}/>
           {validationError&&<div className="gesso-render-status" role="status">Preview needs attention</div>}
         </FrameWindow>
-        <div className="timeline-reveal" data-frame-outside aria-hidden={!timelineVisible} inert={!timelineVisible}>{filmWorkspace&&scene?<>
-          <FilmTimeline {...filmProps} detailContent={filmLegacy?<div className="film-legacy-editor"><div className="film-legacy-heading"><button type="button" onClick={()=>setFilmLegacy(false)}><UiIcon name="undo"/> Back to shots</button><span>Custom keyframes · Across cuts</span></div>
-            {!!filmOwners.length&&<p className="film-owner-note">Pause the selected object's motion before editing its underlying keys.</p>}
-            <KeyframeEditor embedded scene={transformDraft??scene} componentId={filmTarget.startsWith('$')?null:filmTarget} frame={frame} onFrame={previewFrame} onChange={change} playing={playing} onPlay={filmProps.onPlay!} disabled={filmProps.disabled||!!filmOwners.length} scope={positionSpace} onScopeChange={space=>{setPositionSpace(space);if(space==='world')setFilmTarget('$product');else if(transformPart)setFilmTarget(transformPart.componentId)}}/>
-          </div>:undefined}/></>:<section className="timeline" aria-label="Shot timeline"><div className="transport"><span className="timecode">{((frame-1)/fps).toFixed(2)} / {(total/fps).toFixed(2)}s</span><div className="transport-right"><NumberField label="Frame" value={frame} onChange={n=>{setPlaying(false);setFrame(Math.max(1,Math.min(total,Math.round(n))))}} min={1} max={total} step={1}/><span>Space to play · ← → scrub</span></div></div><input className="scrubber" aria-label="Scrub scene" type="range" min={1} max={total} value={frame} onChange={e=>{setPlaying(false);setFrame(Number(e.target.value))}}/><div className="shots">{scene?.shots.map((item:any,i:number)=><button className={`shot ${item.id===shot?.id?'selected':''}`} key={item.id} onClick={()=>{setPlaying(false);setFrame(item.startFrame)}} style={{flex:item.endFrame-item.startFrame+1}}><span>{String(i+1).padStart(2,'0')}　{item.name}</span><small>{((item.endFrame-item.startFrame+1)/fps).toFixed(1)}s</small></button>)}</div></section>}</div>
+        {!filmWorkspace&&<div className="timeline-reveal" data-frame-outside aria-hidden={!timelineVisible} inert={!timelineVisible}><section className="timeline" aria-label="Shot timeline"><div className="transport"><span className="timecode">{((frame-1)/fps).toFixed(2)} / {(total/fps).toFixed(2)}s</span><div className="transport-right"><NumberField label="Frame" value={frame} onChange={n=>{setPlaying(false);setFrame(Math.max(1,Math.min(total,Math.round(n))))}} min={1} max={total} step={1}/><span>Space to play · ← → scrub</span></div></div><input className="scrubber" aria-label="Scrub scene" type="range" min={1} max={total} value={frame} onChange={e=>{setPlaying(false);setFrame(Number(e.target.value))}}/><div className="shots">{scene?.shots.map((item:any,i:number)=><button className={`shot ${item.id===shot?.id?'selected':''}`} key={item.id} onClick={()=>{setPlaying(false);setFrame(item.startFrame)}} style={{flex:item.endFrame-item.startFrame+1}}><span>{String(i+1).padStart(2,'0')}　{item.name}</span><small>{((item.endFrame-item.startFrame+1)/fps).toFixed(1)}s</small></button>)}</div></section></div>}
       </main>
-      {scene&&filmWorkspace&&<aside className="gesso-sidebar film-inspector-rail" data-frame-outside aria-label="Film inspector">
-        {layer==='Output'&&!frameSetupProps?<h2 className="film-shot-header">Output settings</h2>:<FilmShotHeader scene={scene} frame={frame}/>}
+      {scene&&filmWorkspace&&<aside className="gesso-sidebar film-inspector-rail" data-frame-outside aria-label="Film inspector" onPointerDownCapture={resumeFilmEditing} onFocusCapture={resumeFilmEditing}>
+        {layer==='Output'&&!frameSetupProps&&<h2 className="film-shot-header">Output settings</h2>}
         <div className="gesso-sidebar-content">
-        {frameSetupProps?<FrameSetupInspector {...frameSetupProps}/>:layer==='Output'?<div className="film-delivery-panel"><button type="button" className="film-return" onClick={()=>chooseFilmTarget(filmTarget)}>Back to shot</button><FilmPanel scene={scene} mode={mode} layer="Output" frame={frame} onChange={change} onFrame={previewFrame} onExport={openExport} exportDisabled={busy}/></div>:<FilmInspector {...filmProps} onEditMechanism={editFilmMechanism}>{filmPoseContent}</FilmInspector>}
+        {frameSetupProps?<FrameSetupInspector {...frameSetupProps}/>:layer==='Output'?<div className="film-delivery-panel"><button type="button" className="film-return" onClick={()=>chooseFilmTarget(filmTarget)}>Back to shot</button><FilmPanel scene={scene} mode={mode} layer="Output" frame={filmEditFrame} onChange={changeFilm} onFrame={previewFrame} onExport={openExport} exportDisabled={busy}/></div>:!filmSceneSelected?<FilmClipDetails {...filmClipProps} side="inspector"/>:<FilmInspector {...filmProps} onEditMechanism={editFilmMechanism}>{filmPoseContent}</FilmInspector>}
       </div></aside>}
       <aside className="gesso-sidebar gesso-material-editor" data-frame-outside aria-label={worldEditorVisible?"World object editor":"Material preset editor"} aria-hidden={!sideEditorVisible} inert={!sideEditorVisible}>
         <div className="gesso-sidebar-content gesso-material-editor-content" ref={setSideEditorHost}/>
       </aside>
+      {scene&&filmWorkspace&&<div className="film-timeline-dock" data-frame-outside aria-hidden={stillFilm} inert={stillFilm}><FilmTimeline {...filmProps} onImportImage={chooseFilmImage} importingImage={importingFilmImage} detailContent={filmLegacy?<div className="film-legacy-editor"><div className="film-legacy-heading"><button type="button" onClick={()=>setFilmLegacy(false)}><UiIcon name="undo"/> Back to shots</button><span>Custom keyframes · Across cuts</span></div>
+            {!!filmOwners.length&&<p className="film-owner-note">Pause the selected object's motion before editing its underlying keys.</p>}
+            <KeyframeEditor embedded scene={transformDraft??scene} componentId={filmTarget.startsWith('$')?null:filmTarget} frame={frame} onFrame={previewFrame} onChange={changeFilm} playing={playing} onPlay={filmProps.onPlay!} disabled={filmProps.disabled||!!filmOwners.length||frame!==filmEditFrame} scope={positionSpace} onScopeChange={space=>{setPositionSpace(space);if(space==='world')setFilmTarget('$product');else if(transformPart)setFilmTarget(transformPart.componentId)}}/>
+          </div>:undefined}/></div>}
     </div>
     {showExport&&scene&&<ExportPanel scene={scene} projectName={project?.name??'gesso'} frame={frame} initialMode={exportMode} capabilities={caps} blockedReason={exportBlockedReason} jobs={combinedExportJobs(jobs,pairJobs)} currentDigest={digest} onSubmit={submitExport} onControl={controlExport} onClose={()=>setShowExport(false)} onAdjustFrame={nextMode=>{setShowExport(false);setMode(nextMode);navigate('renders','Framing');viewport.current?.resetFraming();viewportB.current?.resetFraming()}}/>}
     {notice&&<div className="gesso-notice" data-frame-outside role="status"><span>{notice}</span><button aria-label="Dismiss notification" onClick={()=>setNotice('')}>×</button></div>}

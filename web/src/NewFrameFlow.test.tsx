@@ -11,11 +11,11 @@ function context(): FrameSetupProps {
     onTargets: noop, onObjectKind: noop, onCameraTarget: noop, onCameraKind: noop, onPatchMotion: noop, onStage: noop, onComplete: noop, onDiscard: noop};
 }
 
-describe('New frame rails', () => {
+describe('New scene rails', () => {
   it('keeps discard available when editing is disabled during an update or recovery', () => {
     const props = context(); props.disabled = true;
     const html = renderToStaticMarkup(<FrameSetupInspector {...props}/>);
-    expect(html).toContain('<button type="button" class="frame-setup-discard">Discard frame</button>');
+    expect(html).toContain('<button type="button" class="frame-setup-discard">Discard scene</button>');
     expect(html).toMatch(/<button[^>]*class="frame-setup-next"[^>]*disabled=""/);
   });
 
@@ -53,11 +53,11 @@ describe('New frame rails', () => {
     props.setup.objectKind = 'move';
     props.setup.objectMotionIds = [addMotion(props.scene, props.setup.shotId, '$product', 'move')];
     const html = renderToStaticMarkup(<FrameSetupInspector {...props}/>);
-    for (const label of ['New frame motion amount', 'New frame motion axis', 'New frame motion duration', 'New frame motion easing']) expect(html).toContain(`aria-label="${label}"`);
+    for (const label of ['New scene motion amount', 'New scene motion axis', 'New scene motion duration', 'New scene motion easing']) expect(html).toContain(`aria-label="${label}"`);
     expect(html).toContain('>mm<');
     expect(html).toContain('Next: camera');
-    expect(html).not.toContain('Finish frame');
-    expect(html).toContain('Discard frame');
+    expect(html).not.toContain('Finish scene');
+    expect(html).toContain('Discard scene');
   });
 
   it('offers camera aiming separately from object motion and describes a fixed start target', () => {
@@ -67,10 +67,10 @@ describe('New frame rails', () => {
     expect(left).toContain('type="radio"');
     expect(left).toContain('aria-label="Aim at Cap"');
     expect(left).not.toMatch(/<input[^>]*aria-label="Aim at Body"[^>]*disabled=""/);
-    expect(right).toContain('Aim is set at the frame’s start.');
+    expect(right).toContain('Aim is set at the scene’s start.');
     expect(right).toContain('Orbit');
     expect(right).toContain('Push in');
-    expect(right).toContain('Finish frame');
+    expect(right).toContain('Finish scene');
     expect(right).toContain('>Back<');
     expect(right).not.toContain('Next: camera');
   });

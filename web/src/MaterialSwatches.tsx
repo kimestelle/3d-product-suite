@@ -1,10 +1,11 @@
-import {useEffect, useRef, useState, type HTMLAttributes, type ReactNode} from 'react';
+import {useEffect, useRef, useState, type HTMLAttributes, type ReactNode, type RefObject} from 'react';
 import * as THREE from 'three';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
 import {type ImageAsset} from './materials';
 import {createMaterialSwatchStore, type SwatchPreviewState} from './materialSwatchStore';
 import {UiIcon} from './UiIcon';
+import {bindMaterialSampleControls} from './materialSampleControls';
 import './material-swatches.css';
 
 export interface MaterialSwatchItem {
@@ -21,8 +22,10 @@ export interface MaterialSwatchesProps {
   onSelect: (id: string) => void;
   layout?: 'grid' | 'list';
   renderBelow?: (item: MaterialSwatchItem) => ReactNode;
+  renderActions?: (item: MaterialSwatchItem) => ReactNode;
   itemProps?: (item: MaterialSwatchItem) => HTMLAttributes<HTMLDivElement>;
-  shape?: 'sphere' | 'rectangle';
+  shape?: 'sphere' | 'rectangle' | 'cube';
+  rotationControl?: RefObject<HTMLButtonElement | null>;
 }
 
 const SPHERE_RADIUS_M = .025;
@@ -34,7 +37,7 @@ function textureUrl(asset: ImageAsset) {
 }
 
 /** One demand-rendered canvas serves the native swatch buttons. */
-export default function MaterialSwatches({items, selectedId, disabled = false, onSelect, layout = 'grid', renderBelow, itemProps, shape = 'sphere'}: MaterialSwatchesProps) {
+export default function MaterialSwatches({items, selectedId, disabled = false, onSelect, layout = 'grid', renderBelow, renderActions, itemProps, shape = 'sphere', rotationControl}: MaterialSwatchesProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageRefs = useRef(new Map<string, HTMLSpanElement>());
@@ -42,6 +45,8 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
   itemsRef.current = items;
   const shapeRef = useRef(shape); shapeRef.current = shape;
   const syncRef = useRef<(() => void) | null>(null);
+  const orientation = useRef(new THREE.Quaternion());
+  const cancelRotation = useRef<(() => void) | null>(null);
   const [states, setStates] = useState<Record<string, SwatchPreviewState>>({});
   const [unavailable, setUnavailable] = useState(false);
   const [contextVersion, setContextVersion] = useState(0);
@@ -53,17 +58,25 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
     const canvas = canvasRef.current;
     if (!root || !canvas) return;
     const sidebar = root.closest<HTMLElement>('.gesso-sidebar') ?? root;
+    const control = rotationControl?.current;
     let disposed = false;
     let contextLost = false;
     let visible = true;
     let frame = 0;
     let pointer: {x: number; y: number} | null = null;
+    let controls: ReturnType<typeof bindMaterialSampleControls> | undefined;
+    let previousDraw = 0;
+    const lightPosition = new THREE.Vector3(-2.4, 3.2, 3.8);
+    const lightTarget = new THREE.Vector3();
     let renderer: THREE.WebGLRenderer | undefined;
     let environment: THREE.WebGLRenderTarget | undefined;
     let pmrem: THREE.PMREMGenerator | undefined;
     let room: RoomEnvironment | undefined;
     const geometry = new THREE.SphereGeometry(SPHERE_RADIUS_M, 48, 32);
     const tileGeometry = new RoundedBoxGeometry(.052, .04, .004, 3, .001);
+    const cubeGeometry = new RoundedBoxGeometry(.04, .04, .04, 3, .0015);
+    const baseRotation = new THREE.Quaternion();
+    const baseEuler = new THREE.Euler();
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#131313');
     const camera = new THREE.PerspectiveCamera(32, 1, .001, 3);
@@ -88,8 +101,10 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
       if (!disposed && !contextLost && visible && !document.hidden && !frame) frame = requestAnimationFrame(draw);
     }
 
-    function draw() {
+    function draw(now: number) {
       frame = 0;
+      const elapsed = Math.min(32, Math.max(0, now - (previousDraw || now - 16)));
+      previousDraw = now;
       if (disposed || contextLost || !renderer || !visible || document.hidden) return;
       const bounds = root!.getBoundingClientRect();
       if (!bounds.width || !bounds.height) return;
@@ -102,9 +117,11 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
       renderer.setClearColor('#131313', 1);
       renderer.clear();
       renderer.setScissorTest(true);
-      const tile = shapeRef.current === 'rectangle';
-      sphere.geometry = tile ? tileGeometry : geometry;
-      sphere.rotation.set(tile ? -.12 : 0, tile ? -.22 : 0, 0);
+      const tile = shapeRef.current === 'rectangle', cube = shapeRef.current === 'cube';
+      sphere.geometry = cube ? cubeGeometry : tile ? tileGeometry : geometry;
+      baseRotation.setFromEuler(baseEuler.set(cube ? .35 : tile ? -.12 : 0, cube ? -.55 : tile ? -.22 : 0, 0));
+      sphere.quaternion.copy(orientation.current).multiply(baseRotation);
+      camera.position.z = (cube ? 5.2 : 4.45) * SPHERE_RADIUS_M;
       for (const item of itemsRef.current) {
         const image = imageRefs.current.get(item.id);
         const material = materials.get(item.id);
@@ -115,12 +132,21 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
         const left = rect.left - bounds.left + (rect.width - size) / 2;
         const bottom = bounds.height - (rect.top - bounds.top) - (rect.height + size) / 2;
         if (pointer) {
-          key.position.set(
+          lightTarget.set(
             THREE.MathUtils.clamp((pointer.x - (rect.left + rect.width / 2)) / sidebarBounds.width * 8, -4, 4),
             THREE.MathUtils.clamp(((rect.top + rect.height / 2) - pointer.y) / sidebarBounds.height * 8, -4, 4),
             3.8,
           );
-        } else key.position.set(-2.4, 3.2, 3.8);
+        } else lightTarget.set(-2.4, 3.2, 3.8);
+        if (control) {
+          // A released drag should not teleport the reflection to the new mouse position.
+          if (!controls?.isDragging()) {
+            lightPosition.lerp(lightTarget, 1 - Math.exp(-elapsed / 60));
+            if (lightPosition.distanceToSquared(lightTarget) > 0.000001) requestRender();
+            else lightPosition.copy(lightTarget);
+          }
+          key.position.copy(lightPosition);
+        } else key.position.copy(lightTarget);
         key.position.multiplyScalar(SPHERE_RADIUS_M);
         sphere.material = material;
         renderer.setViewport(left, bottom, size, size);
@@ -130,8 +156,17 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
       renderer.setScissorTest(false);
     }
 
+    controls = control ? bindMaterialSampleControls(control, orientation.current, requestRender, event => {
+      const bounds = sidebar.getBoundingClientRect();
+      pointer = event.pointerType !== 'touch' && event.clientX >= bounds.left && event.clientX <= bounds.right
+        && event.clientY >= bounds.top && event.clientY <= bounds.bottom ? {x: event.clientX, y: event.clientY} : null;
+    }) : undefined;
+    const abortRotation = () => controls?.cancel();
+    cancelRotation.current = abortRotation;
+
     const contextLoss = (event: Event) => {
       event.preventDefault();
+      abortRotation(); if(control)control.disabled=true;
       contextLost = true;
       if (frame) cancelAnimationFrame(frame);
       frame = 0;
@@ -149,6 +184,7 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.05;
       renderer.autoClear = false;
+      if(control)control.disabled=false;
       pmrem = new THREE.PMREMGenerator(renderer);
       room = new RoomEnvironment();
       environment = pmrem.fromScene(room, 0.04);
@@ -162,16 +198,18 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
       syncRef.current();
       requestRender();
     } catch {
+      if(control)control.disabled=true;
       setUnavailable(true);
     }
 
     const move = (event: PointerEvent) => {
-      if (event.pointerType === 'touch') return;
+      if (event.pointerType === 'touch' || controls?.isDragging()) return;
       pointer = {x: event.clientX, y: event.clientY};
       requestRender();
     };
-    const leave = () => {pointer = null; requestRender();};
+    const leave = () => {if(controls?.isDragging())return;pointer = null; requestRender();};
     const visibility = () => {
+      if(document.hidden)abortRotation();
       if (document.hidden && frame) {cancelAnimationFrame(frame); frame = 0;}
       else requestRender();
     };
@@ -181,6 +219,7 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
     sidebar.addEventListener('scroll', requestRender, {passive: true, capture: true});
     document.addEventListener('visibilitychange', visibility);
     window.addEventListener('resize', requestRender, {passive: true});
+    window.addEventListener('resize', abortRotation, {passive: true});
     const resize = new ResizeObserver(requestRender);
     resize.observe(root);
     const intersection = new IntersectionObserver(entries => {
@@ -192,6 +231,7 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
 
     return () => {
       disposed = true;
+      controls?.dispose(); cancelRotation.current=null;
       syncRef.current = null;
       materials.dispose();
       if (frame) cancelAnimationFrame(frame);
@@ -203,25 +243,28 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
       sidebar.removeEventListener('scroll', requestRender, true);
       document.removeEventListener('visibilitychange', visibility);
       window.removeEventListener('resize', requestRender);
+      window.removeEventListener('resize',abortRotation);
       canvas.removeEventListener('webglcontextlost', contextLoss);
       canvas.removeEventListener('webglcontextrestored', contextRestore);
       geometry.dispose();
       tileGeometry.dispose();
+      cubeGeometry.dispose();
       placeholderMaterial.dispose();
       room?.dispose();
       pmrem?.dispose();
       environment?.dispose();
       renderer?.dispose();
     };
-  }, [contextVersion]);
+  }, [contextVersion,rotationControl]);
 
   useEffect(() => {syncRef.current?.();}, [materialKey, shape]);
+  useEffect(() => {cancelRotation.current?.();}, [shape]);
 
   return <div className={`gesso-material-swatches${layout === 'list' ? ' is-list' : ''}`} ref={rootRef}>
     <canvas ref={canvasRef} className="gesso-material-swatch-canvas" aria-hidden="true"/>
     <div className="gesso-material-swatch-grid" role="group" aria-label="Materials">
-      {items.map(item => <div key={item.id} className="gesso-material-swatch-entry" {...itemProps?.(item)}><button type="button" className="gesso-material-swatch" aria-label={item.name}
-        aria-pressed={selectedId === item.id} title={`${item.name}${item.description ? ' · ' + item.description : ''} · ${shape === 'sphere' ? '50 mm preview sphere' : '52 × 40 mm preview tile'}`} disabled={disabled} onClick={() => onSelect(item.id)}>
+      {items.map(item => <div key={item.id} className="gesso-material-swatch-entry" {...itemProps?.(item)}><div className="gesso-material-swatch-heading" data-actions={!!renderActions}><button type="button" className="gesso-material-swatch" aria-label={item.name}
+        aria-pressed={selectedId === item.id} title={`${item.name}${item.description ? ' · ' + item.description : ''} · ${shape === 'sphere' ? '50 mm preview sphere' : shape === 'cube' ? '40 mm preview cube' : '52 × 40 mm preview tile'}`} disabled={disabled} onClick={() => onSelect(item.id)}>
         <span className="gesso-material-swatch-image" aria-hidden="true" ref={element => {
           if (element) imageRefs.current.set(item.id, element); else imageRefs.current.delete(item.id);
         }}>
@@ -231,7 +274,7 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
         </span>
         <span className="gesso-material-swatch-label">{layout !== 'list' && selectedId===item.id && <UiIcon name="check" size={12}/>}<span className="gesso-material-swatch-name">{item.name}</span></span>
         {item.description && <span className="gesso-material-swatch-description">{item.description}</span>}
-      </button>{renderBelow?.(item)}</div>)}
+      </button>{renderActions?.(item)}</div>{renderBelow?.(item)}</div>)}
     </div>
     {unavailable && <p className="gesso-material-preview-status" role="status">Material previews unavailable. You can still select a material.</p>}
   </div>;

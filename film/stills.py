@@ -85,8 +85,9 @@ def run_still_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cance
             needs_frame = not jobs.validate_png(path, profile["width"], profile["height"])
             if recorded and path.is_file() and jobs._sha256(path) != recorded:
                 needs_frame = True
-            if needs_frame or jobs._blend_needs_rebuild(output, job):
-                jobs._run_process(jobs._render_command(blender, output, profile, [frame] if needs_frame else []),
+            scene_frames = jobs._render_non_scene_frames(output, profile, [frame]) if needs_frame else []
+            if scene_frames or jobs._blend_needs_rebuild(output, job):
+                jobs._run_process(jobs._render_command(blender, output, profile, scene_frames),
                                   output, "blender.log", worker_fd=worker_lock.fileno())
             jobs._check_cancel(output)
             if not jobs.validate_png(path, profile["width"], profile["height"]) or not jobs._blend_valid(output / "scene.blend"):

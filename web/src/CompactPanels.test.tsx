@@ -3,7 +3,7 @@ import {describe, expect, it} from 'vitest';
 import fixture from '../../examples/bottle.scene.json';
 import CameraPanel from './CameraPanel';
 import FilmPanel, {commitFilmDraft} from './FilmPanel';
-import {setFrameRate} from './sequence';
+import {setFrameRate, setSequenceFrames} from './sequence';
 import {VectorControl} from './EditorControls';
 
 const noop = () => {};
@@ -104,6 +104,14 @@ describe('Combined editor panels', () => {
     expect(scene.render.fps).toBe(oldFps * 2);
     expect(scene.animation.tracks[0].keys.map((key: any) => key.frame)).toEqual([1, oldFps * 2 + 1]);
     expect(scene.shots.at(-1).endFrame).toBe(fixture.shots.at(-1)!.endFrame * 2);
+  });
+  it('commits mechanical action timing with a full movie duration edit', () => {
+    const scene: any = structuredClone(fixture), draft = structuredClone(scene);
+    const originalDuration = scene.actions[0].durationSeconds;
+    setSequenceFrames(draft, 720); commitFilmDraft(scene, draft);
+    expect(scene.actions[0].durationSeconds).toBeCloseTo(originalDuration * 719 / 359);
+    expect(scene.render.durationFrames).toBe(720);
+    expect(scene.shots.at(-1).endFrame).toBe(720);
   });
   it('keeps vector units, axis names and exact signed values available to assistive technology', () => {
     const html = renderToStaticMarkup(<VectorControl label="Position" values={[-.0125, 0, .45]} factor={1000} step={.1} unit="mm" onChange={noop}/>);

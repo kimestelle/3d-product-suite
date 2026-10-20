@@ -10,7 +10,8 @@ import { createTransformPointerGesture, type TransformGesture, type TransformPoi
 import type { TransformTarget } from './transforms';
 import {DepthOfFieldPreview} from './DepthOfFieldPreview';
 import {sampledDepthOfField, sparkApertureAngle, type DepthOfFieldSample} from './focusOptics';
-import {createCameraTargetPointerGesture, filmGuideZoom, projectFilmGuide, type CameraTargetGesture, type CameraTargetPointer, type FilmGuideProjection} from './filmGuides';
+import {FilmImageRenderer, type FilmClip} from './FilmImageRenderer';
+import {createCameraTargetPointerGesture, filmGateRect, filmGuideZoom, projectFilmGuide, type CameraTargetGesture, type CameraTargetPointer, type FilmGuideProjection} from './filmGuides';
 
 // The lookup textures are shared across both comparison renderers.
 let areaLightUniformsReady = false;
@@ -68,6 +69,9 @@ export class StudioViewport {
   private environmentBackground: THREE.Color | null = null;
   private environmentMap: THREE.WebGLRenderTarget | null = null;
   private productPreview = false;
+  private filmContent = false;
+  private filmClip: FilmClip = {kind: 'scene'};
+  private imageRenderer: FilmImageRenderer | null = null;
   private productGround: THREE.Mesh | null = null;
   private readonly parts = new Map<string, THREE.Object3D>();
   private readonly originalVisibility = new Map<THREE.Object3D, boolean>();
@@ -197,7 +201,7 @@ export class StudioViewport {
   }
 
   private updateControlsEnabled(): void {
-    if (this.controls) this.controls.enabled = this.inspectionEnabled && !this.disposed && !this.loading && !this.loadFailed && !this.awaitingSample && !this.worldPickEnabled && this.parts.size > 0;
+    if (this.controls) this.controls.enabled = this.inspectionEnabled && !(this.filmContent && this.filmClip?.kind !== 'scene') && !this.disposed && !this.loading && !this.loadFailed && !this.awaitingSample && !this.worldPickEnabled && this.parts.size > 0;
     (this.controlSurface?.element ?? this.canvas).style.cursor = this.worldPickEnabled ? 'crosshair' : this.controls?.enabled ? 'grab' : '';
   }
 
@@ -360,6 +364,12 @@ export class StudioViewport {
   private addEnvironmentObject(object: THREE.Object3D): void {
     this.environmentObjects.set(object, object.visible);
     this.content.add(object);
+  }
+
+  setFilmContent(enabled: boolean): void {
+    if (this.filmContent === enabled) return;
+    this.filmContent = enabled; this.presentationVersion++;
+    this.updateControlsEnabled(); this.invalidate();
   }
 
   setFilmGuides(enabled: boolean): void {
@@ -1297,6 +1307,11 @@ export class StudioViewport {
     this.scene.background = this.environmentBackground;
     this.applyProductPreview();
     try {
+      if (this.imageRenderer || source.shots?.some((shot: any) => shot.kind === 'image')) {
+        this.imageRenderer ??= new FilmImageRenderer();
+        await this.imageRenderer.prepare(source.shots ?? [], assetAbort.signal);
+        if (version !== this.loadVersion || this.disposed) return;
+      }
       if (capture && environment.kind !== 'splat') throw new Error('Capture requires a Gaussian splat world.');
       if (!capture) {
         // The packaged font keeps label artwork independent of host fontconfig
@@ -1386,6 +1401,8 @@ export class StudioViewport {
       if (!this.options.capture && this.liveRender) await this.liveRender;
       if (this.disposed || version !== this.loadVersion || (!this.options.capture && request !== this.frameRequest)) return;
       if (this.loading || this.loadFailed) { this.dirty = true; return; }
+      const previousKind = this.filmClip?.kind; this.filmClip = sample.clip ?? {kind: 'scene'};
+      if (previousKind !== this.filmClip.kind) this.updateControlsEnabled();
       for (const [id, pose] of Object.entries(sample.components || {}) as [string, any][]) {
         const component = this.components.get(id);
         if (!component) continue;
@@ -1463,6 +1480,17 @@ export class StudioViewport {
     if (!this.canDraw() || version !== this.loadVersion || !this.pendingSize) return;
     const size = this.pendingSize;
     const presentationVersion = this.presentationVersion ?? 0;
+    if (this.filmContent && !this.productPreview && this.filmClip && this.filmClip.kind !== 'scene') {
+      this.imageRenderer ??= new FilmImageRenderer();
+      if (this.renderedSize?.width !== size.width || this.renderedSize.height !== size.height) {
+        this.renderer.setSize(size.width, size.height, false); this.renderedSize = size;
+      }
+      const gate = this.filmGuides ? filmGateRect(size.width, size.height, this.filmOutputAspect) : {x: 0, y: 0, ...size};
+      this.imageRenderer.draw(this.renderer, this.filmClip, size, gate);
+      this.presentedFilm = null; this.options.onFilmGuide?.(null);
+      if (settle) this.renderer.getContext().finish();
+      this.reportPresented(version); return;
+    }
     // Orbit/resize may change the live camera while Spark awaits its worker.
     // Sort and draw the same camera, then consume newer input on the next frame.
     const camera = this.options.capture ? this.camera : this.camera.clone();
@@ -1525,8 +1553,11 @@ export class StudioViewport {
       this.options.onFilmGuide?.(filmGuide);
     }
     if (settle) this.renderer.getContext().finish();
-    // Asset readiness does not imply a displayed image: wait for its sampled
-    // camera/pose and every async sort, then notify only once for this load.
+    this.reportPresented(version);
+  }
+
+  private reportPresented(version: number) {
+    // Asset readiness does not imply a displayed image.
     if (this.unpresentedLoadVersion === version && this.sampledLoadVersion === version) {
       this.unpresentedLoadVersion = null;
       this.options.onLoading?.(false);
@@ -1826,6 +1857,8 @@ export class StudioViewport {
     this.awaitingSample = false;
     this.cancelRender();
     this.clearContent();
+    this.filmClip = {kind: 'scene'};
+    this.imageRenderer?.dispose(); this.imageRenderer = null;
     this.scene.background = null;
     this.presentedFilm = null;
     this.sampledOptics = null;
@@ -1858,6 +1891,7 @@ export class StudioViewport {
     this.uvProbeMaterial?.map?.dispose();
     this.uvProbeMaterial?.dispose();
     this.uvProbeMaterial = null;
+    this.imageRenderer?.dispose(); this.imageRenderer = null;
     this.renderer.renderLists.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
@@ -1935,6 +1969,7 @@ export function createViewport(host: HTMLElement, options: Omit<ViewportOptions,
     setWorldPickEnabled(enabled: boolean) { viewport.setWorldPickEnabled(enabled); },
     setInspectionEnabled(enabled: boolean) { viewport.setInspectionEnabled(enabled); },
     setFilmGuides(enabled: boolean) { viewport.setFilmGuides(enabled); },
+    setFilmContent(enabled: boolean) { viewport.setFilmContent(enabled); },
     createCameraTargetGesture(pointer: CameraTargetPointer) { return viewport.createCameraTargetGesture(pointer); },
     setInteractionSurface(element: HTMLElement | null) { viewport.setInteractionSurface(element); },
     clearScene() {

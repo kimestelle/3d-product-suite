@@ -4,6 +4,7 @@ import {
 } from './frameGeometry';
 import type {ApertureNode} from './landingMorph';
 import {philosophyGeometry,type PhilosophyPoint} from './philosophyFlow';
+import {DEFAULT_FRAME_SHRINK,frameTransitionScale} from './frameMorph';
 
 const dimension = (value:number) => Number.isFinite(value) ? Math.max(0,value) : 0;
 const positionInSequence = (value:number) => Number.isNaN(value) ? 0 : Math.max(0,Math.min(5,value));
@@ -155,7 +156,7 @@ const mix=(a:number,b:number,t:number)=>a+(b-a)*t;
  * height, pose, and corner roundness remain coherent through every midpoint.
  * Normalized radii let a circle open into a square without a pinched shoulder.
  */
-function morphGeometry(from:WindowGeometry,to:WindowGeometry,t:number,width:number,height:number):FrameNodes {
+function morphGeometry(from:WindowGeometry,to:WindowGeometry,t:number,width:number,height:number,shrink:number):FrameNodes {
   const w=dimension(width),h=dimension(height);
   const nextWidth=mix(from.width,to.width,t),nextHeight=mix(from.height,to.height,t);
   const fromCap=Math.min(from.width,from.height)/2,toCap=Math.min(to.width,to.height)/2;
@@ -172,19 +173,21 @@ function morphGeometry(from:WindowGeometry,to:WindowGeometry,t:number,width:numb
   const scale=Math.min(1,boundWidth>0?(right-left)/boundWidth:1,boundHeight>0?(bottom-top)/boundHeight:1);
   const x=Math.max(left-bounds.left*scale,Math.min(right-bounds.right*scale,geometry.x));
   const y=Math.max(top-bounds.top*scale,Math.min(bottom-bounds.bottom*scale,geometry.y));
+  // Keep the established center/clearance path; only open up space around it.
+  const travelScale=scale*frameTransitionScale(t,shrink);
   return transformFrameNodes(roundedFrameNodes({left:-nextWidth/2,top:-nextHeight/2,
-    right:nextWidth/2,bottom:nextHeight/2},radii),{scaleX:scale,scaleY:scale,rotation:geometry.rotation,
+    right:nextWidth/2,bottom:nextHeight/2},radii),{scaleX:travelScale,scaleY:travelScale,rotation:geometry.rotation,
     translateX:x,translateY:y});
 }
 
 /** 0 cover · 1 introduction · 2 result · 3 product · 4 interface · 5 person.
  * One continuous, reversible contour; exact endpoint nodes never drift.
  */
-export function philosophySequenceNodes(width:number,height:number,position:number):FrameNodes {
+export function philosophySequenceNodes(width:number,height:number,position:number,shrink=DEFAULT_FRAME_SHRINK):FrameNodes {
   const amount=positionInSequence(position),index=Math.floor(amount);
   const start=sequenceEndpoint(width,height,index);
   if(index===5||amount===index)return start.nodes;
-  return morphGeometry(start.geometry,sequenceEndpoint(width,height,index+1).geometry,smoothstep(amount-index),width,height);
+  return morphGeometry(start.geometry,sequenceEndpoint(width,height,index+1).geometry,smoothstep(amount-index),width,height,shrink);
 }
 
 /** Compile viewport-dependent endpoints and their shape parameters once.
@@ -192,12 +195,12 @@ export function philosophySequenceNodes(width:number,height:number,position:numb
  * the shared renderer and text flow still consume the same 64 cubic anchors.
  * Recreate on viewport changes. Returned endpoint nodes are read-only inputs.
  */
-export function createPhilosophySequence(width:number,height:number):(position:number)=>FrameNodes {
+export function createPhilosophySequence(width:number,height:number):(position:number,shrink?:number)=>FrameNodes {
   const endpoints=Array.from({length:6},(_,index)=>sequenceEndpoint(width,height,index));
-  return (position:number):FrameNodes => {
+  return (position:number,shrink=DEFAULT_FRAME_SHRINK):FrameNodes => {
     const amount=positionInSequence(position),index=Math.floor(amount);
     if(index===5||amount===index)return endpoints[index].nodes;
-    return morphGeometry(endpoints[index].geometry,endpoints[index+1].geometry,smoothstep(amount-index),width,height);
+    return morphGeometry(endpoints[index].geometry,endpoints[index+1].geometry,smoothstep(amount-index),width,height,shrink);
   };
 }
 

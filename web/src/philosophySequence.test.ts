@@ -6,6 +6,24 @@ import {createContourQuery} from './philosophyContour';
 import {layoutContourText,type LineFlowLeaf} from './philosophyLineLayout';
 
 describe('Shape + Light editorial sequence',()=>{
+  it('changes shrink on a held playhead without rebuilding or moving finished frames',()=>{
+    const sample=createPhilosophySequence(1280,832),end=sample(2);
+    for(const shrink of [0,.08,.25,.5]) {
+      const plain=frameBounds(sample(1.5,0)),adjusted=frameBounds(sample(1.5,shrink));
+      expect(adjusted.width).toBeCloseTo(plain.width*(1-shrink),7);
+      expect(adjusted.left+adjusted.width/2).toBeCloseTo(plain.left+plain.width/2,7);
+      expect(sample(2,shrink)).toBe(end);
+      expect(sample(1.5,shrink)).toEqual(philosophySequenceNodes(1280,832,1.5,shrink));
+    }
+  });
+  it('opens space at the midpoint while retaining each finished composition',()=>{
+    const sample=createPhilosophySequence(1280,832);
+    const a=frameBounds(sample(1)),b=frameBounds(sample(2)),middle=frameBounds(sample(1.5));
+    expect(middle.width).toBeCloseTo((a.width+b.width)/2*.7,7);
+    expect(middle.height).toBeCloseTo((a.height+b.height)/2*.7,7);
+    expect(middle.left+middle.width/2).toBeCloseTo((a.left+a.width/2+b.left+b.width/2)/2,7);
+    expect(middle.top+middle.height/2).toBeCloseTo((a.top+a.height/2+b.top+b.height/2)/2,7);
+  });
   it('preserves compact covers and keeps the snapped desktop cover clear of its title',()=>{
     for(const [w,h] of [[390,844],[800,600],[900,700]])
       expect(philosophySequenceNodes(w,h,0)).toEqual(philosophyFrameNodes(w,h,0));

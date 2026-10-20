@@ -4,7 +4,7 @@ import copy
 from pathlib import Path
 
 from .jobs import _atomic_json
-from .scene import load_scene, scene_digest, validate_scene
+from .scene import film_duration, load_scene, scene_digest, validate_scene
 from .worlds import bundle_assets, list_worlds
 
 
@@ -91,7 +91,7 @@ def create_comparison(scene_path, library_root, output_dir, *, mesh_id, splat_id
             manifest["results"].append({"probe": probe_name, "condition": condition, "scene": filename,
                     "sceneDigest": scene_digest(scene), "productDigest": scene_digest(scene["product"]),
                     "cameraDigest": scene_digest(scene["shots"]), "actionDigest": scene_digest(scene["actions"]),
-                    "reviewFrames": sorted({min(frame, scene["shots"][-1]["endFrame"]) for frame in
+                    "reviewFrames": sorted({min(frame, film_duration(scene)) for frame in
                                             ([1, 60, 120] if probe_name == "lateral" else [180 if probe_name == "glass" else 1])}),
                     "review": None, "handsOnMinutes": None, "waitingMinutes": None, "cost": None})
     _atomic_json(output / "comparison.json", manifest)

@@ -2,7 +2,7 @@ import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {FrameDriver,frameContrastColor,type FrameRoute,type FrameVisual} from './DynamicFrame';
 import {frameGuidePath} from './frameGuides';
 import {STATIC_MOTION_QUERY} from './motionPolicy';
-import {createStudioExpansion} from './studioLoading';
+import {createStudioExpansion,studioLoadingNodes} from './studioLoading';
 import {aboutFrameNodes,frameBounds,framePath,landingFrameNodes,philosophyFrameNodes,roundedFrameNodes} from './frameGeometry';
 
 class EventSurface {
@@ -35,7 +35,7 @@ function advance(ms=16) {
 }
 function setup(initial:FrameRoute='landing',studioReady=false) {
   const driver=new FrameDriver(initial,'test-contour');
-  const elements={root:new Element(),path:new Element(),outside:new Element(),guides:new Element(),halo:new Element(),fill:new Element(),blur:new Element()};
+  const elements={root:new Element(),path:new Element(),outside:new Element(),guides:new Element(),halo:new Element(),fill:new Element(),light:new Element(),blur:new Element()};
   const hosts=Object.fromEntries(routes.map(page=>[page,new Element()])) as Record<FrameRoute,Element>;
   for(const route of routes){driver.register(route,()=>source(route));driver.registerHost(route,hosts[route] as unknown as HTMLElement);}
   if(studioReady)driver.markReady('studio');
@@ -140,6 +140,20 @@ describe('Measured source recovery and studio failure fallback',()=>{
 afterEach(()=>vi.unstubAllGlobals());
 
 describe('Shared frame route transitions',()=>{
+  it('restores local shrink tuning and applies edits to subsequent route travel',()=>{
+    const storage=new Map([['gesso.frame-shrink.v1','0.3']]);
+    vi.stubGlobal('localStorage',{getItem:(key:string)=>storage.get(key)??null,setItem:(key:string,value:string)=>storage.set(key,value)});
+    const {driver,dispose}=setup('about',true),start=frameBounds(driver.current!.nodes),end=frameBounds(source('studio').nodes);
+    expect(driver.transitionShrink).toBe(.3);
+    driver.navigate('studio');advance();advance(340);
+    expect(frameBounds(driver.current!.nodes).width).toBeCloseTo((start.width+end.width)/2*.7,5);
+    advance(340);expect(driver.current).toEqual(source('studio'));
+    driver.setTransitionShrink(0);expect(storage.get('gesso.frame-shrink.v1')).toBe('0');
+    driver.navigate('about');advance();advance(340);
+    expect(frameBounds(driver.current!.nodes).width).toBeCloseTo((start.width+end.width)/2,5);
+    driver.setTransitionShrink(.08);expect(new FrameDriver('about','test').transitionShrink).toBe(.08);
+    dispose();
+  });
   it.each([['landing','studio'],['studio','about']] as const)('keeps every host inert from immediate %s → %s navigation through the final animation frame',(from,to)=>{
     const {driver,elements,hosts,dispose}=setup(from,true);
     expect(hosts[from].inert).toBe(false);
@@ -482,9 +496,9 @@ describe('Shape-aware route morphing',()=>{
     const {driver,dispose}=setup('about',true),start=frameBounds(driver.current!.nodes),end=frameBounds(source('studio').nodes);
     driver.navigate('studio');advance();advance(340);
     const middle=frameBounds(driver.current!.nodes);
-    expect(middle.width).toBeCloseTo((start.width+end.width)/2,5);
-    expect(middle.height).toBeCloseTo((start.height+end.height)/2,5);
-    expect(middle.width-middle.height).toBeGreaterThan(300);
+    expect(middle.width).toBeCloseTo((start.width+end.width)/2*.7,5);
+    expect(middle.height).toBeCloseTo((start.height+end.height)/2*.7,5);
+    expect(middle.width/middle.height).toBeCloseTo((start.width+end.width)/(start.height+end.height),7);
     advance(340);expect(driver.current).toEqual(source('studio'));dispose();
   });
   it('can retarget while the cross is closing without snapping back',()=>{
@@ -498,6 +512,25 @@ describe('Shape-aware route morphing',()=>{
 
 
 describe('Window boundary guides',()=>{
+  it('keeps the full pixel halo around an edge-on loader and expands when only blur changes',()=>{
+    const {driver,elements,dispose}=setup('philosophy');
+    const nodes=studioLoadingNodes(2800,{x:640,y:416}),bounds=frameBounds(nodes);
+    let visual={...source('philosophy'),nodes,halo:{...base.halo,blur:20,spread:8}};
+    driver.register('philosophy',()=>visual);
+    const read=()=>({x:Number(elements.light.attrs.get('x')),y:Number(elements.light.attrs.get('y')),
+      width:Number(elements.light.attrs.get('width')),height:Number(elements.light.attrs.get('height'))});
+    const small=read();
+    expect(small.y).toBeLessThanOrEqual(bounds.top-88);
+    expect(small.y+small.height).toBeGreaterThanOrEqual(bounds.bottom+88);
+    expect(small.width).toBeLessThan(300);expect(small.height).toBeLessThan(300);
+    visual={...visual,halo:{...visual.halo,blur:136,spread:64}};
+    driver.invalidate('philosophy');const broad=read();
+    expect(broad.x).toBeLessThanOrEqual(bounds.left-608);
+    expect(broad.y+broad.height).toBeGreaterThanOrEqual(bounds.bottom+608);
+    expect(elements.blur.attrs.get('stdDeviation')).toBe('136');
+    expect(elements.halo.attrs.get('stroke-width')).toBe('128');
+    expect(callbacks.size).toBe(0);dispose();
+  });
   it('tracks the displayed contour through travel, interruption and local editor resizing',()=>{
     const {driver,elements,dispose}=setup('landing',true);
     const verify=()=>expect(elements.guides.attrs.get('d')).toBe(frameGuidePath(driver.current!.nodes,innerWidth,innerHeight));

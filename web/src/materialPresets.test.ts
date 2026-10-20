@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest';
 import fixture from '../../examples/bottle.scene.json';
 import {MATERIAL_PRESETS} from './materials';
-import {assignMaterialPreset, attachMaterialParts, campaignMaterialPresets, materialOwner, materialTargets, materialTypes, presetPartIds, saveMaterialPreset, type SavedMaterialPreset} from './materialPresets';
+import {assignMaterialPreset, attachMaterialParts, campaignMaterialPresets, deleteMaterialPreset, materialOwner, materialTargets, materialTypes, presetPartIds, saveMaterialPreset, type SavedMaterialPreset} from './materialPresets';
 import {sceneParts, type HierarchyPart} from './hierarchy';
 import {commitHistory, createHistory, redoHistory, undoHistory} from './state';
 
@@ -224,5 +224,126 @@ describe('material library assignments', () => {
     expect(undoHistory(history).present).toEqual(before);
     expect(redoHistory(undoHistory(history)).present).toEqual(source);
     expect(materialTargets(source,parts).some(part=>part.id==='bottle-body::node:1')).toBe(true);
+  });
+});
+
+describe('deleting material presets', () => {
+  it('removes an unused saved preset without changing any product surface or other scene data', () => {
+    const source = scene(); saveMaterialPreset(source, preset());
+    const before = structuredClone(source);
+    deleteMaterialPreset(source, preset().id);
+    expect(source.product.components).toEqual(before.product.components);
+    expect(source).toEqual({...before, product: {...before.product, materialPresets: before.product.materialPresets.filter((item: SavedMaterialPreset) => item.id !== preset().id)}});
+    expect(campaignMaterialPresets(source).some(item => item.id === preset().id)).toBe(false);
+  });
+
+  it('moves linked primitives to one visible Neutral preset with independent snapshots', () => {
+    const source = scene(); saveMaterialPreset(source, preset(), ['bottle-body', 'cap']);
+    const before = structuredClone(source.product.components[1]);
+    deleteMaterialPreset(source, preset().id);
+    const fallback = campaignMaterialPresets(source).find(item => item.name === 'Neutral')!;
+    expect(fallback).toMatchObject({id: 'default-neutral', type: 'custom', material: {baseColor: [.8, .8, .8, 1], roughness: .45, metallic: 0}});
+    expect(presetPartIds(source, fallback)).toEqual(['bottle-body', 'cap']);
+    expect(source.product.components[1]).toEqual(before);
+    expect(campaignMaterialPresets(source).some(item => item.id === preset().id)).toBe(false);
+    source.product.components[0].material.baseColor[0] = 0;
+    expect(source.product.components[2].material.baseColor[0]).toBe(.8);
+    expect(source.product.materialPresets.find((item: SavedMaterialPreset) => item.id === fallback.id).material.baseColor[0]).toBe(.8);
+  });
+
+  it('deletes virtual primitive entries permanently and reuses the Neutral fallback on another deletion', () => {
+    const source = scene(), original = campaignMaterialPresets(source);
+    deleteMaterialPreset(source, original[0].id);
+    expect(campaignMaterialPresets(source).some(item => item.id === original[0].id)).toBe(false);
+    expect(campaignMaterialPresets(source).filter(item => item.id !== 'default-neutral').map(item => item.id)).toEqual(original.slice(1).map(item => item.id));
+    deleteMaterialPreset(source, original[2].id);
+    const entries = campaignMaterialPresets(JSON.parse(JSON.stringify(source)));
+    expect(entries.filter(item => item.name === 'Neutral')).toHaveLength(1);
+    expect(presetPartIds(source, entries.find(item => item.id === 'default-neutral')!)).toEqual(['bottle-body', 'cap']);
+    expect(entries.some(item => item.id === original[0].id || item.id === original[2].id)).toBe(false);
+  });
+
+  it('keeps deleting an attached Neutral preset valid without reviving its deleted ID', () => {
+    const source = scene(); deleteMaterialPreset(source, 'component:bottle-body');
+    deleteMaterialPreset(source, 'default-neutral');
+    const entries = campaignMaterialPresets(source), fallback = entries.find(item => item.name === 'Neutral')!;
+    expect(fallback.id).toBe('default-neutral:2');
+    expect(entries.some(item => item.id === 'default-neutral')).toBe(false);
+    expect(presetPartIds(source, fallback)).toEqual(['bottle-body']);
+  });
+
+  it('restores imported material for a virtual mesh override without creating a replacement library entry', () => {
+    const source = scene(), root = source.product.components[0];
+    root.shape = 'mesh'; root.materialOverride = true;
+    root.asset = {sha256: 'unchanged geometry'};
+    const before = structuredClone(root);
+    deleteMaterialPreset(source, 'component:bottle-body');
+    const updated = source.product.components[0];
+    expect(updated.materialOverride).toBe(false);
+    expect(updated.materialPresetId).toBeUndefined();
+    expect(updated.asset).toEqual(before.asset);
+    expect(updated.assembly).toEqual(before.assembly);
+    expect(campaignMaterialPresets(source).some(item => item.id === 'component:bottle-body' || item.sourceComponentId === root.id)).toBe(false);
+    expect(campaignMaterialPresets(source).some(item => item.name === 'Neutral')).toBe(false);
+  });
+
+  it('removes root and section assignments while preserving more-specific assignments to other materials', () => {
+    const source = scene(), root = source.product.components[0];
+    root.shape = 'mesh'; root.materialOverride = true;
+    const other = {...preset(), id: 'other', name: 'Other finish'};
+    saveMaterialPreset(source, preset(), [root.id]); saveMaterialPreset(source, other);
+    root.materialBindings = [{nodeIndex: 0, materialPresetId: preset().id}, {nodeIndex: 1, materialPresetId: other.id}, {nodeIndex: 2, materialPresetId: preset().id}];
+    deleteMaterialPreset(source, preset().id);
+    expect(source.product.components[0].materialOverride).toBe(false);
+    expect(source.product.components[0].materialPresetId).toBeUndefined();
+    expect(source.product.components[0].materialBindings).toEqual([{nodeIndex: 1, materialPresetId: other.id}]);
+    expect(presetPartIds(source, other)).toEqual(['bottle-body::node:1']);
+    deleteMaterialPreset(source, other.id);
+    expect(source.product.components[0].materialBindings).toBeUndefined();
+  });
+
+  it('lets a deleted section inherit its containing material', () => {
+    const source = scene(), root = source.product.components[0];
+    root.shape = 'mesh'; root.materialOverride = true;
+    const other = {...preset(), id: 'other', name: 'Other finish'};
+    saveMaterialPreset(source, preset(), [root.id]); saveMaterialPreset(source, other);
+    root.materialBindings = [{nodeIndex: 0, materialPresetId: other.id}];
+    const parts: HierarchyPart[] = [...sceneParts(source), {id: `${root.id}::node:0`, componentId: root.id, name: 'Housing', sourceName: 'housing', source: 'glb', parentId: root.id, sourcePath: 'nodes[0]', materialSlots: [{id: 'slot0', name: 'Paint'}]}];
+    deleteMaterialPreset(source, other.id);
+    expect(materialOwner(source, parts, `${root.id}::node:0`)).toBe(preset().id);
+    expect(source.product.components[0].material).toEqual(preset().material);
+  });
+
+  it('rejects unknown IDs and invalid material graphs atomically', () => {
+    const source = scene(); saveMaterialPreset(source, preset(), ['cap']);
+    const before = structuredClone(source);
+    expect(() => deleteMaterialPreset(source, 'missing')).toThrow(/no longer available/);
+    expect(source).toEqual(before);
+    const invalidScenes = [
+      (item: any) => { item.product.components[0].material.roughness = NaN; },
+      (item: any) => { item.product.components[2].materialPresetId = 'missing'; },
+      (item: any) => { item.product.components[2].material.roughness = .91; },
+      (item: any) => { item.product.components[2].shape = 'mesh'; item.product.components[2].materialOverride = false; },
+      (item: any) => { item.product.components[0].materialBindings = []; },
+      (item: any) => { item.product.components[0].shape = 'mesh'; item.product.components[0].materialOverride = true; item.product.components[0].materialBindings = [{nodeIndex: 0, materialPresetId: preset().id}, {nodeIndex: 0, materialPresetId: preset().id}]; },
+      (item: any) => { item.product.components[0].shape = 'mesh'; item.product.components[0].materialOverride = true; item.product.components[0].materialBindings = [{nodeIndex: 0, materialPresetId: 'missing'}]; },
+      (item: any) => { item.product.components[0].shape = 'mesh'; item.product.components[0].materialOverride = true; item.product.components[0].materialBindings = [{nodeIndex: -1, materialPresetId: preset().id}]; },
+    ];
+    for (const invalidate of invalidScenes) {
+      const invalid = structuredClone(source); invalidate(invalid);
+      const snapshot = structuredClone(invalid);
+      expect(() => deleteMaterialPreset(invalid, preset().id)).toThrow();
+      expect(invalid).toEqual(snapshot);
+    }
+  });
+
+  it('restores records and all assignments through undo/redo and serialization', () => {
+    const source = scene(); saveMaterialPreset(source, preset(), ['bottle-body', 'cap']);
+    const before = structuredClone(source);
+    deleteMaterialPreset(source, preset().id);
+    const stored = JSON.parse(JSON.stringify(source)), history = commitHistory(createHistory(before), stored);
+    expect(undoHistory(history).present).toEqual(before);
+    expect(redoHistory(undoHistory(history)).present).toEqual(stored);
+    expect(campaignMaterialPresets(stored).some(item => item.id === preset().id)).toBe(false);
   });
 });

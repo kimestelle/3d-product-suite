@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {createFrameMorph} from './frameMorph';
+import {createFrameMorph,createFrameTransition,frameTransitionScale,normalizeFrameShrink} from './frameMorph';
 import {aboutFrameNodes,frameBounds,framePath,landingFrameNodes,loadingFrameNodes,roundedFrameNodes,transformFrameNodes,type FrameNodes} from './frameGeometry';
 import {philosophySequenceNodes} from './philosophySequence';
 import type {AperturePoint} from './landingMorph';
@@ -9,6 +9,43 @@ const cross=(aperture=0)=>landingFrameNodes({...origin,aperture});
 const studio=()=>roundedFrameNodes({left:320,top:115,right:1240,bottom:800},
   {topLeft:28,topRight:40,bottomRight:24,bottomLeft:50});
 const windows=()=>[aboutFrameNodes(1280,832),studio(),...Array.from({length:6},(_,i)=>philosophySequenceNodes(1280,832,i))];
+
+describe('Window transition contraction',()=>{
+  it('supports zero and half-size contraction while clamping saved invalid values',()=>{
+    const a=windows()[0],b=studio(),raw=createFrameMorph(a,b)(.5);
+    expect(frameBounds(createFrameTransition(a,b,0)(.5)).width).toBeCloseTo(frameBounds(raw).width,7);
+    expect(frameBounds(createFrameTransition(a,b,.5)(.5)).width).toBeCloseTo(frameBounds(raw).width*.5,7);
+    expect(normalizeFrameShrink(-1)).toBe(0);expect(normalizeFrameShrink(2)).toBe(.5);
+    for(const invalid of [null,'30',NaN,Infinity])expect(normalizeFrameShrink(invalid)).toBe(.3);
+    for(const shrink of [0,.08,.25,.5])for(const endpoint of [0,1])expect(frameTransitionScale(endpoint,shrink)).toBe(1);
+  });
+  it('contracts by 30% at the midpoint without moving the center or changing the endpoints',()=>{
+    const a=roundedFrameNodes({left:100,top:100,right:700,bottom:500},40);
+    const b=roundedFrameNodes({left:200,top:200,right:1000,bottom:600},80);
+    const pure=createFrameMorph(a,b),travel=createFrameTransition(a,b),reverse=createFrameTransition(b,a);
+    expect(travel(0)).toEqual(a);expect(travel(1)).toEqual(b);
+    const raw=frameBounds(pure(.5)),middle=frameBounds(travel(.5));
+    expect(middle.width).toBeCloseTo(raw.width*.7,7);
+    expect(middle.height).toBeCloseTo(raw.height*.7,7);
+    expect(middle.left+middle.width/2).toBeCloseTo(raw.left+raw.width/2,7);
+    expect(middle.top+middle.height/2).toBeCloseTo(raw.top+raw.height/2,7);
+    for(const t of [.1,.25,.5,.75,.9]) {
+      const forward=travel(t),back=reverse(1-t);
+      for(let i=0;i<64;i++)for(const key of ['point','in','out'] as const) {
+        expect(forward[i][key].x).toBeCloseTo(back[i][key].x,7);
+        expect(forward[i][key].y).toBeCloseTo(back[i][key].y,7);
+      }
+    }
+    expect(createFrameTransition(travel(.4),a)(0)).toEqual(travel(.4));
+  });
+  it('leaves identical contours stationary and has no scale impulse at finished poses',()=>{
+    const a=studio(),travel=createFrameTransition(a,structuredClone(a));
+    for(const t of [0,.1,.5,.9,1])expect(travel(t)).toEqual(createFrameMorph(a,a)(t));
+    expect(frameTransitionScale(0)).toBe(1);expect(frameTransitionScale(1)).toBe(1);
+    expect((1-frameTransitionScale(.000001))/.000001).toBeLessThan(.00001);
+    expect(frameTransitionScale(NaN)).toBe(1);expect(frameTransitionScale(Infinity)).toBe(1);
+  });
+});
 type Point=AperturePoint;
 function sample(nodes:FrameNodes,steps=3):Point[] {
   return nodes.flatMap((start,i)=>Array.from({length:steps},(_,j)=>{

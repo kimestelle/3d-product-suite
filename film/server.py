@@ -24,9 +24,10 @@ from .comparison import calibrate_scene, comparison_payload, review_alignment
 from .comparison_jobs import ComparisonJobs
 from .materials import MaterialLibrary
 from .polyhaven import PolyHavenLibrary
+from .film_images import import_film_image, MAX_IMAGE_BYTES
 
 ARTIFACTS = {"scene.blend", "contact-sheet.png", "still-01.png", "still-02.png", "still-03.png"} | {item[1] for item in FORMATS.values()}
-ASSET_NAME = re.compile(r"[0-9a-f]{64}\.(?:glb|spz|ply|png|hdr)\Z")
+ASSET_NAME = re.compile(r"[0-9a-f]{64}\.(?:glb|spz|ply|png|jpeg|webp|hdr)\Z")
 
 
 def export_filename(value):
@@ -189,7 +190,12 @@ class RenderQueue:
                     jobs._check_cancel(output)
                     job = jobs._read_job(output)
                     scene = jobs._verify_snapshots(output, job)
-                    if scene["environment"]["kind"] == "splat":
+                    selected_frames = ([request["frame"]] if request["kind"] == "still"
+                                       else range(1, job["renderProfile"]["frameCount"] + 1))
+                    scene_frames = [frame for frame in selected_frames
+                                    if any(shot.get("kind", "scene") == "scene" and shot["startFrame"] <= frame <= shot["endFrame"]
+                                           for shot in scene["shots"])]
+                    if scene["environment"]["kind"] == "splat" and scene_frames:
                         request.update(pipelineState="running", stage="capturing")
                         jobs._atomic_json(output / "request.json", request)
                         asset = scene["environment"]["asset"]
@@ -199,8 +205,7 @@ class RenderQueue:
                                    "--asset-url", f"/api/assets/{Path(asset['path']).name}",
                                    "--width", str(profile["width"]), "--height", str(profile["height"]),
                                    "--source-digest", job["sceneDigest"]]
-                        if request["kind"] == "still":
-                            command += ["--frames", str(request["frame"])]
+                        command += ["--frames", ",".join(map(str, scene_frames))]
                         jobs._run_process(command, output, "splat-capture.log", worker_fd=pipeline_lock.fileno())
                     jobs._check_cancel(output)
                     request.update(pipelineState="running", stage="rendering")
@@ -287,8 +292,8 @@ def make_handler(app):
             if mutate and self.headers.get("X-Product-Suite") != "1":
                 raise PermissionError("Missing local editor request header")
 
-        def _body(self, *, binary=False):
-            limit = MAX_ASSET_BYTES if binary else 4 * 1024 * 1024
+        def _body(self, *, binary=False, limit=None):
+            limit = limit if limit is not None else MAX_ASSET_BYTES if binary else 4 * 1024 * 1024
             length = int(self.headers.get("Content-Length", "0"))
             if length < 1 or length > limit:
                 raise ValueError(f"Request body must contain 1–{limit} bytes")
@@ -398,22 +403,26 @@ def make_handler(app):
                 if not selected.exists():
                     return self._json({"error": "Build the editor first: cd web && npm ci && npm run build"}, 503)
                 return self._file(selected)
+            if self.command == "POST" and path == "/api/film/images/import":
+                return self._json(import_film_image(self._body(binary=True, limit=MAX_IMAGE_BYTES),
+                                  self.headers.get("X-Asset-Filename", ""), app.store.root), 201)
             if self.command == "POST" and path == "/api/products/import":
                 payload = self._body(binary=True)
                 query = parse_qs(parsed.query)
                 one = lambda name, default="": query.get(name, [default])[0]
-                if Path(self.headers.get("X-Asset-Filename", "")).suffix.lower() != ".glb":
-                    raise ValueError("Upload a self-contained product GLB in meters, centered at its bounding-box origin")
+                suffix = Path(self.headers.get("X-Asset-Filename", "")).suffix.lower()
+                if suffix not in (".glb", ".blend"):
+                    raise ValueError("Upload a product GLB or Blender .blend file")
                 temporary = app.store.root / f"product-import-{uuid.uuid4().hex}"
                 temporary.mkdir()
                 try:
-                    source = temporary / "source.glb"
+                    source = temporary / ("source" + suffix)
                     source.write_bytes(payload)
-                    provenance = {"source": one("source", "Product GLB supplied through the local editor"),
+                    provenance = {"source": one("source", "Product model supplied through the local editor"),
                                   "owner": one("owner"), "reuseBasis": one("reuseBasis"),
                                   "allowedExternalDestinations": []}
                     scene = create_product_scene(source, temporary / "prepared", name=one("name", "Imported product"),
-                                                 provenance=provenance)
+                                                 provenance=provenance, blender=app.renders.blender)
                     return self._json(app.store.create(one("name", "Imported product"), scene,
                                                        source_dir=temporary / "prepared"), 201)
                 finally:

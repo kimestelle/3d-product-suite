@@ -1,7 +1,7 @@
-"""Import prepared static product GLBs without changing geometry or artwork.
+"""Import prepared product GLBs or normalized snapshots of Blender products.
 
-Input must already use glTF's Y-up metres and be centered at its visible bounds.
-This is a normalized-GLB handoff, not a CAD converter or mechanism inference.
+GLB input must already use glTF's Y-up metres and be centered at its visible bounds.
+Blender conversion feeds the same handoff; neither path infers mechanisms or imports CAD.
 """
 from __future__ import annotations
 
@@ -289,8 +289,20 @@ def _write_assets(scene, payload, destination, template_root):
 
 
 def create_product_scene(source_path, output_dir, *, name, provenance, template=None, dimensions_m=None,
-                         bounds_m=None, material=None, metadata=None):
+                         bounds_m=None, material=None, metadata=None, blender="blender"):
     """Write scene.json and pinned product/environment assets in output_dir."""
+    if Path(source_path).suffix.lower() == ".blend":
+        import tempfile
+        from .blend_import import convert_blend_product
+        _require(isinstance(name, str) and 0 < len(name.strip()) <= 120, "Product name must contain 1 to 120 characters")
+        validate_provenance(provenance)
+        _require(metadata is None or isinstance(metadata, dict), "Product metadata must be an object")
+        with tempfile.TemporaryDirectory(prefix="gesso-blend-product-") as temporary:
+            converted = Path(temporary) / "product.glb"
+            report = convert_blend_product(source_path, converted, blender=blender)
+            return create_product_scene(converted, output_dir, name=name, provenance=provenance, template=template,
+                                        dimensions_m=dimensions_m, bounds_m=bounds_m, material=material,
+                                        metadata={**(metadata or {}), "blendImport": report})
     scene, payload, template_root = _prepared_scene(source_path, name=name, provenance=provenance, template=template,
                                                   dimensions_m=dimensions_m, bounds_m=bounds_m, material=material, metadata=metadata)
     destination = Path(output_dir).resolve()

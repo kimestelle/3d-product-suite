@@ -1,0 +1,39 @@
+/* Objects identify the target. The inspector owns its pose and motion. */
+.gesso-studio .gesso-panel:is(.film-objects,.film-inspector){gap:var(--gesso-space-8)}
+.film-objects .film-object-list{gap:var(--gesso-space-4)}
+.film-objects .film-object-name{padding:var(--gesso-space-4) var(--gesso-space-8)}
+.film-rail-disclosure{min-width:0;font:400 13px/18px var(--gesso-font-text)}
+.film-rail-disclosure>summary{display:flex;align-items:center;gap:var(--gesso-space-4);min-width:0;min-height:24px;padding:var(--gesso-space-4) 0;list-style:none;cursor:pointer;color:var(--gesso-text-secondary);font-weight:500}
+.film-rail-disclosure>summary::-webkit-details-marker{display:none}
+.film-rail-disclosure>summary>.gesso-ui-icon{flex:none;width:12px;height:12px;transition:transform 160ms ease}
+.film-rail-disclosure[open]>summary>.gesso-ui-icon{transform:rotate(90deg)}
+.film-rail-disclosure>summary>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.film-rail-disclosure>summary>small{margin-left:auto;font:400 11px/16px var(--gesso-font-text);color:var(--gesso-text-muted)}
+.film-rail-disclosure[open]>summary{margin-bottom:var(--gesso-space-4);color:var(--gesso-text-primary)}
+.film-rail-disclosure>summary:focus-visible{outline:2px solid var(--gesso-border-focus);outline-offset:var(--gesso-space-2);border-radius:4px}
+.film-parts-disclosure>summary{padding-inline:var(--gesso-space-8)}
+.film-parts-list{display:flex;flex-direction:column;gap:var(--gesso-space-4)}
+.film-parts-list .film-object-name{padding-left:var(--gesso-space-16)}
+.film-inspector .film-inspector-heading{min-height:24px;margin:0 0 var(--gesso-space-4)}
+.film-inspector .film-inspector-heading h2{overflow-wrap:anywhere}
+.film-rail-motion,.film-selected-motion,.film-rail-detail-body{display:flex;flex-direction:column;gap:var(--gesso-space-4);min-width:0}
+.film-rail-heading,.film-motion-heading{display:flex;align-items:center;justify-content:space-between;gap:var(--gesso-space-8);min-height:24px;font:500 12px/18px var(--gesso-font-text);color:var(--gesso-text-secondary)}
+.film-rail-heading>small{font-weight:400;font-size:11px;color:var(--gesso-text-muted)}
+.film-inspector .film-action-buttons{gap:var(--gesso-space-4)}
+.film-inspector .film-action-buttons>button{gap:var(--gesso-space-4);min-height:28px;padding:3px var(--gesso-space-8) 5px}
+.film-assigned-motions{display:flex;flex-direction:column;gap:var(--gesso-space-4);margin-top:var(--gesso-space-4)}
+.film-assigned-motions .film-motion-link{padding:var(--gesso-space-4) var(--gesso-space-8)}
+.film-assigned-motions .film-motion-link[aria-pressed=true]{background:var(--gesso-surface-selected)}
+.film-selected-motion{margin-top:var(--gesso-space-4)}
+.film-selected-motion .film-motion-properties{gap:var(--gesso-space-4)}
+.film-inspector .film-inspector-actions{gap:var(--gesso-space-4)}
+.film-inspector .film-inspector-actions>button,.film-inspector .film-mechanism-link{padding:3px var(--gesso-space-8) 5px;min-height:28px}
+.film-inspector .film-remove-motion{padding:3px 0 5px;min-height:24px}
+.film-selected-motion>.film-hint{margin-top:var(--gesso-space-4)}
+.film-inspector .film-rail-detail-body>.film-hint{margin-top:var(--gesso-space-4)}
+.gesso-studio .film-inspector .gesso-camera-panel{gap:var(--gesso-space-8)}
+@media(prefers-reduced-motion:reduce){.film-rail-disclosure>summary>.gesso-ui-icon{transition:none}}
+
+.film-product-mark{width:10px;height:10px;margin:1px;flex:none;box-sizing:border-box;border:1px solid currentColor;border-radius:2px}
+
+.film-clip-details{display:flex;flex-direction:column;gap:8px}.film-clip-details>h2{margin:0 0 4px;font-size:14px;font-weight:600}.film-image-preview{display:block;width:100%;max-height:220px;object-fit:contain;background:#000;border-radius:4px}.film-clip-details .film-hint{margin:0}

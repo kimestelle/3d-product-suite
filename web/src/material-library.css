@@ -24,6 +24,8 @@
 .gesso-preset-heading{display:flex;align-items:center;justify-content:space-between;gap:var(--gesso-space-16);min-height:32px}
 .gesso-preset-heading>h2{margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:500 14px/20px var(--gesso-font-text);color:var(--gesso-text-primary,#f5f5f3)}
 .gesso-preset-heading>.gesso-text-button{width:108px;flex:0 0 108px;text-align:center}
+.gesso-preset-editor-heading{flex:0 0 auto;padding:var(--gesso-space-20) var(--rail-gutter) 0}
+.gesso-preset-editor-heading+.gesso-preset-editor-body{padding-top:var(--gesso-space-12)}
 .gesso-preset-scope{display:flex;align-items:center;gap:var(--gesso-space-8);min-height:24px;font:400 11px/16px var(--gesso-font-text);color:var(--gesso-text-secondary,#aaa9a7)}
 .gesso-preset-scope>.gesso-ui-icon{flex-shrink:0}
 .gesso-preset-fields{display:flex;flex-direction:column;gap:var(--gesso-space-8)}
@@ -81,9 +83,29 @@
 .gesso-panel .gesso-material-sample-shapes>button:focus-visible{outline:1px solid currentColor;outline-offset:2px}
 .gesso-material-sample-shapes svg{display:block;width:18px;height:18px}
 .gesso-material-sample-render{position:absolute;inset:0;pointer-events:none}
+.gesso-panel .gesso-material-sample-rotate{position:absolute;inset:0;z-index:1;display:block;width:100%;height:100%;min-height:0;margin:0;padding:0;border:0;border-radius:4px;background:transparent;box-shadow:none;cursor:grab;touch-action:none;user-select:none}
+.gesso-panel .gesso-material-sample-rotate:hover,.gesso-panel .gesso-material-sample-rotate:active{background:transparent}
+.gesso-panel .gesso-material-sample-rotate[data-dragging=true]{cursor:grabbing}
+.gesso-panel .gesso-material-sample-rotate:disabled{cursor:default}
+.gesso-studio .gesso-panel .gesso-material-sample-rotate:focus-visible{background:transparent;outline:1px solid var(--gesso-border-focus);outline-offset:-2px}
 .gesso-material-sample .gesso-material-swatch-grid{display:block}
 .gesso-material-sample button.gesso-material-swatch{height:184px;min-height:184px;gap:0}
 .gesso-material-sample .gesso-material-swatch-image{width:184px;height:184px;flex-basis:184px}
 .gesso-material-sample .gesso-material-swatch-label,.gesso-material-sample .gesso-material-swatch-description{display:none}
 .gesso-preset-fixed-preview+.gesso-preset-editor-body{padding-top:12px}
 @media(max-height:700px){.gesso-material-sample,.gesso-material-sample button.gesso-material-swatch{height:144px;min-height:144px}.gesso-material-sample .gesso-material-swatch-image{width:144px;height:144px;flex-basis:144px}}
+
+/* Name-row actions stay outside the swatch hit target; the portal clears the rail's clipping. */
+.gesso-panel .gesso-material-menu-trigger{display:grid;place-items:center;width:28px;height:28px;min-height:28px;margin-top:8px;padding:3px 4px 5px;border:0;background:transparent;color:var(--gesso-text-secondary);box-shadow:none}
+.gesso-panel .gesso-material-menu-trigger:hover,.gesso-panel .gesso-material-menu-trigger[aria-expanded=true]{color:var(--gesso-text-primary);background:var(--gesso-surface-hover)}
+.gesso-material-menu{position:fixed;z-index:300;width:224px;max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);overflow:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:2px;padding:4px;border:1px solid var(--gesso-border-subtle);border-radius:4px;background:var(--gesso-surface-field);color:var(--gesso-text-primary);font:400 12px/18px var(--gesso-font-text);box-shadow:0 8px 24px #0003;animation:gesso-material-menu-in 160ms ease-out both}
+.gesso-material-menu button{display:flex;align-items:center;width:100%;min-height:32px;padding:3px 8px 5px;border:0;background:transparent;color:var(--gesso-text-secondary);text-align:left;font:inherit}
+.gesso-material-menu button:hover,.gesso-material-menu button:focus-visible{background:var(--gesso-surface-hover);color:var(--gesso-text-primary)}
+.gesso-material-menu .is-destructive{color:var(--gesso-signal-error)}
+.gesso-material-menu [role=separator]{height:1px;background:var(--gesso-border-subtle);margin:4px}
+.gesso-material-menu>strong{padding:8px 8px 0;font-weight:500;overflow-wrap:anywhere}
+.gesso-material-menu>p{margin:0;padding:4px 8px 8px;color:var(--gesso-text-secondary)}
+.gesso-material-delete-actions{display:flex;gap:4px;padding:0 4px 4px}
+.gesso-material-delete-actions>button{justify-content:center}
+@keyframes gesso-material-menu-in{from{opacity:0;translate:0 -4px}to{opacity:1;translate:0 0}}
+@media(prefers-reduced-motion:reduce){.gesso-material-menu{animation:none}}

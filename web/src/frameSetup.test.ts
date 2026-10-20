@@ -13,12 +13,38 @@ const sampleFor = (scene: any, setup: FrameSetup) => ({frame: shotFor(scene, set
 const motions = (scene: any, setup: FrameSetup) => shotFor(scene, setup).motions ?? [];
 
 describe('new frame setup', () => {
+  it('starts the first scene in an empty legacy movie without discarding motion', () => {
+    const scene = source(); scene.shots = []; scene.render.durationFrames = 360;
+    const actions = structuredClone(scene.actions);
+    const setup = createFrameSetup(scene), shot = shotFor(scene, setup);
+    expect(shot).toMatchObject({name: 'Untitled', startFrame: 1, endFrame: 360});
+    expect(scene.render.durationFrames).toBe(360);
+    expect(scene.actions).toEqual(actions);
+    expect(setup.stage).toBe('objects');
+  });
+
+  it('extends an explicit movie duration when creating another scene', () => {
+    const scene = source(); scene.render.durationFrames = 360;
+    const setup = createFrameSetup(scene, scene.shots.at(-1).id);
+    expect(shotFor(scene, setup)).toMatchObject({startFrame: 361, endFrame: 432});
+    expect(scene.render.durationFrames).toBe(432);
+  });
+
   it('creates a named frame with an inherited composition and no added movement', () => {
     const scene = source(), actions = structuredClone(scene.actions);
     const setup = newFrame(scene), shot = shotFor(scene, setup);
     expect(setup).toMatchObject({stage: 'objects', targets: ['$product'], objectKind: null, objectMotionIds: [], cameraTarget: '$product', cameraKind: null, cameraMotionId: null});
-    expect(shot.name).toBe('Frame 4'); expect(motions(scene, setup)).toEqual([]); expect(scene.actions).toEqual(actions);
+    expect(shot.name).toBe('Untitled'); expect(motions(scene, setup)).toEqual([]); expect(scene.actions).toEqual(actions);
     expect(shot.camera.from).toEqual(shot.camera.to);
+  });
+
+  it('adds a unique Untitled title without renaming existing scenes', () => {
+    const scene = source();
+    scene.shots[0].name = 'Untitled'; scene.shots[1].name = 'Untitled 2'; scene.shots[2].name = 'Frame 3';
+    const names = scene.shots.map(({id, name}: any) => ({id, name}));
+    expect(shotFor(scene, newFrame(scene)).name).toBe('Untitled 3');
+    expect(shotFor(scene, newFrame(scene)).name).toBe('Untitled 4');
+    for (const {id, name} of names) expect(scene.shots.find((shot: any) => shot.id === id).name).toBe(name);
   });
 
   it('uses the intersection of supported actions for multiple selected objects', () => {

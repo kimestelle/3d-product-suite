@@ -15,6 +15,31 @@ const ease=(t:number)=>t*t*(3-2*t);
 const deltaAngle=(a:number,b:number)=>Math.atan2(Math.sin(b-a),Math.cos(b-a));
 const length=(p:Point)=>Math.hypot(p.x,p.y);
 const subtract=(a:Point,b:Point):Point=>({x:a.x-b.x,y:a.y-b.y});
+export const DEFAULT_FRAME_SHRINK=.3;
+export function normalizeFrameShrink(value:unknown):number {
+  return typeof value==='number'&&Number.isFinite(value)?Math.max(0,Math.min(.5,value)):DEFAULT_FRAME_SHRINK;
+}
+
+/** A reversible size envelope with zero slope at either finished composition.
+ * This is presentation timing, separate from the catalog's pure interpolation. */
+export function frameTransitionScale(progress:number,shrink=DEFAULT_FRAME_SHRINK):number {
+  const t=clamp(progress);
+  return 1-normalizeFrameShrink(shrink)*16*t*t*(1-t)*(1-t);
+}
+
+/** Route windows share cardinal anchors, so their center needs no layout read
+ * or cubic-extrema solve. Scale handles and anchors together after clearance. */
+export function createFrameTransition(from:FrameNodes,to:FrameNodes,shrink=DEFAULT_FRAME_SHRINK):(progress:number)=>FrameNodes {
+  const morph=createFrameMorph(from,to);
+  // Initial mounting and same-page navigation must not pulse a stationary frame.
+  if(from.every((node,i)=>KEYS.every(key=>node[key].x===to[i][key].x&&node[key].y===to[i][key].y)))return morph;
+  return progress=>{
+    const t=clamp(progress),nodes=morph(t);
+    if(t===0||t===1)return nodes;
+    return transformFrameNodes(nodes,{scaleX:frameTransitionScale(t,shrink),
+      origin:{x:(nodes[0].point.x+nodes[32].point.x)/2,y:(nodes[0].point.y+nodes[32].point.y)/2}});
+  };
+}
 
 function cubic(a:Point,b:Point,c:Point,d:Point,t:number):Point {
   const u=1-t;

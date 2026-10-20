@@ -1,12 +1,14 @@
-import {useLayoutEffect, useRef, type RefObject} from 'react';
+import {useCallback, useLayoutEffect, useRef, useState, type RefObject} from 'react';
 import {GlassineStudy,glassinePoster,type GlassineStudyHandle} from './GlassineStudy';
-import {FrameOutside,useFrameSource,useFrameInvalidation,type FrameVisual} from './DynamicFrame';
+import {FrameOutside,useFrameSource,useFrameInvalidation,useFrameTransitionShrink,type FrameVisual} from './DynamicFrame';
 import {frameBounds,framePath,roundedFrameNodes} from './frameGeometry';
 import {createPhilosophySequence,philosophySequenceNodes,philosophySequenceContour} from './philosophySequence';
 import {STATIC_MOTION_QUERY} from './motionPolicy';
 import {createContourQuery} from './philosophyContour';
 import {philosophyScrollProgress} from './philosophyMotion';
 import {createPhilosophyScroll} from './philosophyScroll';
+import {DEFAULT_SCROLL_TUNING,normalizeScrollTuning,type ScrollTuning} from './philosophyScrollPhysics';
+import PhilosophyScrollDebug,{type ScrollDebugSnapshot} from './PhilosophyScrollDebug';
 import {mountContourText,paintContourText,contourTextMoving,unmountContourText,resetContourText,type ContourTextBlock,type ContourTextCache} from './philosophyTextDom';
 import navArrow from './assets/gesso/about-arrow-up-right.svg';
 import './shape-light.css';
@@ -89,10 +91,13 @@ function flowAroundShape(layout:FlowLayout,scroll:number,animate:boolean,now:num
 /** Scroll is the reversible playhead for the shared frame. Text stays native;
  * scrolling updates geometry without rebuilding the page.
  */
-function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|null>) {
+function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|null>,tuning:RefObject<ScrollTuning>,shrink:number) {
   const page = useRef<HTMLDivElement>(null);
+  const motion=useRef<ReturnType<typeof createPhilosophyScroll>|null>(null);
   const intro = useRef<HTMLElement>(null);
   const visual = useRef<FrameVisual|null>(null);
+  const shrinkRef=useRef(shrink);shrinkRef.current=shrink;
+  const refreshGeometry=useRef<(()=>void)|null>(null);
   const invalidate=useFrameInvalidation();
   useFrameSource('philosophy',()=>visual.current);
   useLayoutEffect(() => {
@@ -108,7 +113,7 @@ function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|
     let stops:number[]=[];
     let frame = 0, alive = true,initialHashRestored=false;
     let scrollMotion:ReturnType<typeof createPhilosophyScroll>|null=null;
-    let needsLayout=true,lastShown=NaN,lastScroll=NaN;
+    let needsLayout=true,lastShown=NaN,lastScroll=NaN,lastShrink=NaN;
     let sample=createPhilosophySequence(layout.width,layout.height);
     const paint = () => {
       frame = 0;
@@ -129,17 +134,18 @@ function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|
       // that same coordinate, never a second easing clock.
       const progress=philosophyScrollProgress(scroll,stops);
       const shown = preference.matches||compact ? Math.round(progress) : progress;
-      const geometryChanged=needsLayout||shown!==lastShown;
+      const geometryChanged=needsLayout||shown!==lastShown||shrinkRef.current!==lastShrink;
       const textMoving=layout.blocks.some(block=>block.text&&contourTextMoving(block.text));
       if(!geometryChanged&&(compact||(scroll===lastScroll&&!textMoving)))return;
       const frameName = ['ground','principles',...PHILOSOPHY_ROWS.map(row=>row.id)][Math.round(shown)];
       if (root.dataset.frame !== frameName) root.dataset.frame = frameName;
-      const nodes=compact?EMPTY_FRAME:geometryChanged?sample(shown):visual.current!.nodes;
+      const nodes=compact?EMPTY_FRAME:geometryChanged?sample(shown,shrinkRef.current):visual.current!.nodes;
       if(geometryChanged&&!compact)layout.query=createContourQuery(philosophySequenceContour(nodes));
-      // Keep the light broad, but below the contrast limit at the 24px text clearance.
+      // Expand blur and spread together so the halo reaches farther without
+      // concentrating the existing purple into a brighter, tighter rim.
       const lightScale=Math.min(1.25,layout.width/1280,layout.height/832);
       visual.current={nodes,ground,fill:compact?'transparent':specimen,
-        halo:{color:halo,blur:68*lightScale,spread:32*lightScale,opacity:compact?0:1}};
+        halo:{color:halo,blur:136*lightScale,spread:64*lightScale,opacity:compact?0:1}};
       // The shared renderer measures section clips before text writes can
       // invalidate layout. Shape, text and material still commit in this frame.
       if(geometryChanged||scroll!==lastScroll)invalidate('philosophy');
@@ -150,10 +156,11 @@ function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|
           bounds:{x:bounds.left/layout.width,y:bounds.top/layout.height,width:bounds.width/layout.width,height:bounds.height/layout.height},
           contains:(x,y)=>{const interval=query(y,y);return Boolean(interval&&x>=interval.left&&x<=interval.right);}});
       }else study.current?.update({progress:1,width:layout.width,height:layout.height,bounds:{x:0,y:0,width:1,height:1},contains:()=>false});
-      needsLayout=false;lastShown=shown;lastScroll=scroll;
+      needsLayout=false;lastShown=shown;lastScroll=scroll;lastShrink=shrinkRef.current;
       if(active&&layout.blocks.some(block=>block.text&&contourTextMoving(block.text)))schedule();
     };
     const schedule = () => {if(alive&&!document.hidden&&!frame)frame=requestAnimationFrame(paint);};
+    refreshGeometry.current=schedule;
     const visibility=()=>{if(document.hidden){cancelAnimationFrame(frame);frame=0;}else if(active)schedule();};
     const resize = () => {
       scrollMotion?.cancel();
@@ -166,13 +173,33 @@ function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|
       if (!['#shape-light-content', '#shape-light-principles',...PHILOSOPHY_ROWS.map(row=>`#principle-${row.id}`)].includes(location.hash)) return;
       scrollMotion?.cancel();
       const target = root.querySelector<HTMLElement>(location.hash);
-      if (target) {target.scrollIntoView({block:'start', behavior:'instant'}); target.focus({preventScroll:true});}
+      if (target) {
+        target.focus({preventScroll:true});
+        target.scrollIntoView({block:'start', behavior:'instant'});
+      }
       schedule();
     };
-    if(active)scrollMotion=createPhilosophyScroll(root,{stops:()=>stops,schedule});
+    // Handle our own anchor before the browser jumps, so the link and wheel
+    // use the same moving position. Initial hashes/history remain native.
+    const anchorClick=(event:MouseEvent)=>{
+      if(event.defaultPrevented||event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey||!scrollMotion?.snapshot().enabled)return;
+      const link=(event.target as Element)?.closest<HTMLAnchorElement>('a[href^="#"]');
+      const hash=link?.getAttribute('href');
+      if(!hash||!['#shape-light-content','#shape-light-principles',...PHILOSOPHY_ROWS.map(row=>`#principle-${row.id}`)].includes(hash))return;
+      const target=root.querySelector<HTMLElement>(hash);
+      if(!target)return;
+      const index=hash==='#shape-light-content'?0:sections.indexOf(target);
+      if(index<0)return;
+      event.preventDefault();
+      if(location.hash!==hash)history.pushState(history.state,'',hash);
+      target.focus({preventScroll:true});
+      scrollMotion.seek(index);schedule();
+    };
+    if(active)scrollMotion=createPhilosophyScroll(root,{stops:()=>stops,schedule,tuning:()=>tuning.current});
+    motion.current=scrollMotion;
     const observer = new ResizeObserver(resize);
     observer.observe(root); for(const section of sections)observer.observe(section);
-    if(active)root.addEventListener('scroll',schedule,{passive:true});
+    if(active){root.addEventListener('scroll',schedule,{passive:true});root.addEventListener('click',anchorClick);}
     document.addEventListener('visibilitychange',visibility);
     preference.addEventListener('change', schedule);
     window.addEventListener('hashchange', followHash);
@@ -186,22 +213,40 @@ function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|
     void document.fonts.ready.then(fontsLoaded);
     paint();
     return () => {
-      alive = false; cancelAnimationFrame(frame); scrollMotion?.dispose(); observer.disconnect();
-      root.removeEventListener('scroll',schedule);
+      alive = false; refreshGeometry.current=null; cancelAnimationFrame(frame); scrollMotion?.dispose(); motion.current=null; observer.disconnect();
+      root.removeEventListener('scroll',schedule);root.removeEventListener('click',anchorClick);
       document.removeEventListener('visibilitychange',visibility);
       preference.removeEventListener('change', schedule);
       window.removeEventListener('hashchange', followHash);
       document.fonts.removeEventListener('loadingdone',fontsLoaded);
       restoreFlowLayout(layout);layout.textCache.clear();
     };
-  }, [active,invalidate,study]);
-  return {page, intro};
+  }, [active,invalidate,study,tuning]);
+  // A stationary intermediate frame must respond without resetting its scroll
+  // particle, rebuilding text, or replaying initial hash restoration.
+  useLayoutEffect(()=>refreshGeometry.current?.(),[shrink]);
+  const read=useCallback(():ScrollDebugSnapshot=>motion.current?.snapshot()??{
+    position:page.current?.scrollTop??0,velocity:0,force:0,target:null,stops:[],phase:'native',enabled:false,reason:'Measuring the page',
+  },[]);
+  const seek=useCallback((index:number)=>motion.current?.seek(index),[]);
+  return {page, intro,read,seek};
 }
 
 export default function ShapeLightPage({active=true}:{active?:boolean}) {
   const study=useRef<GlassineStudyHandle|null>(null);
-  const {page, intro} = usePhilosophyFrames(active,study);
+  const [shrink,setShrink]=useFrameTransitionShrink();
+  const [tuning,setTuning]=useState<ScrollTuning>(()=>{
+    try{return normalizeScrollTuning(JSON.parse(localStorage.getItem('gesso.philosophy-scroll.v1')??'{}')??{});}
+    catch{return {...DEFAULT_SCROLL_TUNING};}
+  });
+  const tuningRef=useRef(tuning);tuningRef.current=tuning;
+  const updateTuning=useCallback((next:ScrollTuning)=>{
+    const normalized=normalizeScrollTuning(next);tuningRef.current=normalized;setTuning(normalized);
+    try{localStorage.setItem('gesso.philosophy-scroll.v1',JSON.stringify(normalized));}catch{/* Local storage may be unavailable. */}
+  },[]);
+  const {page, intro,read,seek} = usePhilosophyFrames(active,study,tuningRef,shrink);
   return <div ref={page} className="gesso-shape-light" data-frame="ground" tabIndex={-1} inert={!active} aria-hidden={!active}>
+    <PhilosophyScrollDebug tuning={tuning} onChange={updateTuning} shrink={shrink} onShrink={setShrink} onSeek={seek} read={read} active={active}/>
     <GlassineStudy ref={study} active={active} page={page}/>
     <a data-frame-outside className="shape-light-skip" href="#shape-light-content">Skip to philosophy</a>
     <a data-frame-outside className="shape-light-skip" href="#shape-light-principles">Skip to principles</a>

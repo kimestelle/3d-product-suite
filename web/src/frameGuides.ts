@@ -3,8 +3,7 @@ import './frame-guides.css';
 
 /** Four rules through the displayed curve's true extrema. These coordinates
  * also define the studio viewport edges, so no second grid can drift from it. */
-export function frameGuidePaths(nodes:FrameNodes,width:number,height:number):{lines:string;crosses:string} {
-  const bounds=frameBounds(nodes);
+export function frameGuidePaths(nodes:FrameNodes,width:number,height:number,bounds=frameBounds(nodes)):{lines:string;crosses:string} {
   if(bounds.width<1||bounds.height<1||width<=0||height<=0)return {lines:'',crosses:''};
   const n=(value:number)=>Number(value.toFixed(3));
   const {left,top,right,bottom}=bounds;

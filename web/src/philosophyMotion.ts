@@ -8,37 +8,3 @@ export function philosophyScrollProgress(scroll:number,stops:readonly number[]):
   }
   return stops.length-1;
 }
-
-const clamp=(value:number,low:number,high:number)=>Math.max(low,Math.min(high,value));
-export type ScrollSettle={from:number;to:number;start:number;duration:number;tangent:number};
-
-/** A small correction ahead of the final gesture, never a compulsory page turn.
- * Read freely between poses and do not pull back toward the pose just departed. */
-export function choosePhilosophyStop(position:number,velocity:number,origin:number,stops:readonly number[],maximum:number):number {
-  const points=[...new Set(stops.map(stop=>clamp(stop,0,maximum)))].sort((a,b)=>a-b);
-  if(!points.length)return position;
-  const direction=Math.sign(velocity)||Math.sign(position-origin);
-  if(!direction)return position;
-  const target=direction>0?points.find(stop=>stop>position):points.filter(stop=>stop<position).at(-1);
-  if(target===undefined)return position;
-  const neighbor=points[points.indexOf(target)-direction];
-  if(neighbor===undefined)return position;
-  const reach=Math.min(96,Math.abs(target-neighbor)*.14);
-  return Math.abs(target-position)<=reach?target:position;
-}
-
-/** Quintic endpoint interpolation: bounded initial velocity, zero final
- * velocity/acceleration, no overshoot or spring. Always starts where we are. */
-export function createScrollSettle(from:number,to:number,velocity:number,start:number):ScrollSettle {
-  const distance=to-from;
-  let duration=clamp(160+Math.abs(distance)*.65,160,240);
-  if(distance*velocity>0)duration=Math.min(duration,Math.max(120,2*Math.abs(distance/velocity)));
-  const tangent=distance?clamp(velocity*duration/distance,0,2):0;
-  return {from,to,start,duration,tangent};
-}
-export function scrollSettlePosition(plan:ScrollSettle,now:number):number {
-  const t=clamp((now-plan.start)/plan.duration,0,1);
-  const ease=t*t*t*(10+t*(-15+6*t));
-  const velocity=t+t*t*t*(-6+t*(8-3*t));
-  return plan.from+(plan.to-plan.from)*(ease+plan.tangent*velocity);
-}

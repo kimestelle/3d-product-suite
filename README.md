@@ -1,10 +1,10 @@
 # 3d-product-suite
 
-A local editor and repeatable render pipeline for editable product films. Import prepared product GLBs with their original geometry and materials, or explore the fictional **MORA** bottle fixture with its confirmed cap movement and label/color controls. Shared Python scene evaluation drives both browser playback and Blender/Cycles.
+A local editor and repeatable render pipeline for editable product films. Import prepared product GLBs or static Blender snapshots, or explore the fictional **MORA** bottle fixture with its confirmed cap movement and label/color controls. Shared Python scene evaluation drives both browser playback and Blender/Cycles.
 
 The fixture produces a 15-second, 24 fps sequence: **360 frames**, with native final settings of **1080 × 1920**. A successful render exports an MP4, three stills, a contact sheet covering the sequence, and a reopenable `.blend` scene. Generated outputs are local and are not committed.
 
-World comparisons support an official World Labs visual mesh and a mesh reconstructed from that same world's Gaussian splats. Optional reference images guide generation; original Gallery, Botanical room and neutral Studio defaults work offline without images or API keys. Native Gaussian preview/plate rendering remains available as a diagnostic. Product GLB import is available; direct CAD import, automatic mechanism inference and human usability/quality gates remain open. See the [real product workflow and verified trial status](docs/real-product-trials.md) and [validation plan](docs/validation-plan.md).
+World comparisons support an official World Labs visual mesh and a mesh reconstructed from that same world's Gaussian splats. Optional reference images guide generation; original Gallery, Botanical room and neutral Studio defaults work offline without images or API keys. Native Gaussian preview/plate rendering remains available as a diagnostic. Product GLB and `.blend` import are available; direct CAD import, automatic mechanism inference and human usability/quality gates remain open. See the [real product workflow and verified trial status](docs/real-product-trials.md) and [validation plan](docs/validation-plan.md).
 
 ## Run locally
 
@@ -16,12 +16,15 @@ Run from the repository root:
 git clone --branch gesso-editor https://github.com/kimestelle/3d-product-suite.git
 cd 3d-product-suite
 python3.12 -m venv .venv
+.venv/bin/python -m pip install -e .
 npm ci --prefix web
 npm run build --prefix web
 .venv/bin/python -m film serve --data-dir workspace-data
 ```
 
 Open [the editor](http://127.0.0.1:8787/). Keep the terminal running; `Ctrl+C` stops the server. It binds to `127.0.0.1`, for local use only. `--port 8787` is the default. The server serves **`web/dist`**, so rebuild with `npm run build --prefix web` after frontend changes, then reload the browser. Restart the Python server after backend changes.
+
+The Film timeline keeps scene and image shots adjacent. Trimming or removing a shot closes the cut; changing the full movie duration stretches the clips and their motion together. PNG, JPEG and WebP image shots are decoded locally with Pillow, oriented and converted to sRGB, then stored as immutable PNGs in the local workspace. Image framing supports contain (black letterbox) and cover. Exports preserve those pixels without the 3D scene’s AgX grading. The native `.blend` keeps the editable 3D scene, packed image sources and editorial timeline metadata; the Film worker composes the final image frames.
 
 On first use, an empty data directory creates the fictional MORA campaign and seeds the bundled environment fixtures. **`workspace-data/` is local and ignored by Git**: it holds projects, saved revisions, imported assets, material jobs, and render jobs. Keep using the same directory to reopen your work; back it up as a whole. The lamp campaigns and generated worlds in the author's workspace are not installed by cloning this repository. The bundled landing reel is a visual reference, not an editable lamp project.
 
@@ -58,6 +61,7 @@ Open [the Vite development server](http://127.0.0.1:5173/). Vite hot-reloads fro
 
 ### Optional rendering and online resources
 
+- **Blender product import:** `.blend` files need local Blender **4.3.2**, configured with the same `--blender` option as rendering. GLB import needs no Blender installation.
 - **Local export:** install Blender **4.3.2** and FFmpeg **7.1.5** separately. The worker checks those versions. Blender is required for PNG stills and PNG sequences; JPEG, WebP, H.264 MP4, and ProRes MOV also need FFmpeg with the relevant encoders. Missing tools disable the affected export choices, not editing.
 - **Poly Haven:** browsing/importing textures, props, and HDRIs needs network access, with no API key. Only selected assets are imported into the local data directory; existing local assets remain available offline.
 - **Patina materials:** set `FAL_KEY` in the Python server's environment before starting it. Generation is an explicit user action and uses the fal account's credits.
@@ -92,7 +96,27 @@ On macOS, a standard Blender app executable is `/Applications/Blender.app/Conten
 
 In **World → Enable A/B comparison**, choose two meshes and switch between A, B and Split. Both views share one product, camera, timeline, lighting and contact geometry. Floor picks, known-distance scale and yaw adjustments save with the project; placement review becomes draft after relevant edits. **Render matching stills** and **Export matching reels** queue both conditions and provide a ZIP with matching outputs and an integrity manifest. Offline Gallery/Botanical defaults work immediately. See the [comparison workflow](docs/comparison-workflow.md).
 
-In the Product panel, **Import a product GLB** creates a separate campaign with its source geometry, original materials and fitted camera shots. Supply a static self-contained GLB in Y-up meters, centered at its bounding-box origin, and record the owner, source and usage permission. CAD conversion happens before this handoff. Imported products do not inherit the fixture's fictional labels or cap action.
+In the Product panel, **Import product** accepts **GLB and Blender `.blend` files** up to 128 MiB and creates a separate campaign with fitted camera shots. Record the owner, source and usage permission. Imported products do not inherit the fixture's fictional labels or cap action.
+
+- **GLB:** supply a static self-contained file in Y-up meters, centered at its bounding-box origin. Its geometry and material asset bytes remain unchanged.
+- **Blender:** imports a static snapshot of the active scene at its saved frame. Geometry is converted locally to a centered, meter-scale GLB, preserving object names, parenting and supported materials. Cameras, lights and animation are excluded. Pack textures in Blender before saving. Supported procedural surface inputs are baked automatically to local material maps; this is not a full Blender project round trip. The source file remains unchanged; the campaign stores the converted asset and import metadata. CAD conversion still happens before this handoff.
+
+Blender import also leaves out clearly identified studio geometry: oversized flat ground/backdrop surfaces outside the product and separate, named emissive light cards. It checks names, evaluated geometry and product relationships together; unknown geometry, labels, bases and attached emissive parts remain. This filtering happens before measuring the product or checking materials, so excluded setup does not distort dimensions or block import. Unused scenes, render-hidden collections and unused material/library data do not become product parts.
+
+For files with other scene content, add the string custom property **`gesso_role`** to a Blender object or collection: **`product`** keeps its geometry; **`environment`** leaves it out. The nearest explicit object/parent role wins over collection roles; an explicit product child can survive an excluded parent. Its world transform remains intact. Conflicting collection roles favor product. Unknown content stays by default. Automatic geometry inspection is capped at two million vertices; above that budget, use explicit roles. Import notices name skipped objects, and metadata records their reasons (up to 200 entries).
+
+Direct **Glass BSDF** surfaces convert automatically to glTF transmission materials, retaining color, roughness, numeric IOR and supported normal maps. This also works through reroute nodes and with packed textures. No texture bake is needed for these direct glass surfaces. **Mix Shader** masks between Principled/Glass surfaces with matching IOR become spatial color, roughness, metallic, transmission, alpha and normal parameters. Both regions survive; the combined reflectance model is an approximation.
+
+Unsupported linked surface parameters such as object-coordinate noise, color ramps, shader masks and bump are baked locally with Cycles into **1024 px packed maps**, without baking scene lighting. Existing UVs are retained for source artwork; a separate bake atlas is generated when needed. Object-dependent maps use separate material copies. Baking is bounded by 48 images / 32 megapixels and the existing 180-second conversion timeout. Conversion details appear in the import notice and metadata. Browser refraction, especially nested glass and liquid, can differ from Cycles. Ray-dependent shaders, volume absorption/scattering, incompatible shader branches and spatially varying IOR remain explicit errors; the importer does not silently discard them or invent wall thickness.
+
+The CLI accepts the same files:
+
+```bash
+.venv/bin/python -m film product-import /path/to/product.blend \
+  --output /path/to/prepared-product --name "My product" \
+  --owner "Product owner" --source "Approved Blender revision" \
+  --reuse-basis "Owner supplied model" --blender /absolute/path/to/blender
+```
 
 The World panel offers offline defaults and optional public HTTPS image-reference generation through GitHub Actions. Keep `WORLDLABS_API_KEY` encrypted in the repository's **Myenv** GitHub Environment. The workflow generates one world and exports its official textured GLB plus Gaussian SPZ, reconstructs the SPZ into a second GLB, and uploads both final meshes with 15 controlled probe scenes. Standard documented cost is 5,080 API credits (about $4.06); the default preflight cap is 6,000. API credits are separate from Marble website credits. See [World Labs setup and recovery](docs/worldlabs-api.md).
 
@@ -202,13 +226,14 @@ node scripts/capture_splats.test.mjs
 .venv/bin/python -m compileall -q film scripts
 ```
 
-CI runs standard-library tests on Python 3.12.14 without installing Blender or FFmpeg, plus the editor's Node tests and production build. Mocked worker tests exercise orchestration and recovery; they do not establish rendered visual quality. The optional real-Blender tests compare all 360 reopened poses, verify imported mesh alignment and glass settings, and render small diagnostic stills to check plate validation and frame matching:
+CI runs Python tests with Pillow on Python 3.12.14 without installing Blender or FFmpeg, plus the editor's Node tests and production build. Mocked worker tests exercise orchestration and recovery; they do not establish rendered visual quality. The optional real-Blender tests compare all 360 reopened poses, verify imported mesh alignment and glass settings, and render small diagnostic stills to check plate validation and frame matching:
 
 ```bash
 RUN_BLENDER_TESTS=1 .venv/bin/python -m unittest discover -s tests -p test_blender_roundtrip.py -v
+RUN_BLENDER_TESTS=1 .venv/bin/python -m unittest tests.test_blend_import -v
 ```
 
-Set `BLENDER=/absolute/path/to/blender` if needed. Render integration and human approval are separate checks described in the [validation plan](docs/validation-plan.md).
+The import tests also cover saved-frame geometry and materials, units, hierarchy, packed artwork and failure cleanup. Set `BLENDER=/absolute/path/to/blender` if needed. Render integration and human approval are separate checks described in the [validation plan](docs/validation-plan.md).
 
 Run numerical reconstruction tests with the optional dependencies installed; the real SPZ codec check also uses the pinned web dependencies:
 

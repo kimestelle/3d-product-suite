@@ -39,6 +39,7 @@ export interface FilmPanelProps {
 export function commitFilmDraft(scene: any, draft: any) {
   scene.shots = draft.shots;
   scene.render = draft.render;
+  if (draft.actions !== undefined) scene.actions = draft.actions;
   if (draft.animation !== undefined) scene.animation = draft.animation;
   if (draft.motions !== undefined) scene.motions = draft.motions;
 }

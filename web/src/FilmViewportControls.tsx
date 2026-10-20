@@ -86,7 +86,7 @@ export default function FilmViewportControls({guide, scene, frame, mode, end, ed
       {thirds && <div className="gesso-film-thirds">{[1, 2].map(index => <span key={index} style={{'--third': index} as CSSProperties}/>)}</div>}
     </div>}
     {!inspecting && <details ref={detailsRef} className="gesso-film-format" onKeyDown={closeFormat} style={{left: gate.x, top: gate.y}}>
-      <summary aria-label={`Render frame ${ratio}, ${width} by ${height} pixels`}><span>render frame</span><span>{ratio}</span><span className="gesso-film-frame-size">{width} × {height}</span><UiIcon name="down" size={14}/></summary>
+      <summary aria-label={`Render frame ${ratio}, ${width} by ${height} pixels`}><span>render frame</span><span className="gesso-film-measure">{ratio}</span><span className="gesso-film-frame-size gesso-film-measure">{width} × {height}</span><UiIcon name="down" size={14}/></summary>
       <div className="gesso-film-format-panel gesso-panel" aria-label="Render frame dimensions">
         <div className="gesso-film-formats" aria-label="Aspect ratio">{formats.map(format => <button type="button" key={format.label} aria-pressed={Math.abs(width / height - format.width / format.height) < .00001} disabled={disabled} onClick={() => onAspectChange(format.width, format.height)}>{format.label}</button>)}</div>
         <NumberControl label="Width" ariaLabel="Viewport frame width" value={width} min={2} max={8192} step={2} unit="px" disabled={disabled} onChange={value => onAspectChange(value, height)}/>
@@ -96,7 +96,7 @@ export default function FilmViewportControls({guide, scene, frame, mode, end, ed
     </details>}
     {editing && guide.target.visible && <div className="gesso-film-target" style={{left: guide.target.x, top: guide.target.y}}>
       <button type="button" className="gesso-film-target-handle" aria-label="Camera target" aria-describedby={`${id}-target-hint`} title={cameraMotionDriven ? hint : "Drag camera target; arrow keys nudge, Shift + arrow moves farther"} disabled={poseDisabled} onPointerDown={onTargetPointerDown} onKeyDown={onTargetKeyDown}><span/><i/></button>
-      <span className="gesso-film-target-label">Target <span>{distance}</span></span>
+      <span className="gesso-film-target-label">Target <span className="gesso-film-measure">{distance}</span></span>
     </div>}
     {editing && <div className="gesso-film-control-rail">
       <div className="gesso-film-aim-control">
@@ -106,7 +106,7 @@ export default function FilmViewportControls({guide, scene, frame, mode, end, ed
       </div>
       <div className="gesso-film-lens-control gesso-panel"><NumberControl label="Lens" ariaLabel="Viewport focal length" value={guide.focalLengthMm} min={1} max={1000} unit="mm" disabled={lensDisabled} onChange={onFocalLengthChange}/></div>
       <details className="gesso-film-focus" ref={focusRef} open={focusEnabled || undefined} onKeyDown={closeFormat}>
-        <summary><span>Focus</span><span>{focusEnabled ? `${focusMillimetres} mm · f/${fStop}` : 'Off'}</span><UiIcon name="down" size={14}/></summary>
+        <summary><span>Focus</span><span className={focusEnabled ? 'gesso-film-measure' : undefined}>{focusEnabled ? `${focusMillimetres} mm · f/${fStop}` : 'Off'}</span><UiIcon name="down" size={14}/></summary>
         <div className="gesso-film-focus-panel gesso-panel" aria-label="Viewport depth of field">
           <label className="gesso-check"><input type="checkbox" aria-label="Viewport depth of field" checked={focusEnabled} disabled={disabled || inspecting} onChange={event => onDepthOfFieldChange({enabled: event.target.checked})}/><span>Depth of field</span></label>
           <NumberControl label="f-stop" ariaLabel="Viewport aperture" value={fStop} min={.7} max={32} step={.1} disabled={disabled || inspecting || !focusEnabled} onChange={value => onDepthOfFieldChange({fStop: value})}/>

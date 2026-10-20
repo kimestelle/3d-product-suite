@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .worlds import validate_asset_record, validate_product_asset_record
 from .material_assets import validate_material_textures, validate_hdri_asset
+from .film_images import validate_film_image_asset
 
 
 def scene_digest(scene):
@@ -486,13 +487,25 @@ def validate_scene(scene):
                 _number(a["axialTravelPerRevolutionM"], "screw lead", minimum=1e-12)
                 _require(type(a["directionSign"]) is int and a["directionSign"] in (-1, 1), "Screw direction must be -1 or 1")
         _require(not any(a["relativeTo"] in moving for a in scene["actions"]), "Animated parent relationships are not supported")
-        _require(isinstance(scene["shots"], list) and scene["shots"], "Shots are required")
+        _require(isinstance(scene["shots"], list), "Shots must be a list")
+        _require(scene["shots"] or "durationFrames" in r, "An empty movie needs an explicit duration")
+        if "durationFrames" in r:
+            _require(type(r["durationFrames"]) is int and 1 <= r["durationFrames"] <= 9007199254740991,
+                     "Movie duration must be a positive integer number of frames")
         next_frame, shot_ids = 1, set()
         for shot in scene["shots"]:
             _require(isinstance(shot["id"], str) and shot["id"].strip() and shot["id"] not in shot_ids, "Shot IDs must be nonempty strings and unique")
             shot_ids.add(shot["id"])
             _require(type(shot["startFrame"]) is int and type(shot["endFrame"]) is int, "Shot frames must be integers")
-            _require(shot["startFrame"] == next_frame and shot["endFrame"] >= next_frame, "Shot ranges must be contiguous from frame 1")
+            _require(shot["startFrame"] >= next_frame and shot["endFrame"] >= shot["startFrame"],
+                     "Shot ranges must be ordered, non-overlapping and start at frame 1 or later")
+            _require(shot.get("kind", "scene") in ("scene", "image"), "Shot kind must be scene or image")
+            if shot.get("kind") == "image":
+                _require(isinstance(shot.get("image"), dict), "Image shot needs an image")
+                validate_film_image_asset(shot["image"].get("asset"))
+                _require(shot["image"].get("fit") in ("contain", "cover"), "Image fit must be contain or cover")
+            else:
+                _require("image" not in shot, "Scene shots cannot hide image content")
             next_frame = shot["endFrame"] + 1
             for pose in (shot["camera"]["from"], shot["camera"]["to"]):
                 _vector(pose["positionM"], "camera position")
@@ -512,11 +525,13 @@ def validate_scene(scene):
             denominator = sum(x*x for x in dv)
             u = max(0, min(1, -sum(x*y for x,y in zip(d0,dv))/denominator)) if denominator else 0
             _require(sum((x+u*y)**2 for x,y in zip(d0,dv)) > 1e-10, "Camera move crosses a vertical or zero viewing direction")
+        total = film_duration(scene)
+        _require(total >= next_frame - 1, "Movie duration must include every shot")
         for a in scene["actions"]:
-            _require(a["startSeconds"] + a["durationSeconds"] <= (next_frame-2)/r["fps"], "Action must finish within the reel")
+            _require(a["startSeconds"] + a["durationSeconds"] <= (total-1)/r["fps"], "Action must finish within the reel")
         if "animation" in scene:
             _validate_animation(scene["animation"], ids, moving,
-                                {action["relativeTo"] for action in scene["actions"]}, next_frame - 1)
+                                {action["relativeTo"] for action in scene["actions"]}, total)
         _validate_film_motions(scene, ids, moving, {action['relativeTo'] for action in scene['actions']})
         if "comparison" in scene:
             from .comparison import validate_comparison
@@ -589,6 +604,11 @@ def _quaternion_from_xyz_degrees(angles):
             c1*c2*s3 + s1*s2*c3, c1*c2*c3 - s1*s2*s3]
 
 
+def film_duration(scene):
+    """Explicit movie length includes black time before, between and after clips."""
+    return scene["render"].get("durationFrames", max((shot["endFrame"] for shot in scene["shots"]), default=1))
+
+
 def evaluate(scene, frame):
     """Evaluate a validated scene without mutable playback or accumulated deltas.
 
@@ -601,10 +621,16 @@ def evaluate(scene, frame):
     clock. Bounded Film motions own selected channels; shot-local owners replace
     shared motions on those channels. Their untouched source survives trimming.
     """
-    total = scene["shots"][-1]["endFrame"]
+    total = film_duration(scene)
     _require(type(frame) is int and 1 <= frame <= total, f"Frame must be in 1..{total}")
     t = (frame-1) / scene["render"]["fps"]
-    shot = next(s for s in scene["shots"] if s["startFrame"] <= frame <= s["endFrame"])
+    selected = next((s for s in scene["shots"] if s["startFrame"] <= frame <= s["endFrame"]), None)
+    # Black time remains evaluable by camera/geometry tools, but does not borrow
+    # another shot's local motion or claim that shot is on screen.
+    fallback = {"positionM": [0, .2, 1], "targetM": [0, .1, 0], "focalLengthMm": 50}
+    camera_source = next((s["camera"] for s in reversed(scene["shots"]) if s["endFrame"] < frame),
+                         scene["shots"][0]["camera"] if scene["shots"] else {"from": fallback, "to": fallback})
+    shot = selected or {"startFrame": frame, "endFrame": frame, "camera": camera_source}
     components = {}
     animated = {}
     for track in scene.get("animation", {}).get("tracks", []):
@@ -649,7 +675,6 @@ def evaluate(scene, frame):
         offset = [(p-r+x*distance) * pose["scale"] for p,r,x in zip(a["pivotM"],rotated_pivot,a["axis"])]
         pose["translationM"] = _add(pose["translationM"], _rotate(pose["rotationXyzw"],offset))
         pose["rotationXyzw"] = _mul(pose["rotationXyzw"],q)
-    shot = next(s for s in scene["shots"] if s["startFrame"] <= frame <= s["endFrame"])
     camera_duration = shot['camera'].get('durationFrames', shot['endFrame'] - shot['startFrame'] + 1)
     u = _smooth((frame-shot["startFrame"])/(camera_duration-1)) if camera_duration > 1 else 0.
     before, after = shot["camera"]["from"], shot["camera"]["to"]
@@ -662,9 +687,11 @@ def evaluate(scene, frame):
         "fStop": optics.get("fStop", 2.8),
         "focusDistanceM": optics.get("focusDistanceM", math.dist(camera["positionM"], camera["targetM"])),
     }
-    return {"frame":frame,"timeSeconds":t,"shotId":shot["id"],"components":components,"camera":camera}
+    clip = {"kind": "black"} if selected is None else ({"kind": "image", **selected["image"]} if selected.get("kind") == "image" else {"kind": "scene"})
+    return {"frame":frame,"timeSeconds":t,"shotId":selected["id"] if selected else None,
+            "clip":clip,"components":components,"camera":camera}
 
 
 def sample_scene(scene):
     validate_scene(scene)
-    return {"scene":scene,"frames":[evaluate(scene,f) for f in range(1,scene["shots"][-1]["endFrame"]+1)]}
+    return {"scene":scene,"frames":[evaluate(scene,f) for f in range(1,film_duration(scene)+1)]}

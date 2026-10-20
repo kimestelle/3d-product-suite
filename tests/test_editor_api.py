@@ -257,6 +257,54 @@ class EditorApiTests(unittest.TestCase):
                 self.assertEqual({path.name: path.read_bytes() for path in (self.app.store.root / "assets").iterdir()}, original_assets)
                 self.assertEqual(list(self.app.store.root.glob("product-import-*")), [])
 
+    def test_blend_product_upload_converts_locally_with_configured_blender_and_reopens(self):
+        baseline = self.bootstrap()["project"]
+        self.app.renders.blender = "/configured/Blender"
+        query = urlencode({"name": "Blender product", "owner": "Fixture author", "reuseBasis": "Original fixture",
+                           "source": "Saved Blender product"})
+        headers = {"X-Asset-Filename": "product.BLEND", "Content-Type": "application/octet-stream"}
+        source_bytes = b"BLENDER-v403-test"
+        payload = product_glb()
+        report = {"sourceFormat": "blend", "sourceFrame": 7, "sourceSha256": hashlib.sha256(source_bytes).hexdigest()}
+        conversion_paths = []
+
+        def convert(source, destination, *, blender):
+            self.assertEqual(source.read_bytes(), source_bytes)
+            self.assertEqual(blender, "/configured/Blender")
+            conversion_paths.extend([source, destination])
+            destination.write_bytes(payload)
+            return report
+
+        with patch("film.blend_import.convert_blend_product", side_effect=convert) as conversion:
+            status, project, _ = self.request("POST", "/api/products/import?" + query, raw=source_bytes, headers=headers)
+        self.assertEqual(status, 201, project)
+        conversion.assert_called_once()
+        self.assertEqual(project["scene"]["product"]["metadata"]["blendImport"], report)
+        asset = project["scene"]["product"]["components"][0]["asset"]
+        self.assertEqual(self.request("GET", "/api/" + asset["path"])[1], payload)
+        self.assertEqual(self.request("GET", f"/api/projects/{project['id']}")[1], project)
+        self.assertEqual(self.request("GET", f"/api/projects/{baseline['id']}")[1], baseline)
+        self.assertFalse(any(path.exists() for path in conversion_paths))
+        self.assertEqual(list(self.app.store.root.glob("product-import-*")), [])
+
+    def test_failed_blend_conversion_leaves_existing_campaign_and_assets_unchanged(self):
+        baseline = self.bootstrap()
+        assets = {path.name: path.read_bytes() for path in (self.app.store.root / "assets").iterdir()}
+        query = {"name": "Blender product", "owner": "Fixture author", "reuseBasis": "Original fixture", "source": "Fixture"}
+        headers = {"X-Asset-Filename": "product.blend", "Content-Type": "application/octet-stream"}
+        with patch("film.blend_import.convert_blend_product", side_effect=ValueError("Pack textures before saving")) as conversion:
+            status, error, _ = self.request("POST", "/api/products/import?" + urlencode(query), raw=b"BLENDER-v403-test", headers=headers)
+            self.assertEqual(status, 400)
+            self.assertIn("Pack textures", error["error"])
+            conversion.assert_called_once()
+        with patch("film.blend_import.convert_blend_product") as conversion:
+            status, _, _ = self.request("POST", "/api/products/import?name=Missing+provenance", raw=b"BLENDER-v403-test", headers=headers)
+            self.assertEqual(status, 400)
+            conversion.assert_not_called()
+        self.assertEqual(self.request("GET", "/api/projects")[1], baseline["projects"])
+        self.assertEqual({path.name: path.read_bytes() for path in (self.app.store.root / "assets").iterdir()}, assets)
+        self.assertEqual(list(self.app.store.root.glob("product-import-*")), [])
+
     def test_unknown_routes_traversal_and_nonallowlisted_job_files_cannot_read_local_files(self):
         secret = b"LOCAL FILE MUST NOT BE SERVED"
         (self.root / "private.txt").write_bytes(secret)

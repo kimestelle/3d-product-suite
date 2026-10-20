@@ -32,7 +32,9 @@
 @media(max-height:740px){.gesso-stage.with-keyframes{--timeline-height:304px}.gesso-fixed-parts .gesso-part-tree{max-height:140px}}
 
 .gesso-condensed-sidebar.has-import .gesso-condensed-product{display:none}
-.gesso-condensed-sidebar.has-import .import-form{overflow:auto;min-height:0;flex:1;margin:0}
+.gesso-condensed-sidebar.has-import .import-form{overflow:hidden;min-height:0;flex:1;margin:0}
+.gesso-condensed-sidebar.has-import .import-form>.gesso-section-heading{flex:0 0 auto}
+.gesso-import-body{display:flex;flex-direction:column;gap:var(--gesso-space-12);min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:var(--gesso-space-2);margin:calc(-1 * var(--gesso-space-2))}
 
 /* The output medium is a choice within Film, beside the four workspaces. */
 .gesso-film-mode{display:flex;align-items:center;gap:var(--gesso-space-20);margin-left:auto;padding-right:var(--gesso-space-4)}

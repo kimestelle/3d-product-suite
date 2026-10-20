@@ -826,7 +826,8 @@ def product_mesh(component, samples_root, material_presets=()):
 
 def plate_compositor(source, frames, requested, samples_root, output_root, scene):
     """Composite the captured Gaussian world behind transparent Cycles geometry."""
-    required = requested or [frames[0]["frame"]]
+    visible_frames = [sample for sample in frames if sample.get("clip", {}).get("kind", "scene") == "scene"]
+    required = requested or [visible_frames[0]["frame"]]
     width, height = scene.render.resolution_x, scene.render.resolution_y
     manifest_path = (samples_root / "plate" / "capture-manifest.json").resolve()
     if not manifest_path.is_relative_to(samples_root) or not manifest_path.is_file():
@@ -869,7 +870,7 @@ def plate_compositor(source, frames, requested, samples_root, output_root, scene
     plate = tree.nodes.new("CompositorNodeImage")
     plate.name = "Gaussian camera-matched plate"
     plate.label = "sRGB / no capture tone mapping / no depth"
-    first_frame = frames[0]["frame"]
+    first_frame = visible_frames[0]["frame"]
     image = bpy.data.images.load(str(samples_root / "plate" / f"{min(required):06d}.png"), check_existing=False)
     if tuple(image.size) != (width, height):
         raise ValueError("Gaussian plate could not be decoded at the expected resolution")
@@ -997,6 +998,10 @@ def main():
     missing = set(args.frames) - set(frame_ids)
     if missing:
         raise ValueError(f"Requested frames are absent from the samples: {sorted(missing)}")
+    flat_requested = [sample["frame"] for sample in frames if sample["frame"] in args.frames
+                      and sample.get("clip", {}).get("kind", "scene") != "scene"]
+    if flat_requested:
+        raise ValueError("Image and black frames must be composed by the Film export worker, which preserves sRGB colors")
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
     bpy.ops.object.select_all(action="SELECT")
@@ -1031,7 +1036,10 @@ def main():
         else:
             if source["environment"]["asset"]["format"] not in {"ply", "spz"}:
                 raise ValueError("Gaussian plate environments require a PLY or SPZ source asset")
-            world_details = plate_compositor(source, frames, args.frames, args.samples.parent, args.output, scene)
+            if args.frames or (args.samples.parent / "plate" / "capture-manifest.json").is_file():
+                world_details = plate_compositor(source, frames, args.frames, args.samples.parent, args.output, scene)
+            else:
+                world_details = {"flatContentOnly": True, "plate": "not needed for image or black frames"}
             limitations.extend([
                 "Gaussian world is a camera-matched color plate, not native Cycles splat geometry or shading.",
                 "No splat depth: the distant plate cannot occlude product or near-field geometry.",
@@ -1047,6 +1055,14 @@ def main():
         limitations.append("Product GLB geometry and source materials are preserved as supplied; real-product accuracy and material appearance require review.")
     if source["environment"].get("fixture"):
         limitations.append("Original synthetic QA world fixture, not World Labs output; generated-world quality and human review gates remain unmeasured.")
+    # Native 3D poses remain inspectable. Preserve the complete editorial schedule
+    # and pack still sources alongside them; flat export frames bypass AgX.
+    scene["film_timeline_json"] = json.dumps({"durationFrames": len(frames), "shots": source["shots"]}, sort_keys=True)
+    scene["film_flat_content"] = "Image and black frames are composed in sRGB by the Film export worker; this scene preserves editable 3D poses and packed image sources."
+    for shot in source.get("shots", []):
+        if shot.get("kind") == "image":
+            image = bpy.data.images.load(str(verified_asset_record(shot["image"]["asset"], args.samples.parent, "Film image")), check_existing=True)
+            image.pack()
     scene["source_scene_id"] = source["sceneId"]
     scene["coordinate_conversion"] = "Canonical metres Y-up (x,y,z) -> Blender metres Z-up (x,-z,y)"
     scene["camera_gate"] = "36 mm vertical sensor; sampled position, target, focal length"

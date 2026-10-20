@@ -1,5 +1,7 @@
 /* The camera gate is a measurement of the rendered output, not a second window. */
 .gesso-film-viewport-controls{position:absolute;inset:0;z-index:3;pointer-events:none;font:400 12px/18px var(--gesso-font-text);color:var(--gesso-text-primary)}
+/* Measurement leaves share the numeric face without changing their line boxes. */
+.gesso-film-viewport-controls .gesso-film-measure,.gesso-film-end-controls>button>span{font-family:var(--gesso-font-measure);font-weight:400;font-synthesis:none;font-variant-numeric:tabular-nums}
 .gesso-film-gate{position:absolute;border:.5px solid #fff9;box-shadow:0 0 0 .5px #0005}
 .gesso-film-gate-corner{position:absolute;width:12px;height:12px;border:solid #fff;border-width:0;filter:drop-shadow(0 .5px .5px #0008)}
 .gesso-film-gate-corner.tl{left:-.5px;top:-.5px;border-left-width:1px;border-top-width:1px}.gesso-film-gate-corner.tr{right:-.5px;top:-.5px;border-right-width:1px;border-top-width:1px}.gesso-film-gate-corner.bl{left:-.5px;bottom:-.5px;border-left-width:1px;border-bottom-width:1px}.gesso-film-gate-corner.br{right:-.5px;bottom:-.5px;border-right-width:1px;border-bottom-width:1px}

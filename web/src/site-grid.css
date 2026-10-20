@@ -41,6 +41,10 @@
 }
 .gesso-site-nav .site-about-link { grid-column: 1; }
 .gesso-site-nav .site-study-link { grid-column: 2; }
+.gesso-site-nav :is(.site-about-link, .site-study-link) {
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+}
 .gesso-site-nav .site-studio-link { grid-column: 3; justify-self: end; font-weight: 600; }
 .gesso-site-nav a[aria-current="page"] { opacity: .7; }
 .gesso-site-nav a:focus-visible { opacity: .85; }

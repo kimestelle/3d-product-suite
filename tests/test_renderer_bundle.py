@@ -24,7 +24,8 @@ class RendererBundleTests(unittest.TestCase):
     def test_frozen_renderer_loads_geometry_without_repository_or_pythonpath(self):
         manifest = jobs.create_job(self.source, self.output)
         helper = self.output / "decal_geometry.py"
-        self.assertEqual(manifest["rendererDependencies"], {"decal_geometry.py": jobs._sha256(helper)})
+        self.assertEqual(manifest["rendererDependencies"],
+                         {name: jobs._sha256(self.output / name) for name in jobs._RENDERER_DEPENDENCIES})
         # Import the actual frozen renderer with only Blender's import surface
         # stubbed. -I and a temporary cwd remove repository/PYTHONPATH access.
         code = '''

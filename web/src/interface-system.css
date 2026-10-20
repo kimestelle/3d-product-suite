@@ -7,6 +7,7 @@
 @font-face{font-family:'Halyard Micro';src:local('Halyard Micro Regular'),local('HalyardMicro-Regular');font-weight:400;font-style:normal;font-display:swap}
 :root{
   --gesso-font-text:'Halyard Text','Studio Sans',sans-serif;
+  --gesso-font-measure:var(--gesso-font-text);
   --gesso-font-display:'Halyard Display','Halyard Text','Studio Sans',sans-serif;
   /* Brand sheet 25:323 + landing 40:1124; interface roles remain below. */
   --gesso-brand-ground:#980101;--gesso-brand-light:#ff5724;--gesso-brand-ink:#08080a;
@@ -17,7 +18,7 @@
   --gesso-type-body:400 16px/24px var(--gesso-font-text);
   --gesso-type-control:500 14px/20px var(--gesso-font-text);
   --gesso-type-caption:400 12px/18px var(--gesso-font-text);
-  --gesso-type-measure:400 13px/20px var(--gesso-font-text);
+  --gesso-type-measure:400 13px/18px var(--gesso-font-measure);
   --gesso-surface-chrome:#131313;--gesso-surface-field:#242424;
   --gesso-surface-hover:#2c2c2c;--gesso-surface-selected:#333;
   --gesso-surface-action:#f5f5f3;--gesso-surface-scene:#fff;--gesso-surface-chalk:#f9faf7;
@@ -26,7 +27,7 @@
   --gesso-border-subtle:#343434;--gesso-border-control:#626262;--gesso-border-focus:#f5f5f3;
   --gesso-primitive-success:#a8d5b5;--gesso-primitive-pending:#e7c56a;
   --gesso-signal-success:var(--gesso-primitive-success);--gesso-signal-pending:var(--gesso-primitive-pending);--gesso-signal-error:#ff968b;--gesso-radius-control:4px;--gesso-radius-viewport:20px;
-  --gesso-control-height:32px;--gesso-section-height:36px;
+  --gesso-control-height:32px;--gesso-section-height:32px;
   --gesso-field-value-width:56px;--gesso-field-unit-width:20px;--gesso-field-tools-width:40px;
   /* Layout uses 4px steps; 2px half-steps are reserved for dense controls.
      Buttons retain the specified 3px top / 5px bottom optical padding.
@@ -41,6 +42,8 @@
   font-family:var(--gesso-font-text);color:var(--gesso-text-primary);font-size:13px;line-height:18px;
 }
 button,input,select,textarea{font-family:var(--gesso-font-text);font-weight:400}
+/* Native numeric fields and the compact preview clock use the same measure face. */
+.gesso-studio input[type=number],.gesso-studio .timecode{font-family:var(--gesso-font-measure);font-weight:400;font-synthesis:none;font-variant-numeric:tabular-nums;letter-spacing:normal}
 button{min-height:32px;border-radius:var(--gesso-radius-control);padding:3px var(--gesso-space-12) 5px;font-size:12px;line-height:18px;background:transparent;border-color:var(--gesso-border-control)}
 button:hover{background:var(--gesso-surface-hover)}
 button:disabled{opacity:1;color:var(--gesso-text-disabled);border-color:var(--gesso-border-subtle);cursor:default}
@@ -75,13 +78,13 @@ h2,h3{font-family:var(--gesso-font-text);font-size:14px;line-height:20px;font-we
 .key-icon{width:10px;height:10px}
 .gesso-navrow button:not([aria-pressed=true]) .key-hint{opacity:1}
 .gesso-film-mode button{font-size:12px;line-height:18px;color:var(--gesso-text-secondary)}
-.gesso-sidebar .gesso-panel-title{font:500 14px/20px var(--gesso-font-text);padding:var(--gesso-space-20) var(--rail-gutter) var(--gesso-space-16);color:var(--gesso-text-primary)}
+.gesso-sidebar .gesso-panel-title{font:500 14px/20px var(--gesso-font-text);padding:var(--gesso-space-20) var(--rail-gutter) var(--gesso-space-8);color:var(--gesso-text-primary)}
 .gesso-sidebar-content:first-child{padding-top:var(--gesso-space-20)}
 .gesso-sidebar-footer{font-size:11px;line-height:16px;color:var(--gesso-text-secondary)}
 .gesso-sidebar-footer>span:last-child{color:var(--gesso-text-muted)}
 .gesso-sidebar .gesso-condensed-sidebar{gap:var(--gesso-space-12)}
 .gesso-panel{font-size:13px;line-height:18px;gap:var(--gesso-space-12)}
-.gesso-panel.gesso-condensed-product,.gesso-panel.gesso-condensed-world{gap:var(--gesso-space-16)}
+.gesso-panel.gesso-condensed-product,.gesso-panel.gesso-condensed-world{gap:var(--gesso-space-8)}
 .gesso-section{gap:var(--gesso-space-8)}
 .gesso-section-heading{font:400 13px/18px var(--gesso-font-text);color:var(--gesso-text-primary)}
 .gesso-section-heading>span:not(:first-child){font-size:11px;line-height:16px;color:var(--gesso-text-muted)}
@@ -124,16 +127,18 @@ select option{background:var(--gesso-surface-field);color:var(--gesso-text-prima
 .gesso-film-render .gesso-film-render-button:disabled{background:transparent;color:var(--gesso-text-disabled);border-color:var(--gesso-border-subtle)}
 
 /* A disclosure never shares the increment symbol of a number field. */
-.gesso-control-section{border-top-color:var(--gesso-border-subtle);min-height:36px}
-.gesso-control-section.is-open{min-height:36px}
-.gesso-control-section>.gesso-section-toggle{min-height:36px;padding:0;gap:var(--gesso-space-8);font-size:13px;line-height:18px;border-radius:4px;color:var(--gesso-text-secondary)}
+.gesso-control-section{border-top-color:var(--gesso-border-subtle);min-height:var(--gesso-section-height)}
+.gesso-control-section.is-open{min-height:var(--gesso-section-height)}
+.gesso-control-section>.gesso-section-toggle{min-height:var(--gesso-section-height);padding:0;gap:var(--gesso-space-8);font-size:13px;line-height:18px;border-radius:4px;color:var(--gesso-text-secondary)}
 .gesso-section-toggle>span:first-child{color:var(--gesso-text-secondary)}
 .gesso-section-toggle:is([aria-expanded=true],[aria-current=true])>span:first-child{color:var(--gesso-text-primary)}
 .gesso-section-toggle>small{font-size:11px;line-height:16px;color:var(--gesso-text-muted)}
 .gesso-section-toggle>.gesso-ui-icon:last-child{width:14px;color:var(--gesso-text-muted)}
-.gesso-control-section .gesso-section-body{gap:var(--gesso-space-12);padding-bottom:var(--gesso-space-12)}
+.gesso-control-section .gesso-section-body{gap:var(--gesso-space-8);padding-bottom:var(--gesso-space-8)}
+.gesso-sidebar .gesso-section>.gesso-section-heading:has(>.gesso-section-label){margin-bottom:calc(-1 * var(--gesso-space-4))}
 .gesso-section-body>.gesso-section{gap:var(--gesso-space-8)}
-.gesso-disclosure>summary,.gesso-compact-details>summary{display:flex;align-items:center;gap:var(--gesso-space-8);list-style:none;min-height:36px;padding:0;color:var(--gesso-text-secondary);font:400 13px/18px var(--gesso-font-text)}
+.gesso-disclosure>summary,.gesso-compact-details>summary{display:flex;align-items:center;gap:var(--gesso-space-8);list-style:none;min-height:24px;padding:0;color:var(--gesso-text-secondary);font:400 13px/18px var(--gesso-font-text)}
+.gesso-camera-options>summary{min-height:var(--gesso-section-height)}
 .gesso-disclosure>summary::-webkit-details-marker{display:none}
 .gesso-disclosure>summary::after{content:'';margin-left:auto;flex:none;width:14px;height:14px;background:var(--gesso-text-muted);mask:url('./assets/gesso/interface/imgIconChevron_48be26ca.svg') center no-repeat}
 .gesso-disclosure[open]>summary{margin-bottom:var(--gesso-space-8);color:var(--gesso-text-primary)}
@@ -208,23 +213,26 @@ select option{background:var(--gesso-surface-field);color:var(--gesso-text-prima
   position:relative;
   border-top:0;
 }
-/* Only section labels get emphasis; values, object names and vector fields keep
-   their existing roles. Native summaries retain their real disclosure behavior. */
-.gesso-studio :is(.gesso-section-toggle>span:first-child,.gesso-section-label,.gesso-disclosure>summary,.gesso-material-source>summary,.film-section-label>span:first-child){
+/* Nested labels stay quieter than the cabinet boundaries that contain them.
+   Native summaries retain their real disclosure behavior. */
+.gesso-studio :is(.gesso-section-label,.gesso-disclosure>summary,.gesso-material-source>summary){
+  font-family:var(--gesso-font-section);font-weight:500;letter-spacing:normal;text-transform:none;
+}
+.gesso-studio :is(.gesso-section-toggle>span:first-child,.gesso-fixed-parts>.gesso-section-heading>.gesso-section-label,.gesso-product-mechanics>summary,.gesso-camera-options>summary,.film-section-label>span:first-child){
   font-family:var(--gesso-font-section);font-weight:600;letter-spacing:normal;text-transform:none;
 }
 .gesso-studio .gesso-sidebar :is(.gesso-section-toggle,.gesso-section-heading:has(>.gesso-section-label),.film-section-label,.gesso-disclosure>summary,.gesso-material-source>summary){
   display:flex;align-items:center;gap:var(--gesso-space-8);min-width:0;
 }
-.gesso-studio .gesso-sidebar :is(.gesso-section-toggle,.gesso-section-heading:has(>.gesso-section-label),.film-section-label)::after,
-.gesso-studio .gesso-sidebar :is(.gesso-disclosure,.gesso-material-source)>summary::before{
+.gesso-studio .gesso-sidebar :is(.gesso-section-toggle,.gesso-fixed-parts>.gesso-section-heading:has(>.gesso-section-label),.film-section-label)::after,
+.gesso-studio .gesso-sidebar :is(.gesso-product-mechanics,.gesso-camera-options)>summary::before{
   content:'';order:1;flex:1 1 16px;min-width:8px;height:1px;align-self:center;
   background:var(--gesso-section-rule) left center / 4.25px 1px repeat-x;
   pointer-events:none;
 }
 .gesso-studio .gesso-sidebar :is(.gesso-section-toggle,.gesso-section-heading:has(>.gesso-section-label),.film-section-label)>:not(:first-child),
 .gesso-studio .gesso-sidebar :is(.gesso-disclosure,.gesso-material-source)>summary>span{
-  order:2;margin-left:0;
+  order:2;margin-left:auto;
 }
 .gesso-studio .gesso-sidebar :is(.gesso-section-toggle>small,.gesso-disclosure>summary>span,.gesso-material-source>summary>span,.film-section-label>span:not(:first-child)){
   min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
@@ -232,7 +240,8 @@ select option{background:var(--gesso-surface-field);color:var(--gesso-text-prima
 }
 .gesso-studio .gesso-sidebar .gesso-section-toggle>small:empty{display:none}
 .gesso-studio .gesso-sidebar .gesso-section-toggle>.gesso-ui-icon{margin-left:0}
-.gesso-studio .gesso-sidebar :is(.gesso-disclosure,.gesso-material-source)>summary::after{order:3;margin-left:0}
+.gesso-studio .gesso-sidebar :is(.gesso-disclosure,.gesso-material-source)>summary::after{order:3;margin-left:auto}
+.gesso-studio .gesso-sidebar :is(.gesso-disclosure,.gesso-material-source)>summary:has(>span)::after{margin-left:0}
 .gesso-studio .gesso-sidebar .gesso-material-source>summary{list-style:none}
 .gesso-studio .gesso-sidebar .gesso-material-source>summary::-webkit-details-marker{display:none}
 .gesso-studio .gesso-sidebar .gesso-material-source>summary>span{float:none}
@@ -254,7 +263,7 @@ select option{background:var(--gesso-surface-field);color:var(--gesso-text-prima
   margin-left:calc(-1 * var(--rail-gutter));
   padding-left:var(--rail-gutter);
 }
-.gesso-studio .gesso-workspace>.gesso-sidebar:first-child :is(.gesso-section-toggle,.gesso-section-heading:has(>.gesso-section-label),.film-section-label,.gesso-disclosure>summary,.gesso-material-source>summary){
+.gesso-studio .gesso-workspace>.gesso-sidebar:first-child :is(.gesso-section-toggle,.gesso-fixed-parts>.gesso-section-heading:has(>.gesso-section-label),.film-section-label,.gesso-product-mechanics>summary,.gesso-camera-options>summary){
   margin-left:calc(-1 * var(--rail-gutter));
   width:calc(100% + var(--rail-gutter));
   padding-left:var(--rail-gutter);

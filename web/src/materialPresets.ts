@@ -221,3 +221,74 @@ export function assignMaterialPreset(scene: any, presetId: string, componentId: 
   requireValue(preset, 'Choose a saved material preset before assigning it.');
   saveMaterialPreset(scene, preset, [componentId]);
 }
+
+/** Remove the library record and its assignments together. Imported geometry
+ * resumes its original/ancestor surfaces; primitives use a visible neutral
+ * preset because their geometry has no imported surface to restore. */
+export function deleteMaterialPreset(scene: any, presetId: string): void {
+  const components = componentsOf(scene), saved = savedPresetsOf(scene);
+  const savedById = new Map(saved.map(preset => [preset.id, preset]));
+  for (const component of components) {
+    validateMaterial(component.material);
+    if (Object.hasOwn(component, 'materialPresetId')) {
+      const preset = savedById.get(component.materialPresetId);
+      requireValue(preset, 'A component references a material that is no longer available.');
+      requireValue(editable(component), 'Enable the component material override before assigning a preset to an imported mesh.');
+      requireValue(equalJson(component.material, preset.material), 'A component material must match its saved preset.');
+    }
+    if (!Object.hasOwn(component, 'materialBindings')) continue;
+    requireValue(component.shape === 'mesh' && Array.isArray(component.materialBindings) && component.materialBindings.length <= 100000,
+      'Material section bindings require an imported mesh and a bounded list.');
+    const nodes = new Set<number>();
+    for (const binding of component.materialBindings) {
+      requireValue(binding && typeof binding === 'object' && !Array.isArray(binding) && Object.keys(binding).length === 2 &&
+        Number.isInteger(binding.nodeIndex) && binding.nodeIndex >= 0 && binding.nodeIndex < 100000 && !nodes.has(binding.nodeIndex) &&
+        savedById.has(binding.materialPresetId), 'Material section bindings must have unique source nodes and available materials.');
+      nodes.add(binding.nodeIndex);
+    }
+  }
+  const virtual = virtualPresets(scene, components, saved);
+  for (const preset of virtual) validatePreset(preset);
+  requireValue(savedById.has(presetId) || virtual.some(preset => preset.id === presetId), 'This material is no longer available.');
+
+  // Materialize the remaining legacy entries too, preserving their IDs if this
+  // deletion frees a colliding source ID. Publish only after the complete edit.
+  const next = structuredClone(scene);
+  next.product.materialPresets = structuredClone(saved);
+  for (const {sourceComponentId, ...record} of virtual) {
+    next.product.materialPresets.push(structuredClone(record));
+    next.product.components.find((component: any) => component.id === sourceComponentId).materialPresetId = record.id;
+  }
+  next.product.materialPresets = next.product.materialPresets.filter((preset: SavedMaterialPreset) => preset.id !== presetId);
+
+  // Matches the neutral material used when importing a product (film/products.py).
+  const neutral: MaterialSpecification = {name: 'Neutral', baseColor: [.8, .8, .8, 1], roughness: .45, metallic: 0};
+  const primitiveRoots = next.product.components.filter((component: any) => component.materialPresetId === presetId && component.shape !== 'mesh');
+  let fallback: SavedMaterialPreset | undefined;
+  if (primitiveRoots.length) {
+    fallback = next.product.materialPresets.find((preset: SavedMaterialPreset) => preset.name === 'Neutral' && preset.type === 'custom' && equalJson(preset.material, neutral));
+    if (!fallback) {
+      const usedIds = new Set<string>([presetId, ...next.product.materialPresets.map((preset: SavedMaterialPreset) => preset.id)]);
+      let id = 'default-neutral', suffix = 1;
+      while (usedIds.has(id)) id = `default-neutral:${++suffix}`;
+      fallback = {id, name: 'Neutral', type: 'custom', material: structuredClone(neutral)};
+      next.product.materialPresets.push(fallback);
+    }
+  }
+  for (const component of next.product.components) {
+    if (component.materialPresetId === presetId) {
+      component.material = structuredClone(neutral);
+      if (component.shape === 'mesh') {
+        delete component.materialPresetId;
+        component.materialOverride = false;
+      } else {
+        component.materialPresetId = fallback!.id;
+      }
+    }
+    if (component.materialBindings) {
+      component.materialBindings = component.materialBindings.filter((binding: MaterialBinding) => binding.materialPresetId !== presetId);
+      if (!component.materialBindings.length) delete component.materialBindings;
+    }
+  }
+  scene.product = next.product;
+}

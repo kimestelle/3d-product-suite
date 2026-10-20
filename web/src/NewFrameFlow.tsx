@@ -49,8 +49,9 @@ function anchorHint(scene: any, target: string): string {
 export function FrameSetupObjects({scene, setup, disabled, onTargets, onCameraTarget}: FrameSetupProps) {
   const camera = setup.stage === 'camera';
   const targets = ['$product', ...scene.product.components.map((part: any) => part.id)];
-  return <section className="gesso-panel frame-setup-objects" aria-label={camera ? 'Camera target' : 'Objects to animate'}>
+  return <section className="gesso-panel frame-setup-objects film-rail-panel" aria-label={camera ? 'Camera target' : 'Objects to animate'}>
     <header className="frame-setup-rail-heading"><h2>{camera ? 'Camera target' : 'Objects to animate'}</h2>{!camera && <span>{setup.targets.length} selected</span>}</header>
+    <div className="film-rail-scroll">
     <p className="frame-setup-hint">{camera ? 'Choose what the camera points toward.' : 'Select the product or individual parts.'}</p>
     <div className="frame-setup-targets" role="group" aria-label={camera ? 'Aim target' : 'Moving objects'}>
       {targets.map(target => {
@@ -68,7 +69,8 @@ export function FrameSetupObjects({scene, setup, disabled, onTargets, onCameraTa
         </div>;
       })}
     </div>
-    <p className="frame-setup-hint frame-setup-selection-note">{camera ? 'Aim is set at the frame’s start.' : 'Unselected objects stay visible.'}</p>
+    <p className="frame-setup-hint frame-setup-selection-note">{camera ? 'Aim is set at the scene’s start.' : 'Unselected objects stay visible.'}</p>
+    </div>
   </section>;
 }
 
@@ -77,15 +79,15 @@ function FrameMotionControls({motion, scene, shotId, disabled, onPatchMotion}: {
   const shot = scene.shots.find((item: any) => item.id === shotId);
   const maxDuration = Math.max(1 / fps, (shot.endFrame - shot.startFrame - motion.startFrame + 1) / fps);
   return <section className="frame-setup-controls" aria-label="Selected motion settings">
-    <NumberControl label={measure.label} ariaLabel="New frame motion amount" value={motion.amount * measure.factor} unit={measure.unit} step={measure.step}
+    <NumberControl label={measure.label} ariaLabel="New scene motion amount" value={motion.amount * measure.factor} unit={measure.unit} step={measure.step}
       min={motion.kind === 'scale' ? 1 : motion.kind === 'mechanical' ? 0 : undefined} max={motion.kind === 'mechanical' ? 100 : undefined} disabled={disabled}
       onChange={value => onPatchMotion({amount: value / measure.factor})}/>
-    {(motion.kind === 'move' || motion.kind === 'rotate') && <label className="gesso-field frame-setup-field"><span>Axis</span><select aria-label="New frame motion axis" value={motion.axis} disabled={disabled} onChange={event => onPatchMotion({axis: event.target.value as FilmMotion['axis']})}>
+    {(motion.kind === 'move' || motion.kind === 'rotate') && <label className="gesso-field frame-setup-field"><span>Axis</span><select aria-label="New scene motion axis" value={motion.axis} disabled={disabled} onChange={event => onPatchMotion({axis: event.target.value as FilmMotion['axis']})}>
       {['x', 'y', 'z'].map(axis => <option key={axis} value={axis}>{axis.toUpperCase()}</option>)}
     </select></label>}
-    <NumberControl label="Duration" ariaLabel="New frame motion duration" value={(motion.durationFrames - 1) / fps} min={1 / fps} max={maxDuration} unit="s" step={1 / fps} disabled={disabled}
+    <NumberControl label="Duration" ariaLabel="New scene motion duration" value={(motion.durationFrames - 1) / fps} min={1 / fps} max={maxDuration} unit="s" step={1 / fps} disabled={disabled}
       onChange={value => onPatchMotion({durationFrames: Math.round(value * fps) + 1})}/>
-    <label className="gesso-field frame-setup-field"><span>Timing</span><select aria-label="New frame motion easing" value={motion.easing} disabled={disabled} onChange={event => onPatchMotion({easing: event.target.value as FilmMotion['easing']})}>
+    <label className="gesso-field frame-setup-field"><span>Timing</span><select aria-label="New scene motion easing" value={motion.easing} disabled={disabled} onChange={event => onPatchMotion({easing: event.target.value as FilmMotion['easing']})}>
       <option value="ease">Ease in / out</option><option value="linear">Constant speed</option><option value="hold">Hold, then change</option>
     </select></label>
   </section>;
@@ -100,13 +102,16 @@ export function FrameSetupInspector(props: FrameSetupProps) {
   const kinds: MotionKind[] = camera ? ['orbit', 'dolly'] : ['move', 'rotate', 'scale', ...(common.includes('mechanical') ? ['mechanical' as const] : [])];
   const selectedKind = camera ? setup.cameraKind : setup.objectKind;
   const objectReady = setup.objectKind === null || setup.targets.length > 0;
-  return <section className="gesso-panel frame-setup-inspector" aria-label="New frame setup">
-    <header className="frame-setup-heading"><span>New frame</span></header>
-    <nav className="frame-setup-stages" aria-label="New frame steps">
+  return <section className="gesso-panel frame-setup-inspector film-rail-panel" aria-label="New scene setup">
+    <div className="frame-setup-fixed-heading">
+    <header className="frame-setup-heading"><span>New scene</span></header>
+    <nav className="frame-setup-stages" aria-label="New scene steps">
       <button type="button" aria-current={!camera ? 'step' : undefined} aria-pressed={!camera} disabled={disabled} onClick={() => onStage('objects')}>Objects</button>
       <UiIcon name="chevron" size={12}/>
       <button type="button" aria-current={camera ? 'step' : undefined} aria-pressed={camera} disabled={disabled || !objectReady} onClick={() => onStage('camera')}>Camera</button>
     </nav>
+    </div>
+    <div className="film-rail-scroll">
     <div className="frame-setup-content">
       <div className="frame-setup-section-heading"><h2>{camera ? 'Camera movement' : 'Object movement'}</h2><span>{camera ? filmTargetName(scene, setup.cameraTarget) : setup.targets.length === 1 ? filmTargetName(scene, setup.targets[0]) : `${setup.targets.length} objects`}</span></div>
       <div className="frame-setup-kinds" role="group" aria-label={camera ? 'Camera movement choices' : 'Object movement choices'}>
@@ -118,17 +123,18 @@ export function FrameSetupInspector(props: FrameSetupProps) {
       {selectedMotion && <FrameMotionControls motion={selectedMotion} scene={scene} shotId={setup.shotId} disabled={disabled} onPatchMotion={onPatchMotion}/>}
       {selectedMotion && !camera && setup.targets.length > 1 && <p className="frame-setup-hint">These settings apply to all {setup.targets.length} selected objects.</p>}
       {selectedMotion?.kind === 'mechanical' && <p className="frame-setup-hint">Uses each part’s confirmed axis and travel.</p>}
-      {selectedMotion && !camera && (selectedMotion.kind === 'move' || selectedMotion.kind === 'rotate') && setup.targets.some(target => scene.actions?.some((action: any) => action.componentId === target)) && <p className="frame-setup-hint">Direct movement holds the selected part’s existing mechanism at rest in this frame.</p>}
-      {camera && <p className="frame-setup-hint">Aim is set at the frame’s start.</p>}
+      {selectedMotion && !camera && (selectedMotion.kind === 'move' || selectedMotion.kind === 'rotate') && setup.targets.some(target => scene.actions?.some((action: any) => action.componentId === target)) && <p className="frame-setup-hint">Direct movement holds the selected part’s existing mechanism at rest in this scene.</p>}
+      {camera && <p className="frame-setup-hint">Aim is set at the scene’s start.</p>}
       {inherited && selectedKind === null && <p className="frame-setup-inherited"><UiIcon name="clock"/><span>Across-cut animation continues.</span></p>}
       {error && <p className="frame-setup-error" role="alert">{error}</p>}
     </div>
     <footer className="frame-setup-footer">
       <div className="frame-setup-navigation">
         {camera && <button type="button" className="frame-setup-back" disabled={disabled} onClick={() => onStage('objects')}>Back</button>}
-        <button type="button" className="frame-setup-next" disabled={disabled || !objectReady} onClick={() => camera ? onComplete() : onStage('camera')}><span>{camera ? 'Finish frame' : 'Next: camera'}</span>{!camera && <UiIcon name="chevron"/>}</button>
+        <button type="button" className="frame-setup-next" disabled={disabled || !objectReady} onClick={() => camera ? onComplete() : onStage('camera')}><span>{camera ? 'Finish scene' : 'Next: camera'}</span>{!camera && <UiIcon name="chevron"/>}</button>
       </div>
-      <button type="button" className="frame-setup-discard" onClick={onDiscard}>Discard frame</button>
+      <button type="button" className="frame-setup-discard" onClick={onDiscard}>Discard scene</button>
     </footer>
+    </div>
   </section>;
 }

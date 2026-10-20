@@ -47,14 +47,15 @@ describe('Circle viewed from changing perspectives',()=>{
       expect((bounds.left+bounds.right)/2).toBeCloseTo(position.x,7);
       expect((bounds.top+bounds.bottom)/2).toBeCloseTo(position.y,7);
       expect(bounds.width).toBeLessThanOrEqual(92.00001);expect(bounds.height).toBeLessThanOrEqual(92.00001);
-      expect(Math.min(bounds.width,bounds.height)).toBeGreaterThan(38);
+      expect(Math.min(bounds.width,bounds.height)).toBeGreaterThan(16);
     }
   });
   it('shows both horizontal and vertical perspectives, with no edge-on collapse',()=>{
     const vertical=frameBounds(studioLoadingNodes(STUDIO_LOADING_CYCLE_MS/4,center));
     const horizontal=frameBounds(studioLoadingNodes(STUDIO_LOADING_CYCLE_MS/2,center));
-    expect(vertical.height/vertical.width).toBeGreaterThan(1.4);
-    expect(horizontal.width/horizontal.height).toBeGreaterThan(2.3);
+    expect(vertical.height/vertical.width).toBeGreaterThan(1.65);
+    expect(horizontal.width/horizontal.height).toBeGreaterThan(5);
+    expect(horizontal.height).toBeLessThan(18);
   });
 });
 

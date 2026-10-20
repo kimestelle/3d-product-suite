@@ -15,7 +15,8 @@ button.gesso-material-swatch:disabled .gesso-material-swatch-name{color:var(--ge
 .gesso-material-swatch-description{font-size:11px;line-height:16px;color:var(--gesso-text-muted,#858585);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* One column: the sphere names a material; geometry belongs beneath it. */
-.gesso-material-swatch-entry>button.gesso-material-swatch{width:100%}
+.gesso-material-swatch-heading>button.gesso-material-swatch{width:100%}
+.gesso-material-swatch-heading[data-actions=true]{display:grid;grid-template-columns:minmax(0,1fr) 28px;column-gap:8px;align-items:start}
 .gesso-material-swatches.is-list .gesso-material-swatch-grid{grid-template-columns:minmax(0,1fr);gap:16px}
 .gesso-material-swatches.is-list .gesso-material-swatch-entry{min-width:0;border-radius:4px;transition:background-color 160ms ease}
 .gesso-material-swatches.is-list .gesso-material-swatch-entry[data-drop-active=true]{background:rgba(255,255,255,.08)}

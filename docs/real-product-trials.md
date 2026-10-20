@@ -2,6 +2,8 @@
 
 The editor and pinned Blender renderer accept static, self-contained product GLBs alongside the original synthetic fixtures. Each component keeps its imported geometry, hierarchy and materials. `sizeM` records measured bounds; it never stretches the model. An explicit `materialOverride: true` replaces imported materials with the scene component material.
 
+The editor and `product-import` CLI also accept `.blend` files through a local Blender conversion to that same static GLB contract. This imports the active scene at its saved frame, with packed textures and supported materials; it does not preserve Blender's editable modifiers or animation system. See the [import workflow and limits](../README.md#editor-and-world-workflow). The trial evidence below still describes its original inputs.
+
 Prepared GLBs use right-handed Y-up meters and a bounding-box center at the local origin. The importer measures decoded vertex positions, checks the active node hierarchy and refuses external dependencies, animation, skins, morph targets, compressed geometry and inconsistent dimensions. CAD and other source formats need conversion before import. The importer does not infer mechanical movement.
 
 ## Prepare a product

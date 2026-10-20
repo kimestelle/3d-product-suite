@@ -131,6 +131,7 @@ def _shared_digest(scene):
 
 
 def _alignment_digest(scene):
+    from .scene import film_duration
     def geometry(environment):
         asset = environment["asset"]
         return {"revisionId": environment["revisionId"], "asset": {
@@ -150,7 +151,7 @@ def _alignment_digest(scene):
                                 for key in ("plinth", "props") if key in scene["environment"]},
                     "placement": scene["placement"], "productGeometry": product_geometry,
                     "actions": scene["actions"],
-                    "timeSampling": {"fps": scene["render"]["fps"], "lastFrame": scene["shots"][-1]["endFrame"]}})
+                    "timeSampling": {"fps": scene["render"]["fps"], "lastFrame": film_duration(scene)}})
 
 
 def comparison_payload(scene):

@@ -2,15 +2,19 @@ import {useEffect, useRef, useState} from 'react';
 import type {HierarchyPart} from './hierarchy';
 import {attachMaterialParts, materialOwner, materialTargets, presetPartIds, type LibraryMaterialPreset} from './materialPresets';
 import MaterialSwatches from './MaterialSwatches';
+import MaterialPresetMenu from './MaterialPresetMenu';
 import {UiIcon} from './UiIcon';
 import type {MaterialHover} from './materials';
 
 const dragType = 'application/x-gesso-material-part';
 
 /** The library is the assignment tree; source geometry remains the target identity. */
-export default function MaterialAssignments({scene, parts, presets, selectedId, onEdit, onSelect, onChange, onHover}: {
+export default function MaterialAssignments({scene, parts, presets, selectedId, onEdit, onRename, onDuplicate, onDelete, onSelect, onChange, onHover}: {
   scene:any; parts:HierarchyPart[]; presets:LibraryMaterialPreset[]; selectedId?:string;
   onEdit:(preset:LibraryMaterialPreset)=>void; onSelect:(id:string)=>void;
+  onRename?:(preset:LibraryMaterialPreset)=>void;
+  onDuplicate?:(preset:LibraryMaterialPreset)=>void;
+  onDelete?:(preset:LibraryMaterialPreset)=>void;
   onChange:(edit:(scene:any)=>void)=>void;
   onHover?:(hover:MaterialHover|null)=>void;
 }) {
@@ -20,6 +24,8 @@ export default function MaterialAssignments({scene, parts, presets, selectedId, 
   const [dragged,setDragged] = useState<string|null>(null);
   const [over,setOver] = useState<string|null>(null);
   const [status,setStatus] = useState('');
+  const presetIds=JSON.stringify(presets.map(preset=>preset.id));
+  useEffect(()=>{setStatus('');setAttaching(current=>current&&presets.some(preset=>preset.id===current)?current:null);},[presetIds]);
   const [hovered,setHovered] = useState<string|null>(null);
   const [keyboardFocus,setKeyboardFocus] = useState<string|null>(null);
   const contact=presets.find(preset=>preset.id===(hovered??keyboardFocus));
@@ -36,6 +42,7 @@ export default function MaterialAssignments({scene, parts, presets, selectedId, 
   const returnFocus = useRef<string|null>(null);
   useEffect(()=>{if(!attaching&&returnFocus.current){attachButtons.current.get(returnFocus.current)?.focus({preventScroll:true});returnFocus.current=null;}},[attaching]);
   const closeAttach = () => {returnFocus.current=attaching;setAttaching(null);};
+  const openAttach = (id:string) => {setAttaching(id);setChosen([]);setQuery('');};
   const targets = materialTargets(scene,parts);
   const label = (id:string) => parts.find(part=>part.id===id)?.name ?? id;
   const attach = (presetId:string, ids:string[]) => {
@@ -58,6 +65,14 @@ export default function MaterialAssignments({scene, parts, presets, selectedId, 
     <p className="gesso-meta gesso-material-library-hint">Attach objects or sections. Drag to move them.</p>
     <MaterialSwatches layout="list" items={presets.map(preset=>({...preset,description:preset.type==='custom'?'Custom material':preset.type[0].toUpperCase()+preset.type.slice(1)}))}
       selectedId={selectedId} onSelect={id=>{const preset=presets.find(item=>item.id===id);if(preset)onEdit(preset);}}
+      renderActions={onDuplicate&&onDelete ? item=>{
+        const preset=presets.find(entry=>entry.id===item.id)!;
+        const assigned=presetPartIds(scene,preset);
+        const primitive=scene.product.components.some((part:any)=>part.shape!=='mesh'&&assigned.includes(part.id));
+        return <MaterialPresetMenu name={preset.name}
+          deleteDescription={assigned.length ? `Remove this material from ${assigned.length===1?'1 object / section':assigned.length+' objects / sections'}? ${primitive?'Primitive objects receive Neutral; mesh sections inherit their underlying finish.':'Imported surfaces return to their underlying finish.'} Undo can restore it.` : undefined}
+          onRename={()=>(onRename??onEdit)(preset)} onDuplicate={()=>onDuplicate(preset)} onDelete={()=>onDelete(preset)} onAttach={()=>openAttach(preset.id)}/>;
+      }:undefined}
       itemProps={item=>({'data-material-id':item.id, 'data-drop-active':over===item.id,
         onPointerEnter:event=>{if(event.pointerType!=='touch')setHovered(item.id);},
         onPointerLeave:()=>setHovered(current=>current===item.id?null:current),
@@ -86,7 +101,7 @@ export default function MaterialAssignments({scene, parts, presets, selectedId, 
               {!candidates.length&&<p className="gesso-meta">No matching objects or sections.</p>}
             </div>
             <div className="gesso-button-row"><button type="button" disabled={!chosen.length} onClick={()=>attach(item.id,chosen)}>Attach{chosen.length?' '+chosen.length:''}</button><button type="button" onClick={closeAttach}>Cancel</button></div>
-          </div>:<button type="button" className="gesso-text-button gesso-material-attach-trigger" ref={element=>{if(element)attachButtons.current.set(item.id,element);else attachButtons.current.delete(item.id);}} aria-label={`Attach objects to ${item.name}`} onClick={()=>{setAttaching(item.id);setChosen([]);setQuery('');}}><UiIcon name="plus"/>Attach</button>}
+          </div>:<button type="button" className="gesso-text-button gesso-material-attach-trigger" ref={element=>{if(element)attachButtons.current.set(item.id,element);else attachButtons.current.delete(item.id);}} aria-label={`Attach objects to ${item.name}`} onClick={()=>openAttach(item.id)}><UiIcon name="plus"/>Attach</button>}
         </div>;
       }}/>
     {!!source.length&&<details className="gesso-material-source">

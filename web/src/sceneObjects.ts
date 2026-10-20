@@ -48,7 +48,7 @@ export function createComponentGeometry(shape: string, size: number[], bevel = 0
 
 export function sceneAssetUrl(asset: any): string {
   const filename = String(asset?.path || '').split('/').pop();
-  if (!filename || !/^[a-f0-9]{64}\.(glb|ply|spz|png|hdr)$/.test(filename)) throw new Error('The world asset path is invalid.');
+  if (!filename || !/^[a-f0-9]{64}\.(glb|ply|spz|png|jpeg|jpg|webp|hdr)$/.test(filename)) throw new Error('The asset path is invalid.');
   return `/api/assets/${filename}`;
 }
 

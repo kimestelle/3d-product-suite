@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -16,6 +17,7 @@ from pathlib import Path
 import re
 import struct
 import subprocess
+import shutil
 import tempfile
 import time
 import uuid
@@ -30,7 +32,7 @@ BLENDER_VERSION = "4.3.2"
 FFMPEG_VERSION = "7.1.5"
 BATCH_SIZE = 12
 _RENDERER = Path(__file__).resolve().parents[1] / "scripts" / "blender_scene.py"
-_RENDERER_DEPENDENCIES = {"decal_geometry.py": Path(__file__).with_name("decal_geometry.py")}
+_RENDERER_DEPENDENCIES = {name: Path(__file__).with_name(name) for name in ("decal_geometry.py", "film_images.py")}
 
 
 def _now():
@@ -276,7 +278,12 @@ def validate_plate_inputs(output, job, frame_numbers):
     if (not numbers or any(type(number) is not int or not 1 <= number <= profile["frameCount"] for number in numbers)
             or len(numbers) != len(set(numbers))):
         raise ValueError("Splat plate frame numbers must be unique source frame IDs")
-    numbers = sorted(numbers)
+    requested_numbers = sorted(numbers)
+    scene_numbers = {number for shot in scene["shots"] if shot.get("kind", "scene") == "scene"
+                     for number in range(shot["startFrame"], shot["endFrame"] + 1)}
+    numbers = [number for number in requested_numbers if number in scene_numbers]
+    if not numbers:
+        return None
     try:
         manifest = json.loads((output / "plate" / "capture-manifest.json").read_text(encoding="utf-8"))
         sampled = json.loads((output / "samples.json").read_text(encoding="utf-8"))
@@ -296,7 +303,7 @@ def validate_plate_inputs(output, job, frame_numbers):
             or capture_profile.get("width") != profile["width"] or capture_profile.get("height") != profile["height"]
             or not isinstance(capture_profile.get("frameNumbers"), list)
             or any(type(number) is not int for number in capture_profile["frameNumbers"])
-            or capture_profile.get("frameNumbers") != numbers or capture_profile.get("renderer") != "spark"
+            or capture_profile.get("frameNumbers") not in (numbers, requested_numbers) or capture_profile.get("renderer") != "spark"
             or capture_profile.get("contents") != "gaussian-world-only" or capture_profile.get("colorSpace") != "srgb"
             or capture_profile.get("toneMapping") != "none"
             or not isinstance(capture_profile.get("runtimeDigest"), str)
@@ -465,6 +472,31 @@ def _run_process(command, output, log_name, *, worker_fd=None):
             raise
 
 
+def _render_non_scene_frames(output, profile, numbers):
+    """Materialize flat content from the pinned renderer helper; return scene IDs."""
+    sampled = json.loads((output / "samples.json").read_text())
+    by_frame = {sample["frame"]: sample for sample in sampled["frames"]}
+    flat = [number for number in numbers if by_frame[number].get("clip", {}).get("kind", "scene") != "scene"]
+    if not flat:
+        return numbers
+    spec = importlib.util.spec_from_file_location("film._job_image_renderer", output / "film_images.py")
+    renderer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(renderer)
+    cache = {}
+    for number in flat:
+        _check_cancel(output)
+        clip = by_frame[number]["clip"]
+        key = json.dumps(clip, sort_keys=True)
+        destination = output / "frames" / f"{number:06d}.png"
+        if key in cache:
+            shutil.copyfile(cache[key], destination)
+        else:
+            renderer.render_clip(clip, output, profile["width"], profile["height"], destination)
+            cache[key] = destination
+    flat_set = set(flat)
+    return [number for number in numbers if number not in flat_set]
+
+
 def _render_command(blender, output, profile, frames):
     command = [blender, "--background", "--factory-startup", "--python-exit-code", "1", "--python", str(output / "renderer.py"), "--",
                "--samples", str(output / "samples.json"), "--output", str(output),
@@ -609,9 +641,11 @@ def run_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cancellatio
             missing = [frame for frame in range(1, profile["frameCount"] + 1) if frame not in set(completed)]
             for start in range(0, len(missing), BATCH_SIZE):
                 batch = missing[start:start + BATCH_SIZE]
-                _run_process(_render_command(blender, output, profile, batch), output, "blender.log",
-                             worker_fd=worker_lock.fileno())
-                rebuild_blend = False
+                scene_frames = _render_non_scene_frames(output, profile, batch)
+                if scene_frames or rebuild_blend:
+                    _run_process(_render_command(blender, output, profile, scene_frames), output, "blender.log",
+                                 worker_fd=worker_lock.fileno())
+                    rebuild_blend = False
                 invalid = [frame for frame in batch if not validate_png(
                     output / "frames" / f"{frame:06d}.png", profile["width"], profile["height"])]
                 if invalid:

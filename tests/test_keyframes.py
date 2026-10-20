@@ -54,6 +54,7 @@ class KeyframeTests(unittest.TestCase):
         frames = sample_scene(self.scene)["frames"]
         legacy_frames = copy.deepcopy(frames)
         for frame in legacy_frames:
+            self.assertEqual(frame.pop("clip"), {"kind": "scene"})
             self.assertFalse(frame["camera"].pop("depthOfField")["enabled"])
         digest = hashlib.sha256(json.dumps(legacy_frames, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         self.assertEqual(digest, "42445ce05754f1b8ed067ddac9e63e0133e54c05d2a187eb677180dc31920498")

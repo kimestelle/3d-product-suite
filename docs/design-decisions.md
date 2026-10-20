@@ -33,7 +33,7 @@ For future changes, append a dated entry with a stable ID, **decision, reason, s
 
 ### D05 — Halyard, editable text
 
-**In code / direction.** Use Halyard throughout, with Text for interface/body and Display for display typography. Keep Figma typography editable rather than converting it to outlines to work around remote font access. The temporary Instrument Sans direction was superseded by restoring Halyard. The repo resolves locally installed Halyard; it does not redistribute Adobe font files, so a fallback is expected on machines without it. See [type tokens](../web/src/interface-system.css) and [asset provenance](../web/src/assets/gesso/ASSETS.md).
+**In code / direction; Halyard restored for numeric values in D71.** Use Halyard throughout, with Text for interface/body and Display for display typography. Keep Figma typography editable rather than converting it to outlines to work around remote font access. The temporary Instrument Sans direction was superseded by restoring Halyard. The repo resolves locally installed Halyard; it does not redistribute Adobe font files, so a fallback is expected on machines without it. See [type tokens](../web/src/interface-system.css) and [asset provenance](../web/src/assets/gesso/ASSETS.md).
 
 ### D06 — A short dictionary entry and a concrete manifesto
 
@@ -99,7 +99,7 @@ For future changes, append a dated entry with a stable ID, **decision, reason, s
 
 ### D20 — The material sample is an instrument
 
-**In code.** Ball swatches show material response; pointer position within the sample window moves the preview light. Selecting a preset enlarges and fixes its sample while properties scroll beneath it. A small opacity-based sphere / rectangle icon toggle sits at the sample's top right. Standard types and maps are available, with optional fal Patina generation and Poly Haven assets. See [MaterialSwatches](../web/src/MaterialSwatches.tsx), [MaterialLibrary](../web/src/MaterialLibrary.tsx) and [material asset service](../film/material_assets.py).
+**In code; rectangle choice superseded by D82.** Ball swatches show material response; pointer position within the sample window moves the preview light. Selecting a preset enlarges and fixes its sample while properties scroll beneath it. A small opacity-based sphere / rectangle icon toggle sits at the sample's top right. Standard types and maps are available, with optional fal Patina generation and Poly Haven assets. See [MaterialSwatches](../web/src/MaterialSwatches.tsx), [MaterialLibrary](../web/src/MaterialLibrary.tsx) and [material asset service](../film/material_assets.py).
 
 ### D21 — Preview is not save
 
@@ -145,7 +145,7 @@ For future changes, append a dated entry with a stable ID, **decision, reason, s
 
 ### D31 — Both Film rails identify the same active shot
 
-**In code; latest correction.** When the active shot determines both sidebars, both start with its number and name. Headers derive from the same current frame/shot used by playback and scrubbing. Output settings retain their own scope rather than being mislabeled as an individual shot. See `FilmShotHeader` in [FilmWorkspace](../web/src/FilmWorkspace.tsx) and its use in [App](../web/src/App.tsx).
+**Superseded by D64; label treatment was refined by D63.** When the active shot determines both sidebars, both start with its number and name. Headers derive from the same current frame/shot used by playback and scrubbing. Output settings retain their own scope rather than being mislabeled as an individual shot. See `FilmShotHeader` in [FilmWorkspace](../web/src/FilmWorkspace.tsx) and its use in [App](../web/src/App.tsx).
 
 ### D32 — Export for the next real destination
 
@@ -195,7 +195,7 @@ For future changes, append a dated entry with a stable ID, **decision, reason, s
 
 ### D43 — Scroll should settle without stopping twice
 
-**Direction / in code; settling policy refined by D51.** Settle toward finished philosophy keyframes in the direction of scroll momentum. Avoid a visible pause followed by a second abrupt snap, fighting active input, flickering contents or jumping line breaks. Keep shape, text and material updates coordinated, with interruption and reduced-motion handling. This is a perceptual constraint, not proof that every device feels identical. See [philosophy motion](../web/src/philosophyMotion.ts), [text motion](../web/src/philosophyTextMotion.ts) and [ShapeLightPage](../web/src/ShapeLightPage.tsx).
+**Direction / in code; settling policy refined by D51, then D70.** Settle toward finished philosophy keyframes in the direction of scroll momentum. Avoid a visible pause followed by a second abrupt snap, fighting active input, flickering contents or jumping line breaks. Keep shape, text and material updates coordinated, with interruption and reduced-motion handling. This is a perceptual constraint, not proof that every device feels identical. See [philosophy motion](../web/src/philosophyMotion.ts), [text motion](../web/src/philosophyTextMotion.ts) and [ShapeLightPage](../web/src/ShapeLightPage.tsx).
 
 ### D44 — Glassine is the opening material study
 
@@ -253,7 +253,7 @@ Body copy already requested weight 400 and the installed Halyard Regular faces r
 
 ### 2026-10-19 — D51 — Scroll leads; snapping only finishes a nearby position
 
-**In code.** Let wheel gestures stop between Form + Light keyframes. Settle only toward a stop ahead in the final scroll direction, within 14% of its neighboring interval and at most 96px. Never pull backward toward a departed frame or turn a small notch into a whole-page movement. Shorten the correction to 160–240ms (down to 120ms for a fast continuation); preserve a bounded, monotone trajectory. New wheel input or resumed native movement cancels the correction, including compositor movement that arrives before its scroll callback. Mobile, reduced motion, selected text and fine keyboard reading retain their existing exclusions.
+**Superseded by D70.** Let wheel gestures stop between Form + Light keyframes. Settle only toward a stop ahead in the final scroll direction, within 14% of its neighboring interval and at most 96px. Never pull backward toward a departed frame or turn a small notch into a whole-page movement. Shorten the correction to 160–240ms (down to 120ms for a fast continuation); preserve a bounded, monotone trajectory. New wheel input or resumed native movement cancels the correction, including compositor movement that arrives before its scroll callback. Mobile, reduced motion, selected text and fine keyboard reading retain their existing exclusions.
 
 The earlier mandatory nearest-stop policy could turn a roughly 133px wheel gesture into a 660px page turn. A native CSS proximity experiment was discarded because the same small gesture returned to the starting stop in the tested browser. The accepted rule preserves that 133px reading position, settles only when approaching the next stop, and allows immediately leaving it in reverse. Shape and text still use the actual scroll offset and the existing shared renderer; no independent visual scroll clock was added. Refines D43. See [stop selection](../web/src/philosophyMotion.ts), [scroll controller](../web/src/philosophyScroll.ts), and their regression tests. Verified through local wheel/anchor interactions, the focused motion/layout tests, and the production build.
 
@@ -272,7 +272,7 @@ Reason: an arrow should predict a real action, and a section should be distingui
 
 ### 2026-10-19 — D54 — Menus and cabinets reveal their contents in place
 
-**In code.** File, Edit, View and History share a persistent menu surface that transitions to its measured content height. Sidebar cabinets transfer their available height over 240ms; content fades in over 160ms with a short 16ms row cascade capped at 64ms. Closing fades take 120ms without stagger. New input reverses the current transition. Preserve the existing typography, spacing, selection rules, scene state and scrollable controls.
+**In code.** File, Edit, View and History share a persistent menu surface that transitions to its measured content height. Sidebar cabinets originally transferred their available height over 240ms; D60 replaces that expansion with natural content height. Content fades in over 160ms with a short 16ms row cascade capped at 64ms. Closing fades take 120ms without stagger. New input reverses the current transition. Preserve the existing typography, spacing, selection rules, scene state and scrollable controls.
 
 Retain outgoing cabinet content only for the closing transition, including its existing portal destination. Closing controls become inert and leave the accessibility tree; Escape from menu fields returns focus to the menu trigger. Genuine native disclosures and material-property groups animate intrinsic height where supported, with ordinary functional disclosure as fallback. Film's Output inspector keeps its natural content height. Compact/touch layouts and reduced-motion preferences use the existing static-motion policy.
 
@@ -282,11 +282,11 @@ Reason: reveal the relationship between a section and its controls without a sud
 
 **In code.** Restore section names to their authored case, use Halyard at weight 600 with normal tracking, and place the existing fine dotted rule in the same row after the label. Where a summary, count, or action appears on the right, the rule fills the space between it and the label. Remove the earlier separate rules above these groups. Keep metadata at regular weight, existing sizes and spacing, and real disclosure chevrons and animation behavior.
 
-Reason: distinguish sections through weight and a visible boundary without uppercase styling. Scope: Product, Material, World and Film sidebar section selectors, fixed section labels, and disclosures; object names, field labels, top navigation, and public pages keep their existing roles. Supersedes D53's uppercase treatment and refines D48's placement of sidebar rules. See [interface styles](../web/src/interface-system.css). Verification: production build and diff whitespace checks passed; browser checks covered Product, both Material panels, World, and Film headers.
+Reason: distinguish sections through weight and a visible boundary without uppercase styling. Scope: Product, Material, World and Film sidebar section selectors, fixed section labels, and disclosures; object names, field labels, top navigation, and public pages keep their existing roles. Supersedes D53's uppercase treatment and refines D48's placement of sidebar rules. D59 narrows this treatment to main headers, removing it from nested subheadings. See [interface styles](../web/src/interface-system.css). Verification: production build and diff whitespace checks passed; browser checks covered Product, both Material panels, World, and Film headers.
 
 ### 2026-10-19 — D56 — Frame guides remain visible in studio and loading
 
-**In code.** Restore the shared dotted boundaries around the editor window and the morphing studio loader. Sidebar header rules coexist with these frame guides. Remove the studio-route visibility override, which also hid the loader because it uses the same route. Let the shared ground provide the topbar and sidebar backdrops so opaque chrome does not conceal the guides; controls and menus keep their own surfaces. Preserve the original .75px rounded dots at 50% white opacity, the shared curve-extrema geometry, and the layer beneath content and menus. This corrects D48's overbroad interpretation of the sidebar-divider request; it does not change D55's header treatment. See [frame guides](../web/src/frame-guides.css), [shared frame styles](../web/src/dynamic-frame.css), and [shared renderer](../web/src/DynamicFrame.tsx).
+**In code; settled-editor visibility superseded by D66.** Restore the shared dotted boundaries around the editor window and the morphing studio loader. Sidebar header rules coexist with these frame guides. Remove the studio-route visibility override, which also hid the loader because it uses the same route. Let the shared ground provide the topbar and sidebar backdrops so opaque chrome does not conceal the guides; controls and menus keep their own surfaces. Preserve the original .75px rounded dots at 50% white opacity, the shared curve-extrema geometry, and the layer beneath content and menus. This corrects D48's overbroad interpretation of the sidebar-divider request; it does not change D55's header treatment. See [frame guides](../web/src/frame-guides.css), [shared frame styles](../web/src/dynamic-frame.css), and [shared renderer](../web/src/DynamicFrame.tsx).
 
 Verification for D56: production build and diff whitespace checks passed. Browser captures confirmed the dynamic loader and settled editor guides; the File popup remains opaque above them.
 
@@ -305,3 +305,280 @@ Verification for D57: production build, 69 existing shared-frame tests, and diff
 Reason: section boundaries should reach the outside edge instead of appearing inset with the controls. Scope: Product, Material, World and Film left sidebar section headings and disclosures. Extends D55's inline rule treatment. See [interface styles](../web/src/interface-system.css).
 
 Verification for D58: production build and diff whitespace checks passed. Browser checks covered all four left rails and opening/closing Original materials; heading boxes start at x=0 with their original 40px content padding and no horizontal overflow.
+
+### 2026-10-19 — D59 — Rules distinguish main sections from subheadings
+
+**In code.** Keep dotted rules and Halyard 600 on main cabinet headers and the Objects tree header. Use Halyard 500 without either leading or trailing rules for nested labels such as Surroundings, Background, Environment light, Studio rig, Ambient, Material slots, Path and Generate texture. Nested disclosures follow the lighter treatment while retaining their working chevrons and right-aligned metadata. Preserve sizes, copy, control alignment and motion.
+
+Reason: the shared rule had made subheadings compete with their containing section. Scope: editor sidebar heading hierarchy. Refines D55 and limits D58's gutter extension to main dividers. See [interface styles](../web/src/interface-system.css).
+
+Verification for D59: production build and diff whitespace checks passed. Browser checks confirmed 500-weight, rule-free Environment and Lighting subheadings, with 600-weight main headers and their edge-reaching rules preserved. Alignment still opens and closes with its metadata and chevron aligned to the right.
+
+### 2026-10-19 — D60 — Content determines sidebar section height
+
+**In code.** Stop expanding the open cabinet into unused sidebar height. Stack sections at their content height, shrinking the open body into its existing scroll area only when needed. Animate body height rather than distributing free space between cabinets; preserve exit presence, inert controls, focus restoration, reduced motion and disclosure behavior. Use 32px main header rows, 24px nested disclosure rows, 8px section gaps, and 4px between a subheading and its first control. Reduce the panel title's bottom padding to 8px.
+
+Reason: flex growth placed short sections far apart, while nested disclosure rows inherited main-header spacing. Scope: editor sidebar cabinets and heading spacing. Refines D54's height-transfer implementation and D59's hierarchy; typography, dotted rules, horizontal grid and copy are preserved. See [interface styles](../web/src/interface-system.css) and [cabinet motion](../web/src/editor-motion.css).
+
+Verification for D60: production build, 33 focused panel/disclosure tests and diff whitespace checks passed. Browser checks confirmed that the Environment section uses only its content height, the main rows stay visible, and Lighting retains a scrollable body with its final controls reachable.
+
+### 2026-10-19 — D61 — Form + Light has a broader halo
+
+**In code.** Double the philosophy page's halo blur and spread together: 136px blur and 64px spread at its reference scale. Double the static mobile halo's extent as well. Keep the purple palette, opacity, shapes, text layout and shared frame renderer. Other pages retain their existing light.
+
+Reason: give Form + Light a much wider field of light while preserving its soft falloff. Scope: [Form + Light frame source](../web/src/ShapeLightPage.tsx) and [mobile fallback](../web/src/shape-light.css); extends D36–D37's broad, hue-shifting light treatment.
+
+Verification for D61: production build and diff whitespace checks passed. Desktop browser captures confirmed the wider halo on the cover and the narrower Product chapter, without a visible hard filter edge.
+
+### 2026-10-19 — D62 — Loader perspective becomes more pronounced
+
+**In code.** Tilt the loading circle into a much narrower oval: its minor axis now reaches 18% of its diameter instead of 42%. Keep the same 5.6-second cycle, centered 92px envelope, exact elliptical geometry, dotted guides and reduced-motion behavior. Return it to a front-facing circle while small before expanding into the editor.
+
+Reason: make the perspective change legible at the loader's small size without collapsing it into a line or reintroducing wrinkled expansion edges. Scope: [loading geometry](../web/src/studioLoading.ts) and [geometry checks](../web/src/studioLoading.test.ts); refines D39's circle-to-oval loader.
+
+Verification for D62: production build, 76 loading/shared-frame tests and diff whitespace checks passed. Geometry checks cover the stronger aspect ratio, centering, finite thickness, loop continuity and ripple-free expansion from every sampled phase. A local browser visit confirmed the centered loader still completes into the editor.
+
+### 2026-10-19 — D63 — Film sidebars name the scene explicitly
+
+**In code; dual-rail placement superseded by D64.** Show “Scene 01” as the quiet context label above the saved title, such as “Reveal”, in both Film sidebars. Keep a 4px gap, Halyard, the existing rail margins and the full title on hover. Derive numbering from the active shot exactly as before; preserve saved names, timeline behavior and the separate Output settings heading.
+
+Reason: a bare number next to the title did not explain what it identified. Scope: `FilmShotHeader` in [FilmWorkspace](../web/src/FilmWorkspace.tsx) and [Film rail styles](../web/src/film-shell.css). Refines D31's heading presentation without changing the scene data model.
+
+Verification for D63: production build and diff whitespace checks passed. The local Film view showed the explicit scene label above the title in both sidebars, aligned to the existing rail margins.
+
+
+### 2026-10-19 — D64 — Objects left, properties right, time below
+
+**In code.** The left Film rail identifies the selected scene and contains Camera, Whole product and expandable Parts with motion counts. The right rail identifies the selected target and owns framing/position, Add motion, assigned motions and their parameters. Selecting a motion reveals its amount, axis where relevant and easing immediately; pose fields, exact timing/scope, curves and custom keys remain reachable through disclosures. Keep Halyard and the shared 8px section / 4px control spacing without dotted nested headings.
+
+The shallow timeline spans the workspace below the viewport and both rails, expanding when detailed curve or key editing needs room. Scene boxes and the selected target’s motion lanes use one global film time scale. A single playhead stays inside the scene boxes. New scenes start as “Untitled” with a collision suffix, leaving scene numbering to the context label. Rename scenes inline; use the contextual scene menu for duplicate, reorder, duration and removal, and the scene edge for trimming. Keep Export in the top bar and Output settings in the timeline.
+
+Playback moves the preview frame without changing the scene being edited. A property edit pauses playback and resumes that editing scene; explicit “Return to Scene” and “Edit this frame” actions let the user return to the selection or adopt the preview frame. The left header shows this stable scene context; the right header names the target. This supersedes D31’s shared playback-driven headers and D63’s placement in both rails, while retaining D63’s explicit scene label.
+
+Reason: each area should own one task, motion lengths should mean the same thing across rows, and crossing a camera cut should not silently redirect an edit. Scope: Film layout and editing context; existing scene data, motion evaluation and rendering remain the source of truth. Refines D26–D30 and D60. See [rails](../web/src/FilmWorkspace.tsx), [rail styles](../web/src/film-rails.css), [workspace shell](../web/src/film-shell.css), [timeline](../web/src/FilmTimeline.tsx), [time mapping](../web/src/filmTimelineModel.ts), [scene strip](../web/src/FilmShotStrip.tsx), [playhead state](../web/src/useFilmPlayhead.ts) and [app integration](../web/src/App.tsx).
+
+Verification for D64: production build and all 853 tests passed (two test workers). Real browser checks confirmed that playback crossing cuts preserves the editing scene, editing a property resumes that scene, scene trimming can be undone, and discarding a new scene restores the sequence. Still mode hides the dock; the scene menu overlays the frame guides and Escape returns focus to its trigger. The dock measured 136px without motions and 168px with one motion at the tested desktop size. No browser console errors were reported.
+
+### 2026-10-19 — D65 — Cover labels meet the outer grid margins
+
+**In code; closed-state placement and offset calculation refined by D67.** When the landing window expands, “your product” moves to the left outer grid margin and “your world” to the right. Interpolate their inner text offsets with the existing aperture progress; preserve the closed composition, Halyard, shape timing, and compact-screen arrangement. CSS uses each label’s real width and the shared grid column, so font metrics and resize do not need another measurement loop.
+
+Reason: the expanded text was centered within the outer columns instead of meeting the layout edges. Scope: [landing styles](../web/src/landing.css); refines D08 and D35. Verification: production build passed; browser measurements at the expanded endpoint placed both text edges within 0.01px of the shared 40px grid margins.
+
+### 2026-10-19 — D66 — Frame guides fade once the editor opens
+
+**In code.** Retain dotted bounds and solid intersection crosses through loading and the opening morph, then fade their shared SVG to zero opacity over 420ms when the frame renderer reports studio/settled. Restore them over 180ms when leaving the editor. Sidebar section rules and camera guides stay independent. Mobile and reduced-motion modes resolve visibility without the fade.
+
+Reason: show the frame’s construction during the transition, then leave the editor’s content and controls clear. Scope: [shared guide styles](../web/src/frame-guides.css). Supersedes D56’s persistent settled-editor guides; retains its loading visibility and D57’s cross geometry.
+
+Verification for D66: production build and diff whitespace checks passed. Browser inspection showed guide opacity 1 during studio expansion, 0 when studio settled, and 1 after returning to Landing; sidebar dotted rules remained visible.
+
+### 2026-10-19 — D67 — Closed cover labels use exact column edges
+
+**In code.** Anchor “your product” to column 2’s left edge and “your world” to column 6’s right edge in the closed landing composition. Move each outward by one column plus one gutter as aperture progress reaches 1, preserving D65’s outer-margin endpoint. Replace aperture-width travel and text-width compensation with the shared grid pitch. Keep Halyard, the existing reversible animation and mobile positions.
+
+Reason: the closed text was approximately placed by shape width and could drift from the seven-column layout when viewport proportions changed. Scope: [landing styles](../web/src/landing.css); refines D08, D35 and D65. Verification: production build passed; desktop browser measurements matched the closed column edges within 0.01px.
+
+### 2026-10-19 — D68 — Public navigation uses quieter Regular text
+
+**In code.** Keep About and Form + Light in Halyard Text Regular (400), explicitly scoped to their shared navigation links, and apply the antialiased rendering already used for narrative copy. Preserve type size, grid positions and hover/current-page opacity. Enter studio retains weight 600.
+
+Reason: the links already computed to weight 400, but white-on-color rendering made them appear heavier than editor text. Scope: public navigation on Landing, About and Form + Light in [site-grid.css](../web/src/site-grid.css); extends D50’s rendering treatment. Verification: production build and diff whitespace checks passed; the browser showed 400/antialiased on both links and the existing 600/auto on Enter studio.
+
+### 2026-10-19 — D69 — OCR-B for measured values
+
+**Removed; superseded by D71.** The local trial used locally activated OCR B Std for numeric inputs, Film time labels and numeric viewport readouts, and the cover timecode. Keep Halyard for names, labels, actions and status words, including Focus “Off.” Use a shared measure token; do not apply monospace to entire panels or navigation. The trial fell back to Halyard when OCR-B was unavailable, recorded font readiness, and did not bundle Adobe font files.
+
+The installed OCR-B digit outlines are approximately 9–10% taller than Halyard Text Regular at equal nominal size, despite similar lowercase x-heights. Apply 91% size adjustment to the OCR face, with inverse ascent/descent overrides that preserve Halyard's effective line metrics. This also brings its monospaced digit advance close to Halyard's tabular digits. Keep 13px / 18px value type in 32px fields, regular weight, normal tracking and no synthesized weight. Use 12px / 18px for the cover clock, reserving eight characters without moving its grid anchor or recording dot. Raise the 9px Film ruler and curve labels to 10px / 12px; preserve larger controls and row geometry.
+
+Reason: distinguish measurements from instructions without making the interface feel taller or adding decorative technical labels. Nominal font size and x-height alone would not correct the numeral size or baseline. Scope: shared interface font loading/tokens and controls, Film readouts/timeline, and the landing clock. Refines D05's Halyard-only type system for this limited trial; does not change copy or the document state model.
+
+Verification: browser confirmed OCR-B and Halyard loaded, numeric fields computed to 400 at 13px / 18px, and the cover clock to 12px / 18px with a 62.9px advance. A negative decimal (-12.5) fitted the compact 44px coordinate field; material percentages and IOR were checked beside their Halyard labels. Test edits were undone and the temporary material preset discarded. Production build and all 17 Film viewport tests passed.
+
+
+### 2026-10-19 — D70 — One rolling scroll position, with a live tuning window
+
+**In code, opt-in since D75, with an on-page tuning panel.** On desktop with a fine pointer and no reduced-motion preference, wheel input drives one position/velocity model through six measured minima. The real scroll offset still drives the shared shape renderer and Pretext layout. Remove the scrollend wait and separate quintic snap: use a continuous quartic hill profile between stops, gradual pull as input fades, and damped integration in bounded substeps. Stops can be approached from either side, so slightly passing 03 no longer excludes it. Small departures temporarily release the stop just left; crossing into another basin or reversing toward the old stop restores attraction. Account for browser-rounded scroll offsets separately from the exact settling threshold.
+
+The fixed “scroll study” panel shows the actual position, velocity, pull force, target and measured landscape. Its stop buttons and same-page contents links travel through the same integrator. Pull, damping ratio and input response are editable; smooth/native comparison and reset remain available. Tuning persists locally. Collapse the panel or hide/reopen it with Alt + Shift + D. The marker follows animation frames while numeric readouts update at 10Hz; hidden/collapsed panels stop their animation loop. This is a development control surface, not marketing copy.
+
+Zoom, horizontal input, nested controls, selected text, pointer contact, fine keyboard navigation, compact/touch devices and reduced motion keep native behavior. New wheel input interrupts an explicit seek; resize, navigation, visibility and policy changes cancel motion. Preserve current copy, shapes, halo and text placement. Supersedes D51's forward-only 96px capture rule and its native-wheel/gesture-end ownership, which caused the missed 03 stop and two-stage pause. Scope: [physics](../web/src/philosophyScrollPhysics.ts), [input controller](../web/src/philosophyScroll.ts), [page integration](../web/src/ShapeLightPage.tsx) and [debug window](../web/src/PhilosophyScrollDebug.tsx).
+
+Verification for D70: production build and 63 focused physics, input, sequence and text-motion tests passed. Tests cover all six minima from both sides, overshoot at 03, tiny departures, browser-rounded offsets, reversal, 30/60/120Hz consistency, long-frame bounds, native-policy exclusions and cleanup. Live wheel checks settled 04 → 03; debug seeking and the 03 contents link moved through intermediate scroll positions before resting. Tuning persisted through reload and was reset after testing; hide/reopen worked. No browser errors were reported.
+
+
+### 2026-10-19 — D71 — Restore Halyard values; invert Film Output
+
+**In code.** Remove the OCR-B font face and loader. Numeric controls, timecodes and debug readouts return to Halyard through the shared measurement token, keeping their current sizes and line heights. Remove the cover clock’s OCR-specific reserved width. The Film timeline’s Output action uses a light fill with dark text and icon, including a light hover state; retain its existing size, optical button padding and keyboard focus treatment.
+
+Reason: the OCR trial did not fit the interface, and Output needs clearer emphasis as the Film section’s finishing action. Supersedes D69 and restores D05’s Halyard-only direction. Scope: shared type tokens/loading, landing clock and Film timeline styles.
+
+Verification for D71: production build and diff whitespace checks passed. The browser confirmed Halyard loaded for numeric fields and timeline timecodes, and Output rendered with a light fill, dark text/icon, and unchanged 3px / 8px / 5px padding. Clicking it opened the existing Output settings inspector.
+
+
+### 2026-10-19 — D72 — Shapes contract slightly during travel
+
+**Initial trial; amount superseded by D74.** Apply an 8% uniform contraction at the midpoint of Form + Light’s inter-section morphs and ordinary page-to-page frame transitions. A symmetric quartic envelope returns to full scale with zero scale slope at each endpoint. Scale all anchors and handles together about the existing center after clearance fitting, preserving finished geometry, grid alignment, corners and reversibility. Identical route contours do not pulse.
+
+Reason: give the changing silhouette more space before it settles into its finished composition. Use the real contour so clipping, halo, dotted guides, Glassine bounds and Pretext avoidance agree; no separate CSS transform or animation clock. Preserve landing hover, the curve catalog’s pure interpolation, and studio loading/expansion. Mobile and reduced-motion paths still resolve directly to their existing endpoints. Scope: [shared morph](../web/src/frameMorph.ts), [route driver](../web/src/DynamicFrame.tsx) and [philosophy sequence](../web/src/philosophySequence.ts).
+
+Verification: production build and 127 focused morph, sequence, route, landing, loading and text-motion tests passed. Tests cover exact endpoints, 8% midpoint dimensions, unchanged centers, reversal, interruption, tangent continuity, padding and reduced-motion behavior. The browser was inspected at an intermediate Form + Light position with native scrolling to hold the contour still.
+
+
+### 2026-10-19 — D73 — Live shrink control in the scroll study
+
+**In code; default superseded by D74.** Add a shrink slider from 0–50% in 1% steps, defaulting to D72’s 8% contraction. The readout describes the maximum reduction at the midpoint; 0% disables contraction. Changing it redraws the current Form + Light contour, guides and text avoidance without moving the scroll position or restarting its controller. Finished shapes remain exact. The same saved setting controls subsequent ordinary page transitions. Reset restores 8% alongside the scroll defaults.
+
+Reason: compare the contraction in the real composition rather than repeatedly changing code. Store the value locally, clamp invalid values, and retain mobile/reduced-motion behavior. Keep the new slider beside pull, damping and response; use two columns in the narrower debug window. Scope: [debug controls](../web/src/PhilosophyScrollDebug.tsx), [frame settings](../web/src/DynamicFrame.tsx), [sequence](../web/src/philosophySequence.ts) and [live invalidation](../web/src/ShapeLightPage.tsx). Extends D70 and D72.
+
+Verification for D73: production build and 123 focused tests passed. Live browser checks changed the contour at a stationary 1,051px scroll position without moving it, verified 0% / 50% limits and 1% keyboard steps, restored the saved value after reload, and reset to 8%.
+
+
+### 2026-10-19 — D74 — Set contraction to 30%
+
+**In code.** Set the shared transition contraction default and debug reset to 30%, replacing the 8% trial in D72–D73. Keep the 0–50% slider, local persistence, exact endpoints, existing timing and the shared contour used for text and guides. Reason: Estelle selected 30% after the live control was added. Scope: shared morph default and scroll-study reset.
+
+Verification for D74: production build and 107 morph, sequence and route checks passed. Set the browser’s saved shrink to 30% and confirmed it persisted after reload.
+
+
+### 2026-10-19 — D75 — Native scroll and 30% shrink by default
+
+**In code.** Start Form + Light in native scroll mode, with D74’s 30% midpoint shrink. Reset returns to that same pair. Keep the smooth physics mode available as an explicit debug choice and preserve saved settings. Reason: Estelle selected native scroll after comparing the two modes. Supersedes D70’s enabled-by-default physics; the real scroll position still drives the shape and text. Scope: scroll tuning defaults and the existing debug reset.
+
+Verification for D75: production build and 36 scroll tests passed. Browser Reset selected native mode with 30% shrink; both persisted after reload.
+
+
+### 2026-10-19 — D76 — Give the halo room at every shape size
+
+**In code.** Size the shared SVG halo filter in viewport pixels from the contour’s true bounds, plus its stroke spread, four blur standard deviations and a 2px rasterization guard. Round the bounds outward. Reuse the bounds already calculated for the dotted guides; update the region with the contour and halo in the same paint.
+
+Reason: percentage filter bounds contracted with the shape while the blur stayed the same pixel size, cutting the glow into a visible box around edge-on loader ovals and shrinking Form + Light shapes. Preserve the existing halo color, opacity, spread and softness. Keep the loader’s filter local to its small contour. Scope: shared frame renderer, halo bounds and guide bounds reuse.
+
+Verification for D76: production build and 87 focused renderer, halo and loader tests passed. Checks include 81 loader poses, contracted Form + Light shapes across four viewport sizes, and halo changes without a contour change. The rebuilt browser rendered the contracted Form + Light midpoint without the local box cutoff; its SVG filter uses the new pixel bounds.
+
+
+### 2026-10-19 — D77 — Movie duration, black gaps and image shots
+
+**In code; black gaps, editable start times and independent empty duration superseded by D79.** The Film timeline has an editable total duration in seconds, rounded to whole frames. `render.durationFrames` owns the movie clock; legacy scenes derive it from their last shot. Start times place clips explicitly. Trim and delete leave black time; insertion shifts following clips, while reordering retains the intervening gap. Reject overlaps and shortening the movie past existing clips, shared movement or keys. Preserve authored motion timing unless Stretch is chosen.
+
+Show black intervals on the same timeline row as scene and image clips. The single playhead travels through occupied and empty intervals. Selecting a gap shows Black rather than another scene’s controls. Add image accepts PNG, JPEG and WebP from the local computer; it fills up to three seconds at the current gap, or appends after existing content. Image clips have a thumbnail, name, start, duration and Fit image / Fill frame. Image selection replaces object/camera controls with image controls; playback still keeps the editing selection stable.
+
+Preview uses the existing viewport canvas and sampled film clock. Preload verified images, keep their sRGB colors with an unlit pass, and bypass 3D rendering during images and gaps. Export writes matching image/black frames before encoding the movie. Images are normalized and stored locally with content hashes, included in project revisions and export asset bundles. The native `.blend` preserves editable 3D, packed image assets and timeline metadata; final flat composition runs in the Film export worker. This is not a Blender video-sequencer reconstruction.
+
+Reason: movie length and clip length are separate decisions; empty time must remain visible and predictable, and still images should belong to the same edit. Extends D64’s shared timeline and stable editing context. Scope: sequence model, Film timeline/clip inspector, shared viewport, image import, Python sampling and export.
+
+Verification for D77: production build and 899 web tests passed; 369 Python tests completed with 14 opt-in skips. A real Blender export mixed black frames, an image hold and a 3D scene; image colors and black letterboxing matched the source. Browser checks extended a 10-second movie to 15 seconds, imported a three-second image into its gap, changed fit, rejected a duration that would cut existing content, and played through to the black final frame. The dock stayed 136px tall without horizontal page overflow. Test edits were undone rather than saved into the campaign.
+
+
+### 2026-10-19 — D78 — Material actions belong to each name row
+
+**In code.** Add a quiet three-dot trigger to the right of each library material’s name, separate from the swatch’s edit button. Its menu contains Rename, Duplicate, Attach objects and Delete. Rename focuses and selects the existing editor name field; Save commits it. Duplicate creates an independent, unassigned library copy and opens it for editing. Move the former editor-heading Duplicate action into this menu.
+
+Unused materials delete immediately. Attached materials explain the surface change before confirmation: imported meshes return to their original or inherited finish; primitive objects use one visible Neutral fallback because they require a material. Preserve other section assignments. Delete the record and assignments together, using the existing undo history. Deleting an attached Neutral replaces it with another neutral record; it cannot leave a primitive without a surface.
+
+Keep the menu above guides and outside sidebar clipping. Support arrows, Home/End, type-ahead, Escape, outside-click dismissal and focus restoration; preserve row editing, hover highlighting and object dragging. Use the existing Halyard type, colors, 4px spacing and 3px / 5px optical button padding. Reason: secondary actions should remain available beside their material without adding another row of controls. Scope: MaterialLibrary, MaterialAssignments, MaterialSwatches, MaterialPresetMenu and materialPresets.
+
+Verification for D78: 41 focused material/panel tests passed. Browser checks exercised keyboard duplication, selected-text Rename, attaching a copy, attached and unused Delete, Escape focus restoration and Undo restoring the deleted material plus its attachment. Restored the campaign after testing. A code review caught same-preset Rename focusing a field below the scroll area; Rename now returns that editor to the top first.
+
+
+### 2026-10-19 — D79 — Keep the film continuous
+
+**In code.** Remove D77’s black gap UI and editable clip start controls. Shot order and duration define adjacent cuts. Trimming or deleting closes the space; insertion and duplication move subsequent shots; image shots insert after the selected scene. Keep the one playhead in the shot row and the compact dock.
+
+The movie Duration control stretches all shots and their motion proportionally, rounded to frames, instead of adding empty time. Retime camera duration, shot motions, shared motions, mechanical actions and animation keys together. Preserve the selected shot and its relative editing position. Reject collapsed keys/motions or a trim that would cut off authored movement across shots, rather than silently discarding it.
+
+Open older gap experiments as an undoable, unsaved continuous edit and show a notice; report timing collisions if conversion cannot succeed. Keep the backend’s legacy gap reader for existing files and exports. Reason: Estelle removed the black-gap direction while retaining image shots and editable movie duration. Scope: sequence timing, Film timeline/inspectors, shared Film edit commits, project loading and README.
+
+Browser verification for D79: changed a ten-second movie with two five-second scenes to fifteen seconds; both became 7.5 seconds with adjacent boxes. Trimming the first to six seconds moved the next cut and reduced the total to 13.5 seconds. Restored the original campaign through Undo.
+
+Final verification for D78–D79: production build and diff whitespace checks passed. All 99 focused Film checks passed. The full web run passed 906 tests with one loader timeout under parallel load; all seven loader tests passed when rerun alone. No browser console errors appeared during the material and Film checks.
+
+
+### 2026-10-19 — D80 — Reorder scenes directly on the film
+
+**In code.** Drag a scene body to a marked insertion point in the Film timeline. Commit once on release, keeping cuts contiguous and preserving scene durations, cameras, images and local motion. Keep the currently edited scene and its local time selected when another scene moves around it. Film-wide animation keeps its absolute timing. Each move uses the existing undo history.
+
+Separate the gestures: scene bodies reorder; the time ruler scrubs the same film playhead; scene names remain editable; end handles trim. Require 6px of travel before treating a press as a drag. Cancel on Escape, pointer cancellation, window blur, resize or release outside the timeline. Scroll the timeline at its edges during a drag. Focused scene buttons also support left/right and Home/End, restore focus after the edit and announce the resulting position. During playback, scene clicks seek but reordering waits until paused.
+
+Reason: scene order should be editable directly where the sequence is visible, without adding another lane or a separate ordering panel. Extends D79. Scope: sequence model, FilmShotStrip, FilmTimeline and timeline styles.
+
+Verification: production build and 60 focused Film/model tests passed, including unequal durations, distant moves, images, invalid edits and undo/redo. Browser checks confirmed pointer reordering, keyboard reordering, preserved editing context and focus, destination announcements and Undo.
+
+
+### 2026-10-19 — D81 — Keep panel identity above scrolling controls
+
+**In code.** Keep New preset and its Cancel action outside the material-type scroll area. Apply the same structure to the Film target/Image inspector, new-scene titles and step navigation, and Import product heading. Controls scroll in their own body below the title; interior section labels stay with their controls. Preserve rail gutters, typography, existing fixed material sample and Save/Cancel footer.
+
+Reason: the user should still see which panel they are editing after scrolling through its controls. Scope: MaterialLibrary and material-library.css, FilmWorkspace/FilmClipDetails/NewFrameFlow and film-shell.css, Product import in App and condensed-editor.css.
+
+Verification: production build, 30 existing panel tests and diff whitespace checks passed. In a short browser window, New preset stayed at the same vertical position while its body scrolled 158px; Camera stayed fixed through 278px of inspector scrolling; Import product stayed fixed while its form scrolled. Cancel, reopening the chooser and selecting a material retained the existing behavior. New-scene layout was visually checked; its test scene was discarded, restoring the saved campaign.
+
+
+### 2026-10-19 — D82 — Turn the material sample in place
+
+**In code.** Drag inside the selected material sample to rotate its mesh. Use a grab hand at rest and a grabbing hand during the gesture. Replace the thin rectangle choice with a 40mm cube with slightly rounded edges; retain the sphere and quiet opacity-based icons at the top right. Rotation persists while switching shapes or adjusting the material, without modifying the product or saving preview orientation into the preset.
+
+Hold the hover-driven light steady during a drag, then resume its pointer response. Arrow keys turn 5°, Shift turns 15°, and Home, native button activation or double-click resets orientation. Escape, pointer cancellation, focus loss and resize cancel an active turn. Reuse the existing demand-rendered canvas and materials; only the mesh quaternion changes. The sample remains fixed above scrolling controls, with the shape buttons above its rotation hit area.
+
+Reason: inspect how a material behaves across faces and edges without moving the product or confusing object rotation with lighting movement. Extends D20 and supersedes its rectangle toggle. Scope: MaterialLibrary, MaterialSwatches, materialSampleRotation and material-library.css.
+
+Verification: production build, 24 focused rotation/material/panel tests and diff whitespace checks passed. Browser checks confirmed pointer rotation, sphere/cube switching, keyboard rotation/reset, transparent keyboard focus and grab cursor. Rotation left the campaign saved and playback stopped. No browser console errors appeared.
+
+
+### 2026-10-19 — D83 — Keep sample rotation tied to the gesture
+
+**In code.** Derive each drag pose from its starting orientation and total pointer displacement, using a single rotation about a camera-plane axis. Pointer-event frequency must not change the result, and returning to the press position must restore the starting pose. Guard double-click reset when either press traveled more than 4px, so repeated drags cannot reset the cube. Keep pointer capture, keyboard controls and explicit cancellation.
+
+Ease the selected sample's hover light back into position after release instead of moving the reflection abruptly. Hold it still during rotation and stop rendering once it settles. Preserve the existing material renderer, shape toggles, panel layout and transient preview state.
+
+Reason: event-by-event Euler rotations accumulated different poses under different event rates, and a release could look like a jump from either accidental reset or lighting. Refines D82. Scope: MaterialSwatches, materialSampleControls and materialSampleRotation.
+
+Verification: production build, TypeScript, 40 focused material/panel tests and diff whitespace checks passed. Regression tests cover event density, out-and-back motion, repeated drags, double-click intent, foreign pointers, cancellation, keyboard controls and teardown. Browser checks confirmed diagonal dragging, captured release outside the sample, reset and sphere/cube switching; preview rotation left the campaign saved.
+
+
+### 2026-10-19 — D84 — Import Blender products through the existing scene pipeline
+
+**In code.** Accept `.blend` alongside GLB in Product import and the `product-import` CLI. Use the configured local Blender 4.3.2 executable to snapshot the saved active scene and view layer at its saved frame, then validate and store a centered, meter-scale GLB through the same product pipeline. Preserve object names, parent relationships, material slots, UVs and supported packed artwork. Bake evaluated geometry and transforms; exclude cameras, lights and render-hidden geometry. This is a static product import, not an editable Blender project or animation import.
+
+Show import progress with the existing viewport loading overlay. Pack textures before saving; unsupported procedural materials, linked resources, instances and simulation dependencies receive actionable preparation errors. Report unset units as an explicit one-unit-to-one-meter assumption. Store the source hash, scene/frame, unit conversion and conversion details with the product metadata. Run file scripts disabled, bound upload/conversion size and duration, and publish only validated output. Failures leave existing campaigns untouched.
+
+Reason: accept a product designer's Blender file without requiring a separate GLB export, while keeping the real renderer, selection tree, material editing and export paths shared. Scope: Product importer/UI, local Blender converter, CLI, README and real-product workflow notes.
+
+Verification: production build, 44 product/scene tests, 14 API tests and all 14 converter tests passed, including the real Blender cases. Checked saved-frame geometry and animated material values, millimeter normalization, hierarchy, evaluated modifiers, hidden collections, mirrored winding, packed artwork after deleting its external image, disabled file scripts and failure cleanup. Browser import displayed the fixture with its nested parts and measured 130 × 35 × 40 mm dimensions; existing user campaigns were untouched.
+
+
+### 2026-10-19 — D85 — Convert simple Blender glass without baking its appearance
+
+**In code.** Accept a Glass BSDF connected directly, or through reroutes, to the active material surface. Convert it in the isolated importer to a Principled transmission material: transmission 1, metallic 0, alpha 1, with the saved-frame color, roughness, IOR and supported tangent normal maps. Preserve shared material identity and packed textures. Resolve constant linked IOR and normal strength into numeric values because the pinned exporter otherwise drops those links. The original `.blend` remains unchanged.
+
+Record the named conversion in import notices and metadata. This is a material-model approximation, not optical equivalence with Blender. Do not invent wall thickness; browser transmission does not reproduce nested glass/liquid ray tracing. Shader mixtures, volume absorption/scattering, varying IOR and unsupported normal inputs remain explicit errors instead of becoming silently opaque or losing their settings.
+
+Reason: a perfume liquid using ordinary Glass BSDF was rejected by D84's Principled-only allowlist. Surface transmission and refraction cannot be retained by baking an image of their appearance. Refines D84's supported-material contract. Scope: scripts/import_blend_product.py, its real Blender tests and README.
+
+Verification: the 18-case converter suite passed with Blender 4.3.2; three focused checks passed after the final normal-input guard, covering 20 unique cases in total. These include shared Glass surfaces, saved-frame roughness/IOR, packed color/normal maps, rerouted Value inputs, unchanged source hashes and explicit rejection of unsupported mixtures, volumes and varying inputs. A CLI product import succeeded; the app's installed Three GLTFLoader read its two LiquidPerfume meshes as MeshPhysicalMaterial with transmission 1, IOR 1.47, roughness 0.23 and opaque alpha. Syntax and whitespace checks passed. This validates conversion and material values, not a visual match to the user's unseen source scene.
+
+
+### 2026-10-19 — D86 — Preserve masked surfaces and procedural finishes during import
+
+**In code.** Normalize Mix Shader branches made from Principled and Glass surfaces into spatial PBR parameters, respecting the original factor and branch order. Require matching IOR rather than averaging two optical media. Constant endpoint factors discard only the mathematically unused branch. Bake unsupported linked surface inputs into separate 1024 px color, roughness, metallic, transmission, alpha and tangent normal maps with local Cycles; retain ordinary exportable image inputs. This stores surface properties, not scene lighting or a rendered view. Mixed reflectance remains a documented approximation.
+
+Bake evaluated local geometry before normalizing its world transform. Preserve original UV references for artwork; generate a separate atlas when existing UVs overlap, degenerate or lie outside the usable range. Copy materials per object when object-dependent maps require it. Bound work to 48 images / 32 megapixels and the existing conversion timeout. Keep ray-dependent graphs, volumes, incompatible branches and varying IOR explicit errors. Record the map channels, object, source material, atlas and resolution in import metadata and notices. The source `.blend` is never saved.
+
+Handle a legacy curve's dependency-graph self-entry without treating it as a real instance; genuine instances still require realization. Cache evaluated transforms/material IDs before scene switches and reacquire UV handles after atlas creation to avoid invalid Blender data references during baking.
+
+Reason: the supplied perfume bottle uses an image mask to separate printed detail from glass, another mask for its label, and procedural finishes on its cap and cord. Removing the Mix Shader error alone would lose those regions or expose the next unsupported material. Supersedes D84/D85's blanket rejection of shader mixtures and procedural surface inputs for these supported cases. Scope: Blender importer, blend_material_mix, blend_material_bake, native import tests and README.
+
+Verification: the full 22-case converter suite and a genuine-instance safeguard passed (23 unique cases). Pixel tests verify correlated masked color/transmission/roughness and gold/dark label regions, plus non-flat procedural roughness and tangent normals. The exact user-supplied bottle completed import: 12 meshes, 17 generated maps, 12.68 MiB GLB, unchanged source hash. The local editor displayed the bottle, printed detail and label without console errors in an isolated campaign. Syntax and whitespace checks passed. This verifies the import and browser presentation; it does not claim optical equivalence with the source Cycles scene.
+
+
+### 2026-10-20 — D87 — Import the product without its studio setup
+
+**In code.** Before material validation, baking or dimension measurement, exclude Blender cameras/lights/helpers and conservatively identified scene surfaces. Automatic ground/backdrop removal requires a named planar surface, scale separation and a plane outside the product. A lighting card must be named, planar, emissive and separated from the product. Shared product ancestry protects flat and emissive parts. Unknown geometry stays. Only inspect geometry when a plausible setup name exists; cap that inspection at two million vertices and fall back to explicit roles above the budget.
+
+Use the string custom property `gesso_role=product` or `gesso_role=environment` on objects or collections for other files. The nearest object/parent tag wins over collection roles; conflicting collection memberships favor product. A product child can override an environment parent. Bypass excluded ancestors while preserving world-space geometry and the remaining hierarchy. Scope material, library and instance checks to retained content so unrelated setup does not block import. Retain actionable errors for unsupported product content.
+
+Report excluded names in the import notice and reasons in bounded metadata. Keep the source file unchanged; do not silently rewrite existing campaigns. Reimport to apply the new extraction. Reason: the supplied perfume file contains a large Ground plane and an emissive FillLight mesh that were previously measured as product parts. Refines D84's snapshot boundary. Scope: blend_scene_filter, Blender converter, native import tests and README.
+
+Verification: all 26 native Blender import tests passed, including scene-plane exclusion, preserved labels/base/screen/unknown planes, explicit overrides, unsupported environment materials and particles, excluded-ancestor bypass and unchanged source hashes. The supplied bottle imports as 10 product meshes with all 17 generated maps; Ground, FillLight and Camera are excluded. The resulting GLB is 12.67 MiB. Original material conversion limits still apply.
+
+Pre-push checks: 944 web tests passed with two workers; the default highly parallel run had timed out in two exhaustive geometry tests. The Python suite ran 397 tests with 31 optional integrations skipped, and the native import suite ran separately. Production build, nine capture-script tests and whitespace checks passed. Compared all retained bottle triangles against the prior conversion: geometry is unchanged apart from recentering and float rounding. Also fixed empty legacy Film recovery and publishing the updated movie duration when creating a scene.

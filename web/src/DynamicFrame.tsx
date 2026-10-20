@@ -1,15 +1,16 @@
-import {createContext, forwardRef, useContext, useId, useLayoutEffect, useRef, type HTMLAttributes, type ReactNode, type Ref} from 'react';
-import {framePath, loadingFrameNodes, roundedFrameNodes, type FrameNodes} from './frameGeometry';
+import {createContext, forwardRef, useCallback, useContext, useId, useLayoutEffect, useRef, useState, type HTMLAttributes, type ReactNode, type Ref} from 'react';
+import {frameBounds,framePath, loadingFrameNodes, roundedFrameNodes, type FrameBounds,type FrameNodes} from './frameGeometry';
 import {entranceEase} from './studioEntrance';
-import {createFrameMorph} from './frameMorph';
+import {createFrameMorph,createFrameTransition,DEFAULT_FRAME_SHRINK,normalizeFrameShrink} from './frameMorph';
 import {STATIC_MOTION_QUERY} from './motionPolicy';
 import {createStudioExpansion,studioLoadingNodes} from './studioLoading';
 import {frameGuidePaths} from './frameGuides';
+import {frameHaloRegion} from './frameHalo';
 import './dynamic-frame.css';
 
 export type FrameRoute = 'landing' | 'about' | 'philosophy' | 'studio';
 export type FrameVisual = {nodes:FrameNodes; ground:string; fill:string; halo:{color:string; blur:number; spread:number; opacity:number}};
-type FrameElements = {root:HTMLElement; path:SVGPathElement; outside?:SVGPathElement; guides?:SVGPathElement; guideCrosses?:SVGPathElement; halo:SVGUseElement; fill:SVGUseElement; blur:SVGFEGaussianBlurElement};
+type FrameElements = {root:HTMLElement; path:SVGPathElement; outside?:SVGPathElement; guides?:SVGPathElement; guideCrosses?:SVGPathElement; halo:SVGUseElement; fill:SVGUseElement; light:SVGFilterElement; blur:SVGFEGaussianBlurElement};
 type Travel = {from:FrameVisual; weights:Record<FrameRoute,number>; destination:FrameRoute; start:number; duration:number; loading:boolean; opening:boolean; to:FrameVisual; morph:ReturnType<typeof createFrameMorph>};
 const routes:FrameRoute[] = ['landing','about','philosophy','studio'];
 const weights = (page?:FrameRoute):Record<FrameRoute,number> => Object.fromEntries(routes.map(route=>[route,route===page?1:0])) as Record<FrameRoute,number>;
@@ -50,6 +51,7 @@ export class FrameDriver {
   private painted=new WeakMap<object,Map<string,string>>();
   private hostStates=new WeakMap<HTMLElement,{amount:number;visible:boolean;interactive:boolean}>();
   private pathNodes:FrameNodes|null=null;
+  private contourBounds:FrameBounds|null=null;
   private pathData='';
   private guideData='';
   private guideCrossData='';
@@ -63,6 +65,7 @@ export class FrameDriver {
   pending=false;
   waiting=false;
   reduced=false;
+  transitionShrink=DEFAULT_FRAME_SHRINK;
   private frame=0;
   private lastTime=0;
   private alive=false;
@@ -73,7 +76,14 @@ export class FrameDriver {
   private studioFailed=false;
   onSettled:(page:FrameRoute)=>void=()=>{};
   onWaiting:(waiting:boolean)=>void=()=>{};
-  constructor(initial:FrameRoute,readonly pathId:string) {this.target=initial;this.currentWeights=weights(initial);}
+  constructor(initial:FrameRoute,readonly pathId:string) {
+    this.target=initial;this.currentWeights=weights(initial);
+    try{this.transitionShrink=normalizeFrameShrink(JSON.parse(localStorage.getItem('gesso.frame-shrink.v1')??'null'));}catch{/* Unavailable or stale local setting. */}
+  }
+  setTransitionShrink(value:number) {
+    this.transitionShrink=normalizeFrameShrink(value);
+    try{localStorage.setItem('gesso.frame-shrink.v1',JSON.stringify(this.transitionShrink));}catch{/* Local storage is optional. */}
+  }
   attach(elements:FrameElements) {
     this.elements=elements;this.alive=true;this.painted=new WeakMap();this.hostStates=new WeakMap();this.pathNodes=null;
     this.preference=matchMedia(STATIC_MOTION_QUERY);this.reduced=this.preference.matches;
@@ -143,7 +153,8 @@ export class FrameDriver {
   private begin(from:FrameVisual,to:FrameVisual,now:number,duration:number,loading=false,opening=false):Travel {
     // Prepare correspondence once. Intermediate frames only evaluate the pose;
     // interruptions start with the actual displayed contour, never an old endpoint.
-    return {from,to,morph:(opening?createStudioExpansion:createFrameMorph)(from.nodes,to.nodes),weights:{...this.currentWeights},
+    const morph=opening?createStudioExpansion(from.nodes,to.nodes):loading?createFrameMorph(from.nodes,to.nodes):createFrameTransition(from.nodes,to.nodes,this.transitionShrink);
+    return {from,to,morph,weights:{...this.currentWeights},
       destination:this.target,start:now,duration,loading,opening};
   }
   private start(now:number) {
@@ -211,10 +222,11 @@ export class FrameDriver {
   }
   private paint() {
     if(!this.current||!this.elements)return;
-    const {root,path,outside,guides,guideCrosses,fill,halo,blur}=this.elements,v=this.current;
+    const {root,path,outside,guides,guideCrosses,fill,halo,light,blur}=this.elements,v=this.current;
     const viewport=`${innerWidth},${innerHeight}`;
+    if(this.pathNodes!==v.nodes)this.contourBounds=frameBounds(v.nodes);
     if(this.pathNodes!==v.nodes||this.guideViewport!==viewport) {
-      const guidePaths=frameGuidePaths(v.nodes,innerWidth,innerHeight);
+      const guidePaths=frameGuidePaths(v.nodes,innerWidth,innerHeight,this.contourBounds!);
       this.guideData=guidePaths.lines;this.guideCrossData=guidePaths.crosses;this.guideViewport=viewport;
     }
     if(this.pathNodes!==v.nodes){this.pathNodes=v.nodes;this.pathData=framePath(v.nodes);}
@@ -226,6 +238,10 @@ export class FrameDriver {
     this.attribute(halo,'display',v.halo.opacity>0?'inline':'none');
     this.attribute(halo,'opacity',String(v.halo.opacity));
     if(v.halo.opacity>0) {
+      // Pixel padding follows the blur, even when the contour becomes a thin
+      // oval. Percentage filter bounds squeezed the halo into a visible box.
+      const region=frameHaloRegion(this.contourBounds!,v.halo.blur,v.halo.spread);
+      for(const key of ['x','y','width','height'] as const)this.attribute(light,key,String(region[key]));
       // Expand the vector before blurring. Pixel dilation (feMorphology) was
       // the measured frame bottleneck; the shared contour stays full resolution.
       this.attribute(halo,'fill',v.halo.color);this.attribute(halo,'stroke',v.halo.color);
@@ -253,6 +269,15 @@ export class FrameDriver {
 const FrameContext=createContext<FrameDriver|null>(null);
 export function FrameProvider({driver,children}:{driver:FrameDriver;children:ReactNode}) {return <FrameContext.Provider value={driver}>{children}</FrameContext.Provider>;}
 export function useFrameInvalidation() {const driver=useContext(FrameContext);return driver?.invalidate??(()=>{});}
+export function useFrameTransitionShrink() {
+  const driver=useContext(FrameContext);
+  const [shrink,setShrink]=useState(()=>driver?.transitionShrink??DEFAULT_FRAME_SHRINK);
+  const update=useCallback((value:number)=>{
+    const next=normalizeFrameShrink(value);
+    driver?.setTransitionShrink(next);setShrink(next);
+  },[driver]);
+  return [shrink,update] as const;
+}
 export function useFrameSource(page:FrameRoute,source:()=>FrameVisual|null) {
   const driver=useContext(FrameContext),read=useRef(source);read.current=source;
   useLayoutEffect(()=>driver?.register(page,()=>read.current()),[driver,page]);
@@ -288,7 +313,7 @@ export const FrameOutside=forwardRef<HTMLElement,HTMLAttributes<HTMLElement>&{as
 });
 
 export function FrameRenderer({driver}:{driver:FrameDriver}) {
-  const root=useRef<HTMLDivElement>(null),path=useRef<SVGPathElement>(null),outside=useRef<SVGPathElement>(null),guides=useRef<SVGPathElement>(null),guideCrosses=useRef<SVGPathElement>(null),halo=useRef<SVGUseElement>(null),fill=useRef<SVGUseElement>(null),blur=useRef<SVGFEGaussianBlurElement>(null);
-  useLayoutEffect(()=>{if(root.current&&path.current&&halo.current&&fill.current&&blur.current)return driver.attach({root:root.current,path:path.current,outside:outside.current??undefined,guides:guides.current??undefined,guideCrosses:guideCrosses.current??undefined,halo:halo.current,fill:fill.current,blur:blur.current});},[driver]);
-  return <><div className="dynamic-frame-renderer" ref={root} aria-hidden="true"><svg className="dynamic-frame-artwork"><defs><path id={driver.pathId} ref={path}/><path id={`${driver.pathId}-outside`} ref={outside} fillRule="evenodd"/><filter id={`${driver.pathId}-light`} x="-70%" y="-100%" width="240%" height="300%" colorInterpolationFilters="sRGB"><feGaussianBlur ref={blur} stdDeviation="0"/></filter></defs><use ref={halo} href={`#${driver.pathId}`} strokeLinejoin="round" filter={`url(#${driver.pathId}-light)`}/><use ref={fill} href={`#${driver.pathId}`}/></svg></div><svg className="dynamic-frame-guides" aria-hidden="true"><path ref={guides} className="frame-boundary-guides"/><path ref={guideCrosses} className="frame-boundary-crosses"/></svg></>;
+  const root=useRef<HTMLDivElement>(null),path=useRef<SVGPathElement>(null),outside=useRef<SVGPathElement>(null),guides=useRef<SVGPathElement>(null),guideCrosses=useRef<SVGPathElement>(null),halo=useRef<SVGUseElement>(null),fill=useRef<SVGUseElement>(null),light=useRef<SVGFilterElement>(null),blur=useRef<SVGFEGaussianBlurElement>(null);
+  useLayoutEffect(()=>{if(root.current&&path.current&&halo.current&&fill.current&&light.current&&blur.current)return driver.attach({root:root.current,path:path.current,outside:outside.current??undefined,guides:guides.current??undefined,guideCrosses:guideCrosses.current??undefined,halo:halo.current,fill:fill.current,light:light.current,blur:blur.current});},[driver]);
+  return <><div className="dynamic-frame-renderer" ref={root} aria-hidden="true"><svg className="dynamic-frame-artwork"><defs><path id={driver.pathId} ref={path}/><path id={`${driver.pathId}-outside`} ref={outside} fillRule="evenodd"/><filter ref={light} id={`${driver.pathId}-light`} filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" x="0" y="0" width="1" height="1" colorInterpolationFilters="sRGB"><feGaussianBlur ref={blur} stdDeviation="0"/></filter></defs><use ref={halo} href={`#${driver.pathId}`} strokeLinejoin="round" filter={`url(#${driver.pathId}-light)`}/><use ref={fill} href={`#${driver.pathId}`}/></svg></div><svg className="dynamic-frame-guides" aria-hidden="true"><path ref={guides} className="frame-boundary-guides"/><path ref={guideCrosses} className="frame-boundary-crosses"/></svg></>;
 }

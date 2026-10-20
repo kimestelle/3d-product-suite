@@ -1,92 +1,64 @@
-import {choosePhilosophyStop,createScrollSettle,scrollSettlePosition,type ScrollSettle} from './philosophyMotion';
+import {createScrollParticle,DEFAULT_SCROLL_TUNING,normalizeStops,normalizeScrollTuning,pushScrollParticle,stepScrollParticle,type ScrollTuning} from './philosophyScrollPhysics';
+import type {ScrollDebugSnapshot} from './PhilosophyScrollDebug';
 
 export const PHILOSOPHY_SETTLE_QUERY='(min-width: 901px) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)';
-type Options={stops:()=>readonly number[];schedule:()=>void};
+type Options={stops:()=>readonly number[];schedule:()=>void;tuning?:()=>ScrollTuning};
 
-/** Native input owns the gesture. Only a nearby stop ahead is approached, using
- * the page's existing RAF and real scrollTop. No wheel interception, second
- * visual playhead, or competing CSS snap animation. */
-export function createPhilosophyScroll(root:HTMLElement,{stops,schedule}:Options) {
+/** One position and velocity drive the real scroll offset. Desktop wheel input
+ * supplies impulses to that same motion; there is no scrollend/debounce handoff.
+ * Touch, reduced motion, fine keyboard reading and nested controls stay native. */
+export function createPhilosophyScroll(root:HTMLElement,{stops,schedule,tuning=()=>DEFAULT_SCROLL_TUNING}:Options) {
   const policy=matchMedia(PHILOSOPHY_SETTLE_QUERY);
-  const hasScrollEnd='onscrollend' in root;
-  const fallbackQuiet=80;
-  let plan:ScrollSettle|null=null,timer=0,armed=false,heldKey=false,pointerDown=false,nativeEnded=false,writing=false;
-  let origin=root.scrollTop,lastY=origin,lastSample=0,lastInput=0,velocity=0;
-  const clearTimer=()=>{window.clearTimeout(timer);timer=0;};
-  const cancel=()=>{plan=null;armed=false;nativeEnded=false;velocity=0;clearTimer();};
-  const enabled=()=>policy.matches&&!document.hidden;
-  const queue=(delay:number)=>{clearTimer();timer=window.setTimeout(settle,delay);};
-  const settle=()=>{
-    timer=0;
-    if(!armed||plan||!enabled()||heldKey||pointerDown)return;
-    if(hasScrollEnd&&!nativeEnded)return;
-    const now=performance.now();
-    // scrollend already means the gesture and native momentum have finished.
-    // Another debounce here creates a visible stop before the settle starts.
-    if(!hasScrollEnd){
-      const quiet=now-Math.max(lastInput,lastSample);
-      if(quiet<fallbackQuiet){queue(fallbackQuiet-quiet);return;}
-    }
-    armed=false;
-    if(window.getSelection()?.isCollapsed===false)return;
-    const position=root.scrollTop,maximum=Math.max(0,root.scrollHeight-root.clientHeight);
-    const releaseVelocity=velocity*Math.exp(-Math.max(0,now-lastSample)/120);
-    const destination=choosePhilosophyStop(position,releaseVelocity,origin,stops(),maximum);
-    if(Math.abs(destination-position)<=.5)return;
-    plan=createScrollSettle(position,destination,releaseVelocity,now);schedule();
+  let particle=createScrollParticle(root.scrollTop,performance.now());
+  let running=false,writing=false,pointerDown=false,lastTime=performance.now(),lastWritten=root.scrollTop;
+  let target:number|null=null,force=0;
+  const maximum=()=>Math.max(0,root.scrollHeight-root.clientHeight);
+  const enabled=()=>policy.matches&&tuning().enabled&&!document.hidden;
+  const debugTarget=(event:Event)=>Boolean((event.target as Element)?.closest?.('[data-scroll-debug]'));
+  const cancel=()=>{
+    particle=createScrollParticle(root.scrollTop,performance.now());
+    running=false;target=null;force=0;lastWritten=root.scrollTop;lastTime=performance.now();
   };
-  const begin=()=>{
-    if(!enabled())return;
-    const now=performance.now();
-    // Passive wheel delivery may follow the compositor's position update.
-    // Keep the last observed offset so the first delta is not swallowed.
-    if(plan||!armed||now-lastInput>240){origin=lastY;lastSample=now;velocity=0;}
-    plan=null;clearTimer();armed=true;nativeEnded=false;lastInput=now;
+  const skipWheel=(event:WheelEvent)=>{
+    if(pointerDown||event.ctrlKey||event.metaKey||event.shiftKey||!event.cancelable||!event.deltaY||Math.abs(event.deltaX)>Math.abs(event.deltaY))return true;
+    if(window.getSelection()?.isCollapsed===false)return true;
+    const element=event.target as Element;
+    if(element?.closest?.('input,textarea,select,[contenteditable="true"],[data-scroll-debug]'))return true;
+    // A nested scrollable surface keeps its own native wheel behavior, even at
+    // its edge. It must never become an unexpected impulse for the page.
+    for(let node=element;node&&node!==root;node=node.parentElement!){
+      if(node instanceof HTMLElement&&node.scrollHeight>node.clientHeight+1&&/(auto|scroll)/.test(getComputedStyle(node).overflowY))return true;
+    }
+    return false;
   };
   const wheel=(event:WheelEvent)=>{
-    if(event.ctrlKey||Math.abs(event.deltaX)>Math.abs(event.deltaY)||!event.deltaY){cancel();return;}
-    begin();
-    if(!hasScrollEnd)queue(fallbackQuiet);
+    if(!enabled()||skipWheel(event)){if(!debugTarget(event))cancel();return;}
+    const now=performance.now();
+    if(Math.abs(root.scrollTop-lastWritten)>.75)cancel();
+    if(!running){particle.position=root.scrollTop;lastTime=now;}
+    const unit=event.deltaMode===1?16:event.deltaMode===2?root.clientHeight:1;
+    const delta=event.deltaY*unit;
+    // At a document edge, leave outward input to native browser behavior.
+    if((root.scrollTop<=0&&delta<0)||(root.scrollTop>=maximum()-.5&&delta>0)){cancel();return;}
+    event.preventDefault();
+    particle=pushScrollParticle(particle,delta,now,stops(),maximum(),normalizeScrollTuning(tuning()));
+    running=true;schedule();
   };
   const scroll=()=>{
-    // Our own scroll events may arrive after the write, or synchronously in a
-    // host. Any different native offset means momentum/input has taken over.
-    if(plan&&!writing&&Math.abs(root.scrollTop-lastY)>.5)cancel();
-    if(!armed||plan){lastY=root.scrollTop;lastSample=performance.now();return;}
-    nativeEnded=false;
-    const now=performance.now(),y=root.scrollTop,dy=y-lastY;
-    if(dy){
-      const dt=Math.max(16,Math.min(120,now-lastSample));
-      const next=Math.max(-4,Math.min(4,dy/dt));
-      velocity=Math.sign(next)!==Math.sign(velocity)?next:velocity+(next-velocity)*(1-Math.exp(-dt/45));
-      lastSample=now;lastY=y;
-    }
-    if(!hasScrollEnd)queue(fallbackQuiet);
+    if(writing)return;
+    if(Math.abs(root.scrollTop-lastWritten)>.75)cancel();
   };
-  const scrollEnd=()=>{nativeEnded=true;if(armed&&!plan)settle();};
-  const keyDown=(event:KeyboardEvent)=>{
-    cancel();
-    // Preserve fine reading, focus, Find and Home/End. Paging is a section gesture.
-    if(!['PageDown','PageUp'].includes(event.key)||event.ctrlKey||event.metaKey||event.altKey)return;
-    if((event.target as Element)?.closest('input,textarea,select,[contenteditable="true"]'))return;
-    heldKey=true;begin();
-  };
-  const keyUp=(event:KeyboardEvent)=>{
-    if(!['PageDown','PageUp'].includes(event.key))return;
-    heldKey=false;if(armed&&(!hasScrollEnd||nativeEnded))settle();
-  };
-  const pointerStart=()=>{pointerDown=true;cancel();};
-  const pointerEnd=()=>{pointerDown=false;if(armed&&(!hasScrollEnd||nativeEnded))settle();};
-  const blur=()=>{heldKey=false;pointerDown=false;cancel();};
+  const keyDown=(event:KeyboardEvent)=>{if(!debugTarget(event))cancel();};
+  const pointerStart=(event:PointerEvent)=>{if(debugTarget(event))return;pointerDown=true;cancel();};
+  const pointerEnd=()=>{pointerDown=false;};
+  const focus=(event:FocusEvent)=>{if(!debugTarget(event))cancel();};
+  const blur=()=>{pointerDown=false;cancel();};
   const visibility=()=>{if(document.hidden)blur();};
-  const focus=()=>cancel();
-  root.addEventListener('wheel',wheel,{passive:true});
+  root.addEventListener('wheel',wheel,{passive:false});
   root.addEventListener('scroll',scroll,{passive:true});
-  root.addEventListener('scrollend',scrollEnd);
   root.addEventListener('keydown',keyDown);
   root.addEventListener('pointerdown',pointerStart,{passive:true});
   root.addEventListener('focusin',focus);
-  window.addEventListener('keyup',keyUp);
   window.addEventListener('pointerup',pointerEnd,{passive:true});
   window.addEventListener('pointercancel',pointerEnd,{passive:true});
   window.addEventListener('blur',blur);
@@ -94,26 +66,37 @@ export function createPhilosophyScroll(root:HTMLElement,{stops,schedule}:Options
   policy.addEventListener('change',cancel);
   return {
     cancel,
-    /** Called before the page samples scrollTop; true requests another frame. */
+    seek(index:number){
+      const destination=normalizeStops(stops(),maximum())[index];
+      if(destination===undefined)return;
+      if(!enabled()){
+        cancel();root.scrollTo({top:destination,behavior:'instant'});lastWritten=root.scrollTop;schedule();return;
+      }
+      if(!running)particle=createScrollParticle(root.scrollTop,performance.now());
+      particle.goal=destination;particle.blockedStop=null;
+      lastTime=performance.now();target=destination;running=true;schedule();
+    },
+    snapshot():ScrollDebugSnapshot{
+      const active=enabled();
+      return {position:root.scrollTop,velocity:running?particle.velocity:0,force,target,
+        stops:normalizeStops(stops(),maximum()),phase:!active?'native':!running?'resting':performance.now()-particle.lastInput<90?'rolling':'settling',
+        enabled:active,reason:!policy.matches?'Native · compact, touch or reduced motion':!tuning().enabled?'Native scrolling':document.hidden?'Paused · page hidden':'Wheel drives the same position as the frame'};
+    },
+    /** The page calls this before drawing its contour and flowing its text. */
     advance(now:number){
-      if(!plan)return false;
-      if(!enabled()||Math.abs(root.scrollTop-lastY)>.5){cancel();return false;}
-      const finished=now>=plan.start+plan.duration;
+      if(!running)return false;
+      if(!enabled()||Math.abs(root.scrollTop-lastWritten)>.75){cancel();return false;}
+      const result=stepScrollParticle(particle,Math.max(0,(now-lastTime)/1000),now,stops(),maximum(),normalizeScrollTuning(tuning()));
+      particle=result.state;target=result.target;force=result.force;lastTime=now;
       writing=true;
-      try{root.scrollTo({top:finished?plan.to:scrollSettlePosition(plan,now),behavior:'instant'});}
-      finally{writing=false;}
-      lastY=root.scrollTop;lastSample=now;
-      if(finished)plan=null;
-      return !finished;
+      try{root.scrollTo({top:particle.position,behavior:'instant'});}finally{writing=false;}
+      lastWritten=root.scrollTop;running=result.active;
+      return running;
     },
     dispose(){
-      cancel();
-      root.removeEventListener('wheel',wheel);root.removeEventListener('scroll',scroll);
-      root.removeEventListener('scrollend',scrollEnd);root.removeEventListener('keydown',keyDown);
-      root.removeEventListener('pointerdown',pointerStart);root.removeEventListener('focusin',focus);
-      window.removeEventListener('keyup',keyUp);window.removeEventListener('pointerup',pointerEnd);
-      window.removeEventListener('pointercancel',pointerEnd);
-      window.removeEventListener('blur',blur);
+      cancel();root.removeEventListener('wheel',wheel);root.removeEventListener('scroll',scroll);
+      root.removeEventListener('keydown',keyDown);root.removeEventListener('pointerdown',pointerStart);root.removeEventListener('focusin',focus);
+      window.removeEventListener('pointerup',pointerEnd);window.removeEventListener('pointercancel',pointerEnd);window.removeEventListener('blur',blur);
       document.removeEventListener('visibilitychange',visibility);policy.removeEventListener('change',cancel);
     },
   };

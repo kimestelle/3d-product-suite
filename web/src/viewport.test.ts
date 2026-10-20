@@ -1044,3 +1044,23 @@ describe('material assignment hover', () => {
     expect(bodyMesh.material).toBe(bodyMaterial); expect((cap.children[0] as THREE.Mesh).material).toBe(capMaterial);
   });
 });
+
+
+describe('film image and gap presentation', () => {
+  it('draws flat content on the same canvas without sorting or rendering the 3D world', async () => {
+    const view = viewport();
+    view.filmContent = true; view.filmClip = {kind: 'black'};
+    view.pendingSize = {width: 800, height: 600};
+    view.sampledLoadVersion = 1; view.unpresentedLoadVersion = 1;
+    view.options.onPresented = vi.fn(); view.options.onFilmGuide = vi.fn();
+    view.imageRenderer = {draw: vi.fn()};
+    view.renderer = {setSize: vi.fn(), render: vi.fn()};
+    view.spark = {update: vi.fn()};
+    vi.spyOn(view, 'canDraw').mockReturnValue(true);
+    await view.draw(false, 1);
+    expect(view.imageRenderer.draw).toHaveBeenCalledWith(view.renderer, {kind: 'black'}, view.pendingSize, {x: 0, y: 0, width: 800, height: 600});
+    expect(view.spark.update).not.toHaveBeenCalled(); expect(view.renderer.render).not.toHaveBeenCalled();
+    expect(view.options.onFilmGuide).toHaveBeenCalledWith(null);
+    expect(view.options.onPresented).toHaveBeenCalledTimes(1);
+  });
+});

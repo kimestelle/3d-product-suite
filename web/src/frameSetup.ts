@@ -25,6 +25,7 @@ function commit<T>(scene: any, operation: (draft: any) => T): T {
   const result = operation(draft);
   validateFilmMotions(draft);
   scene.shots = draft.shots;
+  scene.render = draft.render;
   return result;
 }
 function objectTargets(scene: any, targets: string[]): string[] {
@@ -46,13 +47,13 @@ export function frameObjectMotionKinds(scene: any, targets: string[]): MotionKin
     && targets.every(target => availableMotionKinds(scene, target).includes(kind)));
 }
 
-export function createFrameSetup(scene: any, afterShotId: string): FrameSetup {
+export function createFrameSetup(scene: any, afterShotId?: string): FrameSetup {
   return commit(scene, draft => {
     const shotId = addShot(draft, afterShotId);
-    const names = new Set(draft.shots.map((shot: any) => shot.name));
-    let number = draft.shots.length;
-    while (names.has(`Frame ${number}`)) number++;
-    shotFor(draft, shotId).name = `Frame ${number}`;
+    const names = new Set(draft.shots.filter((shot: any) => shot.id !== shotId).map((shot: any) => shot.name));
+    let name = 'Untitled', number = 2;
+    while (names.has(name)) name = `Untitled ${number++}`;
+    shotFor(draft, shotId).name = name;
     return {shotId, stage: 'objects', targets: ['$product'], objectKind: null, objectMotionIds: [],
       cameraTarget: '$product', cameraKind: null, cameraMotionId: null};
   });

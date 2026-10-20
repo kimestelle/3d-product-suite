@@ -1,10 +1,17 @@
 import {describe, expect, it} from 'vitest';
-import {combinedExportJobs, normalizePairExportJob, exportBlockReason, exportDimensions, exportDownloadUrl, exportFilename, exportProgress, formatsForMode, makeExportPayload, primaryExportArtifact, type ExportJob, type ExportScene} from './exportModel';
+import {combinedExportJobs, normalizePairExportJob, exportBlockReason, exportDimensions, exportDownloadUrl, exportFilename, exportProgress, formatsForMode, makeExportPayload, primaryExportArtifact, totalExportFrames, type ExportJob, type ExportScene} from './exportModel';
 const scene: ExportScene = {render: {width: 1080, height: 1920, fps: 24, samples: 32}, shots: [{endFrame: 120}, {endFrame: 240}, {endFrame: 360}]};
 const settings = {mode: 'still' as const, format: 'png' as const, filename: 'Nessino.png', frame: 172, scale: 1 as const, samples: 128};
 const job: ExportJob = {id: 'render-1', kind: 'reel', state: 'succeeded', format: 'prores', completedFrames: 360, totalFrames: 360, artifacts: [{name: 'film.mov', url: '/api/jobs/render-1/files/film.mov'}, {name: 'scene.blend', url: '/api/jobs/render-1/files/scene.blend'}]};
 
 describe('Export settings and deliverables', () => {
+  it('exports the full movie duration including gaps and a blank tail', () => {
+    const movie = {...scene, render: {...scene.render, durationFrames: 480}};
+    expect(totalExportFrames(movie)).toBe(480);
+    expect(makeExportPayload(movie, {...settings, frame: 450}).frame).toBe(450);
+    expect(() => makeExportPayload(movie, {...settings, frame: 481})).toThrow('current film');
+    expect(totalExportFrames({...scene, shots: [...scene.shots!].reverse()})).toBe(360);
+  });
   it('snapshots the selected frame and samples without modifying the working composition', () => {
     const before = structuredClone(scene);
     expect(makeExportPayload(scene, settings)).toEqual({kind: 'still', format: 'png', filename: 'Nessino', frame: 172, width: 1080, height: 1920, samples: 128});

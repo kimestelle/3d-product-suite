@@ -1,7 +1,7 @@
 import {renderToStaticMarkup} from 'react-dom/server';
 import {describe, expect, it} from 'vitest';
 import fixture from '../../examples/bottle.scene.json';
-import {FilmInspector, FilmObjects, FilmTimeline, filmTargetName, motionBounds, motionMeasure, type FilmWorkspaceProps} from './FilmWorkspace';
+import {FilmInspector, FilmObjects, FilmShotHeader, FilmTimeline, filmTargetName, motionBounds, motionMeasure, type FilmWorkspaceProps} from './FilmWorkspace';
 import {addMotion, changeMotionScope, listMotions} from './filmMotion';
 
 const noop = () => {};
@@ -16,8 +16,15 @@ describe('Film workspace ownership and editing context', () => {
     expect(html).toContain('Shot objects');
     expect(html).toContain('Whole product');
     expect(html).toContain('Camera');
-    expect(html).toContain('Orbit');
-    expect(html).toContain('Push in');
+    expect(html).toContain('film-parts-disclosure');
+    expect(html).toContain('>Parts</span>');
+    expect(html).not.toContain('Orbit');
+    expect(html).not.toContain('Push in');
+    expect(html).not.toContain('Add motion');
+    expect(html).not.toContain('film-object-motions');
+    const inspector = renderToStaticMarkup(<FilmInspector {...props}/>);
+    expect(inspector).toContain('Orbit');
+    expect(inspector).toContain('Push in');
     expect(html.match(/class="film-object-name"/g)).toHaveLength(props.scene.product.components.length + 2);
     expect(html).not.toContain('Custom keyframes');
   });
@@ -37,7 +44,7 @@ describe('Film workspace ownership and editing context', () => {
 
   it('retains existing film-wide animation and makes its scope explicit', () => {
     const props = context(); props.selectedTarget = props.scene.actions[0].componentId;
-    const before = structuredClone(props.scene), html = renderToStaticMarkup(<FilmObjects {...props}/>);
+    const before = structuredClone(props.scene), html = renderToStaticMarkup(<FilmInspector {...props}/>);
     expect(html).toContain('Existing animation');
     expect(html).toContain('Across cuts');
     expect(html).toContain('Edit existing keys');
@@ -46,7 +53,7 @@ describe('Film workspace ownership and editing context', () => {
 
   it('keeps custom channels reachable for an object without existing animation', () => {
     const props = context(); props.selectedTarget = '$product';
-    const html = renderToStaticMarkup(<FilmObjects {...props}/>);
+    const html = renderToStaticMarkup(<FilmInspector {...props}/>);
     expect(html).toContain('Custom keyframes');
     expect(html).toContain('Direct transform keys use the film clock.');
   });
@@ -57,10 +64,18 @@ describe('Film workspace ownership and editing context', () => {
     const html = renderToStaticMarkup(<FilmInspector {...props}/>);
     for (const label of ['Motion amount', 'Motion axis', 'Motion start', 'Motion duration', 'Motion easing', 'Motion scope']) expect(html).toContain(`aria-label="${label}"`);
     expect(html).toContain('>mm<');
-    expect(html).toContain('This shot');
+    expect(html).toContain('This scene');
     expect(html).toContain('Across cuts');
     expect(html).toContain('Edit curve');
     expect(html).toContain('Remove motion');
+    const details = html.split('film-motion-details')[1];
+    expect(details).toContain('Motion start');
+    expect(details).toContain('Motion duration');
+    expect(details).toContain('Motion scope');
+    expect(details).toContain('Edit curve');
+    expect(details).not.toContain('Motion amount');
+    expect(html.indexOf('Motion amount')).toBeLessThan(html.indexOf('film-pose-disclosure'));
+    expect(html).not.toContain('film-pose-disclosure\" open');
   });
 
   it('shows existing static framing in Still without exposing animation controls or losing authored motions', () => {
@@ -76,31 +91,38 @@ describe('Film workspace ownership and editing context', () => {
     expect(props.scene).toEqual(before);
   });
 
-  it('keeps the shot timeline visible while the selected motion opens its progress curve', () => {
-    const props = context(); props.editCurves = true;
-    props.selectedMotionId = addMotion(props.scene, props.scene.shots[0].id, '$camera', 'orbit');
-    const html = renderToStaticMarkup(<FilmTimeline {...props}/>);
-    for (const label of ['Film shots', 'Motion progress curve', 'Progress key frame', 'Progress key value']) expect(html).toContain(`aria-label="${label}"`);
-    expect(html).not.toContain('aria-label="Shot motions"');
-    expect(html).toContain('Trim end');
-    expect(html).toContain('Stretch shot');
-    expect(html).toContain('aria-label="Shot name"');
-    expect(html).toContain('maxLength="80"');
-    expect(html).toContain('Add key at playhead');
-    const blocks = renderToStaticMarkup(<FilmTimeline {...props} editCurves={false}/>);
-    expect(blocks).toContain('Arrow keys move one frame; Shift moves ten.');
-    expect(blocks).toContain('Across cuts');
-    expect(blocks).toContain('Outside this shot');
-    const secondShot = renderToStaticMarkup(<FilmTimeline {...props} frame={props.scene.shots[1].startFrame} editCurves={false}/>);
-    expect(secondShot).toContain('existing animation across cuts');
-  });
-
   it('explains when a direct action takes ownership from an existing mechanism', () => {
     const props = context(); props.selectedTarget = props.scene.actions[0].componentId;
     props.selectedMotionId = addMotion(props.scene, props.scene.shots[0].id, props.selectedTarget, 'move');
     const html = renderToStaticMarkup(<FilmInspector {...props}/>);
     expect(html).toContain('its existing mechanism is held at rest');
     expect(html).toContain('in this shot');
+  });
+
+  it('keeps the editing scene in both rails when playback crosses a cut', () => {
+    const props = context(), editing = props.scene.shots[0], playing = props.scene.shots[1];
+    props.selectedMotionId = addMotion(props.scene, editing.id, '$camera', 'orbit');
+    props.frame = playing.startFrame;
+    props.editingFrame = editing.startFrame;
+    const header = renderToStaticMarkup(<FilmShotHeader {...props}/>);
+    const objects = renderToStaticMarkup(<FilmObjects {...props}/>);
+    const inspector = renderToStaticMarkup(<FilmInspector {...props}/>);
+    expect(header).toContain(`Scene 01: ${editing.name}`);
+    expect(objects).toContain('1 motion');
+    expect(inspector).toContain('aria-label="Motion amount"');
+    expect(inspector).toContain('aria-label="Camera motions"');
+    expect(renderToStaticMarkup(<FilmInspector {...props} editingFrame={playing.startFrame}/>)).not.toContain('aria-label="Motion amount"');
+  });
+
+  it('keeps pose controls mounted under a native disclosure while motion settings are selected', () => {
+    const props = context();
+    props.selectedMotionId = addMotion(props.scene, props.scene.shots[0].id, '$camera', 'orbit');
+    const html = renderToStaticMarkup(<FilmInspector {...props}><div>Camera coordinates</div></FilmInspector>);
+    expect(html).toContain('Camera coordinates');
+    expect(html).toContain('film-pose-disclosure');
+    expect(html).not.toContain('film-pose-disclosure" open');
+    expect(html.indexOf('Motion amount')).toBeLessThan(html.indexOf('Camera coordinates'));
+    expect(renderToStaticMarkup(<FilmInspector {...props} selectedMotionId={null}/>)).toContain('film-pose-disclosure" open');
   });
 
   it('distinguishes film absolute time from shot-relative time when displaying blocks', () => {

@@ -72,13 +72,13 @@
   .shape-light-dictionary { position: static; width: auto; }
   .gesso-shape-light h1 { font-size: 40px; line-height: 44px; }
   .shape-light-mobile-shape { display: block; width: 82%; aspect-ratio: 655.12 / 354.716; margin: var(--gesso-space-96) auto; margin: round(nearest, clamp(var(--gesso-space-56), 18vw, var(--gesso-space-128)), var(--gesso-space-4)) auto; border-radius: 24px; transform: rotate(-30deg); background: var(--shape-specimen); }
-  .shape-light-mobile-shape { box-shadow: 0 0 48px 16px var(--shape-halo); }
+  .shape-light-mobile-shape { box-shadow: 0 0 96px 32px var(--shape-halo); }
   .shape-light-chapter { display: flex; flex-direction: column; align-items: stretch; gap: var(--gesso-space-40); height: auto; min-height: 0; padding: var(--gesso-space-48) 0 var(--gesso-space-64); }
   .shape-light-chapter .shape-light-chapter-copy { width: 100%; margin-left: 0; }
   .gesso-shape-light .shape-light-chapter h2 { font-size: 36px; max-width: 18ch; }
   .shape-light-chapter .shape-light-copy { padding-top: var(--gesso-space-24); }
   .shape-light-contents { margin-top: var(--gesso-space-28); }
-  .shape-light-mobile-specimen { display: block; width: 72%; max-height: 260px; fill: var(--shape-specimen); align-self: flex-end; overflow: visible; filter: drop-shadow(0 0 28px var(--shape-halo)); }
+  .shape-light-mobile-specimen { display: block; width: 72%; max-height: 260px; fill: var(--shape-specimen); align-self: flex-end; overflow: visible; filter: drop-shadow(0 0 56px var(--shape-halo)); }
   .shape-light-chapter[data-copy-side="right"] .shape-light-mobile-specimen { align-self: flex-start; }
   .shape-light-copy { padding-top: 0; }
 }
@@ -114,6 +114,6 @@
 /* The definition keeps complete words in native compact layouts too. */
 .gesso-shape-light h1 { overflow-wrap: normal; word-break: normal; hyphens: none; }
 
-/* Gesture-end settling owns the real scroll offset. Keeping CSS snap active
-   would start a second, browser-timed animation during that same movement. */
+/* The desktop rolling controller owns the real scroll offset. CSS snap
+   would add a second animation competing with the same position. */
 .gesso-shape-light { scroll-snap-type: none; scroll-behavior: auto; }

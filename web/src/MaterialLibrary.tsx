@@ -7,7 +7,7 @@ import type {HierarchyPart} from './hierarchy';
 import MaterialProperties, {type MaterialPropertySection} from './MaterialProperties';
 import {UiIcon} from './UiIcon';
 import PolyHavenLibrary from './PolyHavenLibrary';
-import {campaignMaterialPresets, materialTypes, presetPartIds, saveMaterialPreset, type LibraryMaterialPreset, type MaterialType, type SavedMaterialPreset} from './materialPresets';
+import {campaignMaterialPresets, deleteMaterialPreset, materialTypes, presetPartIds, saveMaterialPreset, type LibraryMaterialPreset, type MaterialType, type SavedMaterialPreset} from './materialPresets';
 import type {MaterialHover, MaterialPreview, MaterialSpecification} from './materials';
 import './material-library.css';
 
@@ -44,7 +44,8 @@ export default function MaterialLibrary({scene, componentId, parts, onSelect, on
   const [draft,setDraft] = useState<Draft|null>(null);
   const [selectedId,setSelectedId] = useState<string|null>(null);
   const [feedback,setFeedback] = useState('');
-  const [sampleShape,setSampleShape] = useState<'sphere'|'rectangle'>('sphere');
+  const [sampleShape,setSampleShape] = useState<'sphere'|'cube'>('sphere');
+  const sampleControl = useRef<HTMLButtonElement>(null);
   const [activeSection,setActiveSection] = useState<MaterialPropertySection|'textures'|null>('response');
   const textureContentId = useId();
   useEffect(()=>setActiveSection('response'),[draft?.id]);
@@ -53,9 +54,11 @@ export default function MaterialLibrary({scene, componentId, parts, onSelect, on
   const editorBody = useRef<HTMLDivElement>(null);
   const draftSource = useRef<LibraryMaterialPreset|null>(null);
   const focusEditor = useRef(false);
+  const selectName = useRef(false);
+  const libraryRoot = useRef<HTMLDivElement>(null);
   const draftScope = useRef(scene.sceneId);
   useEffect(() => {if(editorBody.current)editorBody.current.scrollTop=0;},[editorHost,draft?.id,choosingType]);
-  useEffect(() => {if(focusEditor.current && presetName.current){presetName.current.focus({preventScroll:true});focusEditor.current=false;}});
+  useEffect(() => {if(focusEditor.current && presetName.current){presetName.current.focus({preventScroll:true});if(selectName.current)presetName.current.select();focusEditor.current=false;selectName.current=false;}});
   useEffect(() => { mounted.current = true; return () => {mounted.current = false;}; }, []);
   useEffect(() => {
     const source=draftSource.current;
@@ -109,14 +112,11 @@ export default function MaterialLibrary({scene, componentId, parts, onSelect, on
     let n=2;while(names.has(base + ' ' + n)) n++;
     return base + ' ' + n;
   };
-  const edit = (preset:LibraryMaterialPreset, duplicate=false) => {
-    if(!duplicate && draft?.id===preset.id){presetName.current?.focus({preventScroll:true});return;}
-    focusEditor.current=true;draftSource.current=duplicate ? null : preset;
-    setFeedback('');setChoosingType(false);setSelectedId(duplicate ? null : preset.id);
-    setDraft({id:duplicate ? crypto.randomUUID() : preset.id,
-      name:duplicate ? nameFor(preset.name + ' copy') : preset.name, type:preset.type,
-      material:structuredClone(preset.material),isNew:duplicate || !!preset.sourceComponentId,
-      ...(!duplicate && preset.sourceComponentId ? {sourceComponentId:preset.sourceComponentId} : {})});
+  const edit = (preset:LibraryMaterialPreset) => {
+    if(draft?.id===preset.id){presetName.current?.focus({preventScroll:true});return;}
+    focusEditor.current=true;draftSource.current=preset;
+    setFeedback('');setChoosingType(false);setSelectedId(preset.id);
+    setDraft(editablePreset(preset));
   };
   const newFromType = (id:string) => {
     const type=materialTypes.find(item=>item.id===id);if(!type)return;
@@ -124,6 +124,29 @@ export default function MaterialLibrary({scene, componentId, parts, onSelect, on
     setDraft({id:crypto.randomUUID(),name:nameFor(type.name),type:type.id,material:structuredClone(type.material),isNew:true});setChoosingType(false);
   };
   const closeEditor = () => {draftSource.current=null;setDraft(null);setSelectedId(null);setChoosingType(false);setFeedback('');};
+  const rename = (preset:LibraryMaterialPreset) => {
+    if(editorBody.current)editorBody.current.scrollTop=0;
+    if(draft?.id===preset.id){presetName.current?.focus({preventScroll:true});presetName.current?.select();return;}
+    selectName.current=true;edit(preset);
+  };
+  const duplicate = (preset:LibraryMaterialPreset) => {
+    const name=nameFor(preset.name.slice(0,128)+' copy');
+    const copy:SavedMaterialPreset={id:crypto.randomUUID(),name,type:preset.type,material:{...structuredClone(preset.material),name}};
+    try {
+      saveMaterialPreset(structuredClone(scene),copy);
+      onChange(next=>saveMaterialPreset(next,copy));
+      edit(copy);setFeedback('Duplicated. Attach objects to use this copy.');
+    } catch(reason){setFeedback((reason as Error).message);}
+  };
+  const remove = (preset:LibraryMaterialPreset) => {
+    try {
+      deleteMaterialPreset(structuredClone(scene),preset.id);
+      onChange(next=>deleteMaterialPreset(next,preset.id));
+      if(draft?.id===preset.id)closeEditor();
+      setFeedback(`Deleted ${preset.name}. Undo restores it.`);
+      libraryRoot.current?.querySelector<HTMLButtonElement>('.gesso-preset-library-actions>button')?.focus({preventScroll:true});
+    } catch(reason){setFeedback((reason as Error).message);}
+  };
   const saveDraft = () => {
     if(!draft || !draft.name.trim())return;
     const preset:SavedMaterialPreset={id:draft.id,name:draft.name.trim(),type:draft.type,material:{...structuredClone(draft.material),name:draft.name.trim()}};
@@ -161,21 +184,22 @@ export default function MaterialLibrary({scene, componentId, parts, onSelect, on
   useEffect(()=>{onPreview?.(JSON.parse(previewKey));},[previewKey,onPreview]);
   useEffect(()=>()=>onPreview?.(null),[onPreview]);
   const editor = <div className="gesso-panel gesso-preset-editor-content">
+    {choosingType && <header className="gesso-preset-heading gesso-preset-editor-heading"><h2>New preset</h2><button type="button" className="gesso-text-button" onClick={closeEditor}>Cancel</button></header>}
     {draft&&<div className="gesso-preset-fixed-preview">
-      <div className="gesso-preset-heading"><h2>{draft.name.trim() || 'New preset'}</h2><button type="button" className="gesso-text-button" onClick={()=>edit(draft,true)}>Duplicate</button></div>
+      <div className="gesso-preset-heading"><h2>{draft.name.trim() || 'New preset'}</h2></div>
       <div className="gesso-material-sample" aria-label="Selected material sample">
         <div className="gesso-material-sample-shapes" role="group" aria-label="Sample shape">
           <button type="button" aria-label="Sphere sample" title="Sphere" aria-pressed={sampleShape==='sphere'} onClick={()=>setSampleShape('sphere')}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><circle cx="10" cy="10" r="7"/></svg></button>
-          <button type="button" aria-label="Rectangle sample" title="Rectangle" aria-pressed={sampleShape==='rectangle'} onClick={()=>setSampleShape('rectangle')}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><rect x="2.5" y="4.5" width="15" height="11" rx="1"/></svg></button>
+          <button type="button" aria-label="Cube sample" title="Cube" aria-pressed={sampleShape==='cube'} onClick={()=>setSampleShape('cube')}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" aria-hidden="true"><path d="m10 2 7 4v8l-7 4-7-4V6Zm0 8 7-4M10 10 3 6m7 4v8"/></svg></button>
         </div>
-        <div className="gesso-material-sample-render" aria-hidden="true"><MaterialSwatches items={[{id:'selected-sample',name:draft.name,material:draft.material}]} shape={sampleShape} disabled onSelect={()=>{}}/></div>
+        <button type="button" ref={sampleControl} className="gesso-material-sample-rotate" aria-label="Rotate material sample" aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Home" title="Drag to rotate · Arrow keys turn · Double-click or Home resets · Escape cancels"/>
+        <div className="gesso-material-sample-render" aria-hidden="true"><MaterialSwatches items={[{id:'selected-sample',name:draft.name,material:draft.material}]} shape={sampleShape} rotationControl={sampleControl} disabled onSelect={()=>{}}/></div>
       </div>
       <div className="gesso-preset-scope"><span>{previewParts.length ? `${previewParts.length} attached ${previewParts.length===1?'object / section':'objects / sections'}` : 'Unassigned preset'}</span></div>
     </div>}
     <div className="gesso-preset-editor-body" ref={editorBody}>
     {!draft && !choosingType && <p className="gesso-meta">Select a preset from the library to edit it.</p>}
     {choosingType && <section className="gesso-section" aria-label="Choose material type">
-      <div className="gesso-preset-heading"><h2>New preset</h2><button type="button" className="gesso-text-button" onClick={closeEditor}>Cancel</button></div>
       <p className="gesso-meta">Start with a material type.</p>
       <MaterialSwatches items={materialTypes} onSelect={newFromType}/>
     </section>}
@@ -214,11 +238,11 @@ export default function MaterialLibrary({scene, componentId, parts, onSelect, on
       <button type="button" onClick={closeEditor}>Cancel</button>
     </div>}
   </div>;
-  return <div className="gesso-preset-library">
+  return <div className="gesso-preset-library" ref={libraryRoot}>
     <section className="gesso-section" aria-label="Material library">
       <div className="gesso-preset-library-actions"><span className="gesso-meta">Saved with this campaign</span><button type="button" className="gesso-text-button" onClick={()=>{setChoosingType(true);setDraft(null);setSelectedId(null);setFeedback('');}}>Add new</button></div>
       <MaterialAssignments scene={scene} parts={parts} presets={presets} selectedId={choosingType?undefined:draft?.id??selectedId??undefined}
-        onEdit={edit} onSelect={onSelect} onChange={onChange} onHover={onHover}/>
+        onEdit={edit} onRename={rename} onDuplicate={duplicate} onDelete={remove} onSelect={onSelect} onChange={onChange} onHover={onHover}/>
     </section>
     {editorHost ? createPortal(editor,editorHost) : editor}
   </div>;

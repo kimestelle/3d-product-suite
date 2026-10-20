@@ -25,4 +25,15 @@
   height: 100%;
   overflow: hidden;
   pointer-events: none;
+  opacity: 1;
+  transition: opacity 180ms ease-out;
+}
+/* Keep the construction guides through loading and expansion, then clear the
+   settled editor. The shared renderer's phase also handles interrupted travel. */
+.dynamic-frame-renderer[data-frame-route="studio"][data-frame-phase="settled"] + .dynamic-frame-guides {
+  opacity: 0;
+  transition-duration: 420ms;
+}
+@media (prefers-reduced-motion: reduce), (max-width: 760px), (hover: none) and (pointer: coarse) {
+  .dynamic-frame-guides { transition: none !important; }
 }
