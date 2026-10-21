@@ -22,6 +22,11 @@ export type GalleryItem = {slug: string; product: string; world: string; credit:
 
 /* Loops rendered by Gesso from the sample products in generated rooms. Media lives in public/media/gallery/<slug>.{mp4,jpg}. */
 export const PRODUCT_GALLERY: GalleryItem[] = [
+  {slug: 'omega-speedmaster', product: 'Chronograph (fan art)', world: 'Velvet jewel-box', credit: 'Model by ArakanI on Blendswap · CC0'},
+  {slug: 'ambre-perfume', product: 'Ambre perfume bottle', world: 'Brutalist atrium', credit: 'Esteban Paris Ambre bottle via Blendswap'},
+  {slug: 'sasha-ring', product: 'Sasha ring', world: 'Flooded marble hall', credit: 'Model by saber7711 on Blendswap · CC BY'},
+  {slug: 'leica-camera', product: 'Rangefinder camera', world: 'Blue field', credit: 'Leica look-alike by Lamashtu on Blendswap · CC0'},
+  {slug: 'theo-teapot', product: 'Theo teapot set', world: 'Orange field', credit: 'Stelton Theo teapot set via Blendswap · CC0'},
   {slug: 'chronograph-watch', product: 'Chronograph watch', world: 'Velvet jewel-box', credit: 'Model © 2025 Darmstadt Graphics Group / Eric Chadwick · CC BY 4.0'},
   {slug: 'stained-glass-lamp', product: 'Stained glass lamp', world: 'Flooded marble hall', credit: 'Model © 2021 Wayfair LLC / Eric Chadwick · CC BY 4.0'},
   {slug: 'sunglasses', product: 'Sunglasses', world: 'Brutalist atrium', credit: 'Model © Khronos Group / Eric Chadwick · CC BY 4.0'},

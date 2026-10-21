@@ -11,7 +11,7 @@ type Connection = EventTarget & {saveData?:boolean};
 type Props = {active:boolean;page:RefObject<HTMLDivElement|null>};
 const REST={x:.68,y:.28};
 /* Loops rendered by Gesso, shown inside the window for each principle (stage = sequence position). */
-const STAGE_LOOPS=[{stage:1,slug:'chronograph-watch'},{stage:2,slug:'stained-glass-lamp'},{stage:3,slug:'sunglasses'},{stage:4,slug:'candle-holder'},{stage:5,slug:'barn-lamp'}];
+const STAGE_LOOPS=[{stage:1,slug:'omega-speedmaster'},{stage:2,slug:'ambre-perfume'},{stage:3,slug:'sasha-ring'},{stage:4,slug:'leica-camera'},{stage:5,slug:'theo-teapot'}];
 const smooth=(value:number)=>{const t=Math.max(0,Math.min(1,value));return t*t*(3-2*t);};
 
 /** One canvas follows the existing frame's scroll playhead. It has no geometry
