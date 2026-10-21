@@ -19,3 +19,4 @@ worldlabs-experiment/
 .cache/
 web/*.tsbuildinfo
 *.egg-info/
+web/public/media/gallery/
