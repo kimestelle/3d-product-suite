@@ -1354,6 +1354,20 @@ export class StudioViewport {
         this.addEnvironmentObject(root);
         await splat.initialized;
         if (version !== this.loadVersion || this.disposed) return;
+        if (environment.collider?.asset) {
+          // The provider collider receives the product's shadow beneath the splat.
+          const collider = await this.loadVerifiedGlb(environment.collider.asset, assetAbort.signal);
+          if (version !== this.loadVersion || this.disposed) { this.disposeObject(collider); return; }
+          const receiver = new THREE.ShadowMaterial({ color: 0x000000, opacity: .45, depthWrite: false });
+          collider.traverse(object => {
+            const mesh = object as THREE.Mesh;
+            if (mesh.isMesh) { mesh.material = receiver; mesh.receiveShadow = true; mesh.castShadow = false; }
+          });
+          const colliderRoot = new THREE.Group();
+          this.alignWorld(colliderRoot, environment.collider.asset);
+          colliderRoot.add(collider);
+          this.addEnvironmentObject(colliderRoot);
+        }
       }
       if (version !== this.loadVersion || this.disposed) return;
       await this.restoreMaterialPreviewAfterLoad(version);

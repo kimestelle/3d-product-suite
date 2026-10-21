@@ -648,3 +648,10 @@ Verification for D98: 969 web tests passed across 81 files, including new beat-g
 **In code.** About gains a "Made with gesso" row between the four steps and the endnote: a two-up grid of short loops rendered by Gesso from the sample products in generated rooms, each with the product, the room and the model credit. Loops are muted, preload nothing, play only while on screen and stay as posters under reduced motion. Media lives outside the repository in `web/public/media/gallery/<slug>.{mp4,jpg}`.
 
 Reason: the page described the four steps but never showed an output; the loops are the evidence that one setup works across rooms. Scope: [AboutPage](../web/src/AboutPage.tsx), [productDescription](../web/src/productDescription.ts) and [About styles](../web/src/about.css); the grid, type roles and endnote are unchanged (D40). Verification: TypeScript build passes; browser check follows once the loops are rendered.
+
+
+### 2026-10-21 — D101 — Gaussian worlds keep their collider for contact, shadow and occlusion
+
+**In code; refines D97.** A `splat` world entry may carry `environment.collider` (a mesh asset record aligned like the splat). Cycles imports it invisibly as a shadow catcher and holdout, so the product casts its shadow onto the room and is cut out where room geometry stands in front of it, while the camera-matched Gaussian plate supplies the look. The browser loads the same collider as a shadow-receiving `ShadowMaterial` beneath the splat. Renders bundle the collider with the world asset.
+
+Reason: the user judged the vertex-coloured collider too blurry as the visible room, but still requires the product and room to interact. The splat is the photoreal representation the provider ships; the collider is its geometry. Scope: scene validation, asset bundling, the Blender splat branch, the viewport splat loader and the three generated world entries; mesh worlds and the plane fallback are unchanged. Verification: scene, worlds and renderer-bundle suites pass; a watch draft in the velvet splat room is rendering for review.

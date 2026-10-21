@@ -413,6 +413,8 @@ def verify_scene_assets(scene, source_dir):
     references = []
     if environment["kind"] != "authored":
         references.append((validate_asset_record(environment.get("asset"), kind=environment["kind"]), None))
+        if "collider" in environment:
+            references.append((validate_asset_record(environment["collider"].get("asset"), kind="mesh"), None))
     if "comparison" in scene:
         comparison = scene["comparison"]
         _require(isinstance(comparison, dict) and type(comparison.get("schemaVersion")) is int

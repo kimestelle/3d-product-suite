@@ -395,8 +395,11 @@ def validate_scene(scene):
             validate_asset_record(env.get("asset"), kind=env["kind"])
             _require(env.get("reviewStatus") in ("unreviewed", "reviewed", "approved", "rejected"), "World reviewStatus is required")
             _require(isinstance(env.get("displayName"), str) and env["displayName"].strip(), "World displayName is required")
+            if "collider" in env:
+                _require(isinstance(env["collider"], dict), "World collider must be an object")
+                validate_asset_record(env["collider"].get("asset"), kind="mesh")
         else:
-            _require("asset" not in env, "Authored environments must not hide an unused world asset")
+            _require("asset" not in env and "collider" not in env, "Authored environments must not hide an unused world asset")
         if "fixture" in env:
             _require(type(env["fixture"]) is bool, "World fixture must be boolean")
         _provenance(env["provenance"], "environment")

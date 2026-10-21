@@ -521,7 +521,27 @@ def environment(source, samples_root=None):
         porcelain = specified_material("Set / plinth surface", plinth["material"], samples_root) if "material" in plinth else material("Set / warm matte porcelain", (0.56, 0.54, 0.49, 1), 0.58)
         obj = primitive(plinth["id"], "box", plinth["sizeM"], porcelain, min(0.004, min(plinth["sizeM"]) / 2))
         obj.location = blender_position(plinth["translationM"])
-    if source["environment"]["kind"] == "splat":
+    if source["environment"]["kind"] == "splat" and source["environment"].get("collider") and samples_root is not None:
+        # The provider's collider mesh stands in for the world's geometry: it catches
+        # the product's shadow and, as a holdout, lets world geometry in front of the
+        # product cut it out so the composited plate shows through.
+        collider = source["environment"]["collider"]["asset"]
+        collider_path = verified_asset_record(collider, samples_root.resolve(), "world collider")
+        imported, _ = imported_hierarchy(collider_path, "World collider / ")
+        anchor = parent_imported_hierarchy(imported, "World / collider alignment")
+        anchor.location = blender_position(collider["translationM"])
+        anchor.rotation_mode = "QUATERNION"
+        anchor.rotation_quaternion = blender_rotation(collider["rotationXyzw"])
+        anchor.scale = (collider["scaleToMeters"],) * 3
+        for obj in imported:
+            if obj.type == "MESH":
+                obj.is_shadow_catcher = True
+                obj.is_holdout = True
+                obj.visible_glossy = False
+                obj.visible_transmission = False
+                obj.visible_diffuse = False
+                obj["role"] = "Invisible world collider: shadow catcher and holdout for the Gaussian plate"
+    elif source["environment"]["kind"] == "splat":
         # The Gaussian world is a colour plate with no geometry, so the product's
         # contact shadow would otherwise vanish. An invisible Cycles shadow catcher
         # at the support height receives the product shadow for the compositor.
