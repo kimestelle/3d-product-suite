@@ -1,10 +1,36 @@
-import {useLayoutEffect, useRef} from 'react';
+import {useEffect, useLayoutEffect, useRef} from 'react';
 import {FrameWindow, useFrameSource, useFrameInvalidation} from './DynamicFrame';
 import {aboutFrameNodes} from './frameGeometry';
 import arrowUpRight from './assets/gesso/about-nav-arrow.svg';
-import {PRODUCT_DESCRIPTION, PRODUCT_LAYERS, PRODUCT_PROCESS_NOTE, PRODUCT_ENDNOTE} from './productDescription';
+import {PRODUCT_DESCRIPTION, PRODUCT_LAYERS, PRODUCT_PROCESS_NOTE, PRODUCT_ENDNOTE, PRODUCT_GALLERY, PRODUCT_GALLERY_NOTE, type GalleryItem} from './productDescription';
 import './about.css';
 import './site-grid.css';
+
+/* A loop plays only while it is on screen; reduced motion keeps the poster. */
+function GalleryLoop({item}: {item: GalleryItem}) {
+  const video = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const element = video.current;
+    if (!element || typeof IntersectionObserver === 'undefined') return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const observer = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        if (entry.isIntersecting && entry.intersectionRatio >= .4) element.play().catch(() => {});
+        else element.pause();
+      }
+    }, {threshold: [0, .4]});
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return <li>
+    <video ref={video} className="about-gallery-video" muted loop playsInline preload="none"
+      poster={`/media/gallery/${item.slug}.jpg`} aria-label={`${item.product} in ${item.world}`}>
+      <source src={`/media/gallery/${item.slug}.mp4`} type="video/mp4"/>
+    </video>
+    <p className="about-gallery-caption"><span>{item.product}</span> · {item.world}</p>
+    <p className="about-gallery-credit">{item.credit}</p>
+  </li>;
+}
 
 export default function AboutPage({active = true}: {active?:boolean}) {
   const root = useRef<HTMLDivElement>(null);
@@ -56,6 +82,13 @@ export default function AboutPage({active = true}: {active?:boolean}) {
               <dd>{layer.text}</dd>
             </div>)}</dl>
             <p className="about-process-note">{PRODUCT_PROCESS_NOTE}</p>
+          </div>
+        </section>
+        <section className="about-description-row about-gallery-row" aria-labelledby="about-gallery-title">
+          <h2 id="about-gallery-title">Made with<br/>gesso</h2>
+          <div className="about-description-body">
+            <ul className="about-gallery">{PRODUCT_GALLERY.map(item => <GalleryLoop key={item.slug} item={item}/>)}</ul>
+            <p className="about-process-note">{PRODUCT_GALLERY_NOTE}</p>
           </div>
         </section>
         <footer className="about-description-row about-endnote">

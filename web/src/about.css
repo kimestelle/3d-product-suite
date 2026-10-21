@@ -27,6 +27,13 @@
 .about-layers dt>span{flex:none;width:18px;font-weight:400;opacity:.6;font-variant-numeric:tabular-nums}
 .about-layers dd{font:400 16px/24px var(--gesso-font-text)}
 .about-description-body .about-process-note{margin-top:var(--gesso-space-32)}
+/* Made with gesso: two loops per row on the body columns, captions in the step label type. */
+.about-gallery{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--gesso-space-24) var(--gesso-space-20)}
+.about-gallery>li{min-width:0}
+.about-gallery-video{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:var(--gesso-radius-control);background:#000}
+.about-gallery-caption{margin-top:var(--gesso-space-8);font:400 14px/20px var(--gesso-font-text)}
+.about-gallery-caption>span{font-weight:500}
+.about-gallery-credit{font:400 12px/18px var(--gesso-font-text);opacity:.6}
 .about-endnote{font:400 12px/18px var(--gesso-font-text)}
 /* The endnote spans columns 3–6; its action starts at column 6,
    directly beneath Shape + Light in the shared header. */
@@ -39,7 +46,7 @@
 .about-skip:focus{transform:none}
 @media(max-width:1100px) and (min-width:761px){.about-description-body{grid-column:3 / span 5;padding-right:var(--gesso-space-32)}.about-description-row>h1,.about-description-row>h2{padding-left:var(--gesso-space-24);width:100%;font-size:24px;line-height:30px}.about-layers{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){.about-header{height:80px}.about-window{inset:var(--gesso-space-80) var(--gesso-space-16) 0;background:transparent}.about-description{padding:var(--gesso-space-56) var(--gesso-space-24) var(--gesso-space-40);gap:var(--gesso-space-48)}.about-description-row{display:flex;flex-direction:column;gap:var(--gesso-space-24)}.about-description-row>h1,.about-description-row>h2{width:100%;max-width:18ch;font-size:28px;line-height:34px}.about-description-body{font-size:16px;line-height:24px;width:100%}.about-layers{grid-template-columns:repeat(2,minmax(0,1fr))}.about-endnote .about-description-body{display:flex;align-items:flex-start;flex-direction:column;gap:var(--gesso-space-20)}.about-skip{left:var(--gesso-space-24)}.about-header .gesso-site-nav img{width:14px;height:20px}}
-@media(max-width:560px){.about-layers{grid-template-columns:1fr}}
+@media(max-width:560px){.about-layers{grid-template-columns:1fr}.about-gallery{grid-template-columns:1fr}}
 @media (prefers-reduced-motion: reduce), (max-width: 760px), (hover: none) and (pointer: coarse) {
   .gesso-about, .gesso-about * { transition: none !important; scroll-behavior: auto !important; }
 }
