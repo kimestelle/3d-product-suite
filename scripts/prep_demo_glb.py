@@ -76,7 +76,18 @@ def main():
     for key in ("animations", "skins", "cameras"):
         if document.pop(key, None) is not None:
             print(f"  stripped {key}")
-    document.get("extensionsUsed", [])
+    # Blender 4.3.2's importer fails on KHR_materials_variants mappings; keep each primitive's default material.
+    if "KHR_materials_variants" in document.get("extensionsUsed", []):
+        document["extensionsUsed"] = [name for name in document["extensionsUsed"] if name != "KHR_materials_variants"]
+        document.get("extensions", {}).pop("KHR_materials_variants", None)
+        for mesh in document.get("meshes", []):
+            for primitive in mesh["primitives"]:
+                primitive.get("extensions", {}).pop("KHR_materials_variants", None)
+                if primitive.get("extensions") == {}:
+                    del primitive["extensions"]
+        if document.get("extensions") == {}:
+            del document["extensions"]
+        print("  stripped KHR_materials_variants")
     low, high = world_bounds(document, [binary])
     center = [(a + b) / 2 for a, b in zip(low, high)]
     scene = document["scenes"][document.get("scene", 0)]

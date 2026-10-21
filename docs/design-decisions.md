@@ -623,3 +623,10 @@ Reason: without geometry under the product, films in generated worlds showed the
 **In code.** `GESSO_CYCLES_DEVICE=METAL` switches Cycles to the Metal GPU and `GESSO_CYCLES_DENOISE=1` enables OpenImageDenoise; both are read inside the Blender adapter and recorded in `render-config.json` (`device`, `denoising`). The pinned CPU, no-denoise profile remains the reference and the default. `scripts/dev-serve.sh` starts the local server with the pinned Blender 4.3.2 and FFmpeg 7.1.5 paths, keychain secrets and these flags.
 
 Reason: the demo loops need hundreds of frames in hours, not days; a 960 × 540 Metal still with 64 samples completed in four seconds after a one-time 55-second kernel compile. Scope: adapter configuration and the launcher script; job profiles, digests and tests are unchanged. Verification: `render-config.json` reports `"device": "GPU"`, `"denoising": true` for the test still.
+
+
+### 2026-10-21 — D97 — Generated worlds enter the studio as meshes
+
+**In code; refines D94.** The studio keeps the product and its world as meshes so they occupy one space: the product rests on world geometry, casts shadows onto it and is occluded by it in both the browser and Cycles. `scripts/collider_world.py` wraps the provider's free collider GLB, which already carries per-vertex colours and normals, in a `KHR_materials_unlit` vertex-colour material and imports it as a `mesh` world with the same metric alignment as the splat. `tools/render/surface_probe.py` (video project) reads the same geometry to find pedestal and floor heights for placement. The splat entry stays in the library for comparison only; the paid HQ textured mesh (3,500 credits) can replace the collider mesh when credits allow.
+
+Reason: the user's correction that models and environments must interact; a camera-matched splat plate cannot occlude, reflect or receive the product. Scope: world import scripts and the demo matrix; the schema, viewport and Blender mesh path are unchanged. Verification: three worlds (Velvet jewel-box, Flooded marble hall, Brutalist atrium) imported as meshes; the watch sits on the velvet pedestal at 0.53 m in the browser with the drapes behind it.
