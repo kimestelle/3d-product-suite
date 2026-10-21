@@ -27,12 +27,6 @@ export const PRODUCT_GALLERY: GalleryItem[] = [
   {slug: 'sasha-ring', product: 'Sasha ring', world: 'Flooded marble hall', credit: 'Model by saber7711 on Blendswap · CC BY'},
   {slug: 'leica-camera', product: 'Rangefinder camera', world: 'Blue field', credit: 'Leica look-alike by Lamashtu on Blendswap · CC0'},
   {slug: 'theo-teapot', product: 'Theo teapot set', world: 'Orange field', credit: 'Stelton Theo teapot set via Blendswap · CC0'},
-  {slug: 'chronograph-watch', product: 'Chronograph watch', world: 'Velvet jewel-box', credit: 'Model © 2025 Darmstadt Graphics Group / Eric Chadwick · CC BY 4.0'},
-  {slug: 'stained-glass-lamp', product: 'Stained glass lamp', world: 'Flooded marble hall', credit: 'Model © 2021 Wayfair LLC / Eric Chadwick · CC BY 4.0'},
-  {slug: 'sunglasses', product: 'Sunglasses', world: 'Brutalist atrium', credit: 'Model © Khronos Group / Eric Chadwick · CC BY 4.0'},
-  {slug: 'iridescence-lamp', product: 'Iridescence lamp', world: 'Flooded marble hall', credit: 'Model © 2022 Wayfair LLC / Eric Chadwick · CC BY 4.0'},
-  {slug: 'candle-holder', product: 'Hurricane candle holder', world: 'Velvet jewel-box', credit: 'Model © 2023 Wayfair LLC / Eric Chadwick · CC BY 4.0'},
-  {slug: 'barn-lamp', product: 'Barn lamp', world: 'Brutalist atrium', credit: 'Model © 2023 Wayfair LLC / Eric Chadwick · CC BY 4.0'},
 ];
 
-export const PRODUCT_GALLERY_NOTE = 'Sample products from the Khronos glTF Sample Assets. Rooms were generated from inspiration photos with World Labs Marble and imported as meshes, so each product rests on, shadows and hides behind real geometry.';
+export const PRODUCT_GALLERY_NOTE = 'Five products from Blendswap, each in its own setting. The rooms were generated from inspiration photos with World Labs Marble and keep their geometry, so the product rests on, shadows and hides behind real surfaces; the colour fields are the studio itself. Every film is lit by an adjustable ambient wash and a spot that moves.';

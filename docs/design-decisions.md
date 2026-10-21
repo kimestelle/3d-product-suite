@@ -678,3 +678,9 @@ Verification: `tests.test_scene`, `tests.test_lighting`, `tests.test_film_motion
 **In code.** The authored studio's curved sweep takes the scene's `worldColor` in both the browser and Cycles instead of a fixed grey-green, so a campaign can sit in a saturated colour field lit by a coloured ambient (D100) and a hard spot. The default studio keeps its former look because the fixture's world colour is the same grey-green.
 
 Reason: the user asked for surreal colour backgrounds alongside real rooms, in the manner of luxury launch films and the "infinity" teaser trend. Scope: `scripts/blender_scene.py` sweep material and `web/src/viewport.ts` `makeStudio`; no schema change. Verification: Leica and teapot campaigns saved in deep-blue and burnt-orange fields; renders follow with the spot-lit loops.
+
+### 2026-10-21 — D104 — The showcase is five products, one setting each
+
+**In code.** The About gallery (`PRODUCT_GALLERY`) and the Form + light loops show only the five Blendswap products — the chronograph in the velvet jewel-box, the Ambre bottle in the brutalist atrium, the Sasha ring in the flooded marble hall, the rangefinder camera in a blue field, the Theo teapot in an orange field — rather than the earlier mix of eleven. No product repeats a setting, so the row reads as five different films instead of variations on three rooms.
+
+Reason: the user asked for the five models they supplied, each in a different environment, and judged the Khronos sample set redundant once a real chronograph was in. Scope: `web/src/productDescription.ts` (list and note), gallery media under `web/public/media/gallery/`; the Khronos campaigns stay in the workspace but are not shown. Verification: `npm run build --prefix web`; the About row renders five tiles with their credits; Form + light stages 1–5 play the same five loops.
