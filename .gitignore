@@ -18,3 +18,4 @@ web/playwright-report/
 worldlabs-experiment/
 .cache/
 web/*.tsbuildinfo
+*.egg-info/
