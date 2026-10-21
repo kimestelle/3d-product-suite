@@ -64,11 +64,37 @@ def world_bounds(document, buffers):
     return minimum, maximum
 
 
+def paint_image(document, binary, spec):
+    """Replace one embedded PNG with a copy whose rectangle is filled; appends the new bytes to the BIN chunk."""
+    import io
+    from PIL import Image, ImageDraw
+    index, rest = spec.split("=")
+    x0, y0, x1, y1, colour = rest.split(",")
+    image = document["images"][int(index)]
+    view = document["bufferViews"][image["bufferView"]]
+    start = view.get("byteOffset", 0)
+    picture = Image.open(io.BytesIO(binary[start:start + view["byteLength"]])).convert("RGB")
+    width, height = picture.size
+    ImageDraw.Draw(picture).rectangle([float(x0) * width, float(y0) * height, float(x1) * width, float(y1) * height],
+                                      fill=tuple(int(colour[i:i + 2], 16) for i in (0, 2, 4)))
+    out = io.BytesIO(); picture.save(out, format="PNG"); payload = out.getvalue()
+    binary = binary + b"\0" * (-len(binary) % 4)
+    document["bufferViews"].append({"buffer": 0, "byteOffset": len(binary), "byteLength": len(payload)})
+    image["bufferView"] = len(document["bufferViews"]) - 1
+    image["mimeType"] = "image/png"
+    binary += payload
+    document["buffers"][0]["byteLength"] = len(binary)
+    print(f"  painted image {index} rect {x0},{y0}-{x1},{y1} #{colour}")
+    return binary
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--scale", type=float, default=1.0, help="Uniform scale to metres (e.g. 0.01 for centimetre files)")
+    parser.add_argument("--paint", action="append", default=[], metavar="IMG=x0,y0,x1,y1,RRGGBB",
+                        help="Fill a normalized rectangle of embedded image IMG with a flat colour (removes baked logos)")
     args = parser.parse_args()
     payload = args.source.read_bytes()
     document, binary = read_glb(payload)
@@ -88,6 +114,8 @@ def main():
         if document.get("extensions") == {}:
             del document["extensions"]
         print("  stripped KHR_materials_variants")
+    for spec in args.paint:
+        binary = paint_image(document, binary, spec)
     low, high = world_bounds(document, [binary])
     center = [(a + b) / 2 for a, b in zip(low, high)]
     scene = document["scenes"][document.get("scene", 0)]
