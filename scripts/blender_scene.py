@@ -620,7 +620,8 @@ def environment(source, samples_root=None):
             polygon.use_smooth = True
         floor = bpy.data.objects.new("Set / curved studio sweep", mesh)
         bpy.context.collection.objects.link(floor)
-        floor.data.materials.append(material("Set / warm gray background", (0.26, 0.28, 0.26, 1), 0.72))
+        sweep_color = source["environment"].get("worldColor", [0.26, 0.28, 0.26])
+        floor.data.materials.append(material("Set / studio sweep", (*sweep_color, 1), 0.72))
     if "lighting" in source:
         for light in source["lighting"]["lights"]:
             if light["enabled"]:

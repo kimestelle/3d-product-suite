@@ -1052,7 +1052,7 @@ export class StudioViewport {
       geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
       geometry.setIndex(indices);
       geometry.computeVertexNormals();
-      const floor = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: this.color([0.26, 0.28, 0.26]), roughness: 0.72, side: THREE.DoubleSide }));
+      const floor = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: this.color(source.environment.worldColor ?? [0.26, 0.28, 0.26]), roughness: 0.72, side: THREE.DoubleSide }));
       floor.receiveShadow = true;
       this.addEnvironmentObject(floor);
     }

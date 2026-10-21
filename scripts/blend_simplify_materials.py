@@ -70,8 +70,21 @@ def rewrite(material):
     principled = tree.nodes.new("ShaderNodeBsdfPrincipled")
     principled.inputs["Metallic"].default_value = metallic
     principled.inputs["Roughness"].default_value = max(0.05, min(1.0, roughness))
+    lowered = material.name.lower()
+    dark = any(word in lowered for word in ("black", "dark", "rubber", "leather", "tyre", "tire"))
+    metal = any(word in lowered for word in ("metal", "chrome", "steel", "brass", "gold", "silver", "screw", "aluminium", "aluminum"))
+    glass = any(word in lowered for word in ("glass", "lens"))
     if image is not None:
         tree.links.new(image.outputs["Color"], principled.inputs["Base Color"])
+    elif color is not None and not (dark or metal or glass) and max(color[:3]) < 0.98:
+        principled.inputs["Base Color"].default_value = color
+    elif dark:
+        principled.inputs["Base Color"].default_value = (0.02, 0.02, 0.02, 1)
+    elif metal:
+        principled.inputs["Base Color"].default_value = (0.78, 0.78, 0.76, 1); principled.inputs["Metallic"].default_value = 1.0
+        principled.inputs["Roughness"].default_value = min(principled.inputs["Roughness"].default_value, 0.3)
+    elif glass:
+        principled.inputs["Base Color"].default_value = (0.9, 0.95, 1.0, 1); principled.inputs["Roughness"].default_value = 0.05
     elif color is not None:
         principled.inputs["Base Color"].default_value = color
     tree.links.new(principled.outputs["BSDF"], out.inputs["Surface"])
