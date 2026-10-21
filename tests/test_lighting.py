@@ -58,16 +58,65 @@ class LightingTests(unittest.TestCase):
         # need not be installed to verify the scene-to-export contract.
         source = ast.parse((ROOT / 'scripts/blender_scene.py').read_text())
         fn = next(node for node in source.body if isinstance(node, ast.FunctionDef) and node.name == 'environment')
-        emitted = []
-        namespace = {'material': lambda *args: None, 'specified_material': lambda *args: None,
-                     'primitive': lambda *args: SimpleNamespace(location=None),
-                     'blender_position': lambda p: (p[0], -p[2], p[1]),
-                     'area_light': lambda *args: emitted.append(args)}
-        exec(compile(ast.Module(body=[fn], type_ignores=[]), '<environment>', 'exec'), namespace)
+        emitted, namespace = self.environment_adapter()
         self.scene['environment']['kind'] = 'mesh'
         self.scene['lighting'] = copy.deepcopy(self.rig)
         self.scene['lighting']['lights'].append({**self.rig['lights'][0], 'id': 'fill', 'name': 'Fill', 'enabled': False})
         namespace['environment'](self.scene)
         self.assertEqual(emitted, [('Studio / Key', (-.2, -.24, .3), (0, 0, .07), 2.6, .23, [1, .93, .82])])
+
+    def environment_adapter(self):
+        source = ast.parse((ROOT / 'scripts/blender_scene.py').read_text())
+        fn = next(node for node in source.body if isinstance(node, ast.FunctionDef) and node.name == 'environment')
+        emitted = []
+        # Light builders return the host object the adapter tags with the scene ID.
+        def builder(kind):
+            def build(*args):
+                emitted.append(args if kind == 'area' else (kind, *args))
+                return {}
+            return build
+        namespace = {'material': lambda *args: None, 'specified_material': lambda *args: None,
+                     'primitive': lambda *args: SimpleNamespace(location=None),
+                     'blender_position': lambda p: (p[0], -p[2], p[1]),
+                     'area_light': builder('area'), 'spot_light': builder('spot')}
+        exec(compile(ast.Module(body=[fn], type_ignores=[]), '<environment>', 'exec'), namespace)
+        return emitted, namespace
+
+    def test_blender_receives_spot_cone_blend_radius_and_scene_id(self):
+        emitted, namespace = self.environment_adapter()
+        built = {}
+        namespace['spot_light'] = lambda *args: built.setdefault(args[0], {'args': args})
+        self.scene['lighting'] = {'ambientStrength': .15, 'ambientColor': [.3, .2, .2], 'lights': [
+            {'id': 'spot', 'name': 'Spot', 'type': 'spot', 'enabled': True, 'positionM': [-.1, .42, .28], 'targetM': [0, .054, 0],
+             'powerW': 12, 'diameterM': .05, 'color': [1, .86, .7], 'coneDeg': 35, 'blend': .4},
+            {'id': 'bare', 'name': 'Bare spot', 'type': 'spot', 'enabled': True, 'positionM': [.3, .3, 0], 'targetM': [0, 0, 0],
+             'powerW': 4, 'diameterM': .1, 'color': [1, 1, 1]}]}
+        validate_scene(self.scene)
+        self.scene['environment']['kind'] = 'mesh'  # Skip the authored sweep in the host adapter.
+        namespace['environment'](self.scene)
+        self.assertEqual(emitted, [])
+        self.assertEqual(built['Studio / Spot']['args'], ('Studio / Spot', (-.1, -.28, .42), (0, 0, .054), 12, 35, .4, .025, [1, .86, .7]))
+        self.assertEqual(built['Studio / Spot']['gesso_light_id'], 'spot')
+        # Absent cone and blend fall back to the documented defaults at handoff, not in the saved scene.
+        self.assertEqual(built['Studio / Bare spot']['args'][4:7], (40, .3, .05))
+        self.assertNotIn('coneDeg', self.scene['lighting']['lights'][1])
+
+    def test_spot_and_ambient_fields_validate_only_when_present(self):
+        self.scene['lighting'] = copy.deepcopy(self.rig)
+        validate_scene(self.scene)
+        self.assertNotIn('type', self.scene['lighting']['lights'][0])
+        spot = {**self.rig['lights'][0], 'id': 'spot', 'name': 'Spot', 'type': 'spot', 'coneDeg': 170, 'blend': 1}
+        self.scene['lighting']['lights'].append(spot)
+        self.scene['lighting']['ambientColor'] = [0, 0, 1]
+        validate_scene(self.scene)
+        self.assertEqual(validate_scene(json.loads(json.dumps(self.scene))), self.scene)
+        for change in (lambda l: l['lights'][1].update(type='point'), lambda l: l['lights'][1].update(coneDeg=.5),
+                       lambda l: l['lights'][1].update(coneDeg=171), lambda l: l['lights'][1].update(blend=-.1),
+                       lambda l: l['lights'][1].update(blend=1.5), lambda l: l['lights'][0].update(coneDeg='wide'),
+                       lambda l: l.update(ambientColor=[1, 1, 2]), lambda l: l.update(ambientColor=[0, 0]),
+                       lambda l: l.update(ambientColor='warm')):
+            with self.subTest(change=change):
+                scene = copy.deepcopy(self.scene); change(scene['lighting'])
+                with self.assertRaises(ValueError): validate_scene(scene)
 
 if __name__ == '__main__': unittest.main()

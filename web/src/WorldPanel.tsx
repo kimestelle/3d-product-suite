@@ -7,7 +7,7 @@ import './world-objects.css';
 import {NumberControl, VectorControl} from './EditorControls';
 import {matchWorldRevision} from './comparison';
 import PolyHavenLibrary from './PolyHavenLibrary';
-import {addProp, addPropFromLibrary, setHdriFromLibrary, colorFromHex, colorHex, defaultLighting, ensureLighting, setWorldYaw, worldYaw} from './world';
+import {addLight, addProp, addPropFromLibrary, applyDramaticSpot, setHdriFromLibrary, colorFromHex, colorHex, defaultLighting, ensureLighting, lightType, removeLight, setLightType, setWorldYaw, worldYaw, SPOT_DEFAULTS, type StudioLightType} from './world';
 
 export type WorldLayer = 'Environment' | 'Props' | 'Lights';
 export interface WorldPanelProps {
@@ -33,7 +33,8 @@ function ColorField({label, value, onChange}: {label: string; value: number[]; o
 export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onImport, onFrameProp, onLayer, selectedObjectId = null, onSelectObject, editorHost, children}: WorldPanelProps) {
   const root = useRef<HTMLDivElement>(null);
   const [selectedLight, setSelectedLight] = useState('key');
-  useEffect(() => {setSelectedLight('key');}, [scene.sceneId]);
+  const [addLightOpen, setAddLightOpen] = useState(false);
+  useEffect(() => {setSelectedLight('key'); setAddLightOpen(false);}, [scene.sceneId]);
   const environment = scene.environment;
   const lighting = scene.lighting ?? defaultLighting(scene);
   const light = lighting.lights.find((item: any) => item.id === selectedLight) ?? lighting.lights[0];
@@ -109,27 +110,44 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
         <details className="gesso-disclosure"><summary>HDRI library</summary><PolyHavenLibrary kind="hdris" scopeKey={scene.sceneId} onImport={result => onChange(next => setHdriFromLibrary(next, result.entry))}/></details>
         <p className="gesso-meta">HDRI lights the scene and appears in reflections. The background keeps its current color.</p>
       </section>
-      <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">Studio rig</span></div>
+      <section className="gesso-section"><div className="gesso-section-heading gesso-section-toolbar"><span className="gesso-section-label">Studio rig</span>
+          <button type="button" aria-haspopup="true" aria-expanded={addLightOpen} onClick={() => setAddLightOpen(open => !open)}>Add light ▾</button></div>
+        {addLightOpen && <div className="gesso-button-row" role="group" aria-label="Add light">{(['area', 'spot'] as const).map(type => <button key={type} type="button" disabled={lighting.lights.length >= 8}
+          onClick={() => {const id = addLight(structuredClone(scene), type); onChange(next => {addLight(next, type);}); setSelectedLight(id); setAddLightOpen(false);}}>{type === 'spot' ? 'Spot' : 'Area'}</button>)}</div>}
         <ul className="gesso-part-tree" aria-label="Studio lights">{lighting.lights.map((item: any) => <li key={item.id} className={`gesso-part-row ${light?.id === item.id ? 'selected' : ''}`}>
-          <button type="button" className="gesso-part-select" aria-pressed={light?.id === item.id} onClick={() => setSelectedLight(item.id)}><span className="gesso-part-name">{item.name}</span><span className="gesso-status">{item.enabled ? 'On' : 'Off'}</span></button>
+          <button type="button" className="gesso-part-select" aria-pressed={light?.id === item.id} onClick={() => setSelectedLight(item.id)}><span className="gesso-part-name">{item.name}</span><span className="gesso-status">{lightType(item) === 'spot' ? 'Spot' : 'Area'} · {item.enabled ? 'On' : 'Off'}</span></button>
         </li>)}</ul>
       </section>
       {light && <>
         <section className="gesso-section"><div className="gesso-section-heading">{light.name}</div>
           <label className="gesso-check"><input type="checkbox" checked={light.enabled} onChange={event => {const enabled = event.target.checked; editLight(target => {target.enabled = enabled;});}}/><span>Enabled</span></label>
+          <Field label="Type"><select aria-label="Light type" value={lightType(light)} onChange={event => {const type = event.target.value as StudioLightType; editLight(target => setLightType(target, type));}}>
+            <option value="area">Area disk</option><option value="spot">Spot</option>
+          </select></Field>
           <NumberField label="Power" unit="W" value={light.powerW} min={0} max={100000} step={.1} onChange={value => editLight(target => {target.powerW = value;})}/>
           <ColorField label="Light color" value={light.color} onChange={color => editLight(target => {target.color = color;})}/>
           <NumberField label="Diameter" unit="mm" value={light.diameterM * 1000} min={1} max={1000000} step={5} onChange={value => editLight(target => {target.diameterM = value / 1000;})}/>
+          {lightType(light) === 'spot' && <>
+            <NumberField label="Cone" unit="°" value={light.coneDeg ?? SPOT_DEFAULTS.coneDeg} min={1} max={170} step={1} onChange={value => editLight(target => {target.coneDeg = value;})}/>
+            <NumberField label="Blend" value={light.blend ?? SPOT_DEFAULTS.blend} min={0} max={1} step={.05} onChange={value => editLight(target => {target.blend = value;})}/>
+            <p className="gesso-meta">A small diameter keeps the shadow hard; blend softens the cone edge.</p>
+          </>}
         </section>
         <section className="gesso-section">
           <VectorField label="Position · m" values={light.positionM} onChange={(axis, value) => editLight(target => {target.positionM[axis] = value; if (target.positionM.every((item: number, index: number) => Math.abs(item - target.targetM[index]) < .00001)) target.positionM[axis] += .001;})}/>
           <VectorField label="Aim at · m" values={light.targetM} onChange={(axis, value) => editLight(target => {target.targetM[axis] = value; if (target.positionM.every((item: number, index: number) => Math.abs(item - target.targetM[index]) < .00001)) target.targetM[axis] += .001;})}/>
+          <button type="button" disabled={lighting.lights.length <= 1 && !lighting.hdri} onClick={() => {const id = light.id; const remaining = lighting.lights.find((item: any) => item.id !== id)?.id ?? 'key'; onChange(next => {removeLight(next, id);}); setSelectedLight(remaining);}}>Remove light</button>
         </section>
       </>}
       <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">Ambient</span></div>
-        <NumberField label="Strength" value={lighting.ambientStrength} min={0} max={10} step={.05} onChange={value => onChange(next => {ensureLighting(next).ambientStrength = value;})}/>
-        <button type="button" onClick={() => onChange(next => {const hdri = next.lighting?.hdri; next.lighting = defaultLighting(next); if (hdri) next.lighting.hdri = hdri;})}>Reset studio rig</button>
-        <p className="gesso-meta">Preview approximates area lights. Cycles renders the saved power, diameter and position. Baked light in an imported world stays in its source texture.</p>
+        <NumberField label="Ambient" value={lighting.ambientStrength} min={0} max={3} step={.05} onChange={value => onChange(next => {ensureLighting(next).ambientStrength = value;})}/>
+        <ColorField label="Ambient color" value={lighting.ambientColor ?? environment.worldColor} onChange={color => onChange(next => {ensureLighting(next).ambientColor = color;})}/>
+        {lighting.ambientColor && <button type="button" onClick={() => onChange(next => {delete ensureLighting(next).ambientColor;})}>Use world color</button>}
+        <div className="gesso-button-row">
+          <button type="button" onClick={() => onChange(next => {applyDramaticSpot(next);})}>Dramatic spot</button>
+          <button type="button" onClick={() => onChange(next => {const hdri = next.lighting?.hdri; next.lighting = defaultLighting(next); if (hdri) next.lighting.hdri = hdri;})}>Reset studio rig</button>
+        </div>
+        <p className="gesso-meta">Preview approximates area lights. Spots cast real shadows in both. Cycles renders the saved power, diameter and position. Baked light in an imported world stays in its source texture.</p>
       </section>
       </EditorCabinetBody>
     </section>

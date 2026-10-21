@@ -417,6 +417,22 @@ def area_light(name, position, target, power, size, color):
     return obj
 
 
+def spot_light(name, position, target, power, cone_deg, blend, radius, color):
+    """A hard, aimed Cycles spot: power is specified like a point light's, the
+    cone masks it, and the emitter radius sets the shadow softness."""
+    data = bpy.data.lights.new(name, "SPOT")
+    data.energy = power
+    data.spot_size = math.radians(cone_deg)
+    data.spot_blend = blend
+    data.shadow_soft_size = radius
+    data.color = color
+    obj = bpy.data.objects.new(name, data)
+    bpy.context.collection.objects.link(obj)
+    obj.location = position
+    obj.rotation_euler = (Vector(target) - obj.location).to_track_quat("-Z", "Y").to_euler()
+    return obj
+
+
 def configure_scene(source, width, height, samples):
     scene = bpy.context.scene
     settings = source["render"]
@@ -462,6 +478,19 @@ def configure_scene(source, width, height, samples):
     background = scene.world.node_tree.nodes.get("Background")
     background.inputs["Color"].default_value = (*source["environment"]["worldColor"], 1)
     background.inputs["Strength"].default_value = source.get("lighting", {}).get("ambientStrength", 0.45)
+    ambient_color = source.get("lighting", {}).get("ambientColor")
+    if ambient_color:
+        # The camera keeps seeing the authored world colour; every other ray
+        # receives the ambient colour, so a dark field can carry a warm fill.
+        nodes, links = scene.world.node_tree.nodes, scene.world.node_tree.links
+        camera = nodes.new("ShaderNodeLightPath")
+        mix = nodes.new("ShaderNodeMix")
+        mix.name = "Ambient / colour for non-camera rays"
+        mix.data_type = "RGBA"
+        links.new(camera.outputs["Is Camera Ray"], mix.inputs["Factor"])
+        mix.inputs[6].default_value = (*ambient_color, 1)
+        mix.inputs[7].default_value = (*source["environment"]["worldColor"], 1)
+        links.new(mix.outputs[2], background.inputs["Color"])
     return scene
 
 
@@ -595,7 +624,13 @@ def environment(source, samples_root=None):
     if "lighting" in source:
         for light in source["lighting"]["lights"]:
             if light["enabled"]:
-                area_light("Studio / " + light["name"], blender_position(light["positionM"]), blender_position(light["targetM"]), light["powerW"], light["diameterM"], light["color"])
+                position, target = blender_position(light["positionM"]), blender_position(light["targetM"])
+                if light.get("type", "area") == "spot":
+                    obj = spot_light("Studio / " + light["name"], position, target, light["powerW"], light.get("coneDeg", 40), light.get("blend", 0.3), light["diameterM"] / 2, light["color"])
+                else:
+                    obj = area_light("Studio / " + light["name"], position, target, light["powerW"], light["diameterM"], light["color"])
+                # The sampled light poses are matched back by scene ID, never by name.
+                obj["gesso_light_id"] = light["id"]
         return
     # Scale illumination with the product, keeping intensity stable for metre units.
     size = max(source["product"]["dimensionsM"])
@@ -980,8 +1015,29 @@ def animate(source, frames, objects):
     previous_rotations = {}
     previous_camera_rotation = None
     camera.rotation_mode = "QUATERNION"
+    # Sampled light poses (present only when a scene animates a light) key the
+    # studio light objects the same way as the camera: location plus a tracking
+    # rotation recomputed per frame, matched by the light's scene ID.
+    lights = {obj["gesso_light_id"]: obj for obj in scene.objects if obj.type == "LIGHT" and "gesso_light_id" in obj}
+    previous_light_rotations = {}
     for sample in frames:
         frame = sample["frame"]
+        for pose in sample.get("lights", []):
+            light = lights.get(pose["id"])
+            if light is None:
+                continue
+            light.rotation_mode = "QUATERNION"
+            light.location = blender_position(pose["positionM"])
+            direction = Vector(blender_position(pose["targetM"])) - light.location
+            if direction.length < 1e-8:
+                raise ValueError(f"Light {pose['id']} position equals its target at frame {frame}")
+            rotation = direction.to_track_quat("-Z", "Y")
+            if pose["id"] in previous_light_rotations and rotation.dot(previous_light_rotations[pose["id"]]) < 0:
+                rotation.negate()
+            previous_light_rotations[pose["id"]] = rotation.copy()
+            light.rotation_quaternion = rotation
+            light.keyframe_insert(data_path="location", frame=frame, group="Sampled light")
+            light.keyframe_insert(data_path="rotation_quaternion", frame=frame, group="Sampled light")
         for component_id, obj in objects.items():
             transform = sample["components"][component_id]
             obj.location = blender_position(transform["translationM"])
@@ -1013,7 +1069,7 @@ def animate(source, frames, objects):
         camera.keyframe_insert(data_path="location", frame=frame, group="Sampled camera")
         camera.keyframe_insert(data_path="rotation_quaternion", frame=frame, group="Sampled camera")
         camera_data.keyframe_insert(data_path="lens", frame=frame)
-    for item in [*objects.values(), camera, camera_data]:
+    for item in [*objects.values(), *lights.values(), camera, camera_data]:
         if item.animation_data and item.animation_data.action:
             for curve in item.animation_data.action.fcurves:
                 for keyframe in curve.keyframe_points:
@@ -1157,7 +1213,10 @@ def main():
         "coordinateConversion": {"from": "right-handed Y-up metres", "to": "right-handed Z-up metres", "position": "(x,-z,y)"},
         "lightingSource": source.get("lighting", {"preset": "legacy studio", "ambientStrength": 0.45}),
         "lighting": [
-            {"name": obj.name, "positionM": list(obj.location), "powerW": obj.data.energy, "diameterM": obj.data.size, "color": list(obj.data.color)}
+            {"name": obj.name, "type": obj.data.type, "positionM": list(obj.location), "powerW": obj.data.energy,
+             "diameterM": obj.data.size if obj.data.type == "AREA" else obj.data.shadow_soft_size * 2, "color": list(obj.data.color),
+             **({"coneDeg": math.degrees(obj.data.spot_size), "blend": obj.data.spot_blend} if obj.data.type == "SPOT" else {}),
+             "animated": bool(obj.animation_data and obj.animation_data.action)}
             for obj in scene.objects if obj.type == "LIGHT"
         ],
     }

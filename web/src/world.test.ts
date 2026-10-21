@@ -1,9 +1,40 @@
 import {describe, expect, it} from 'vitest';
 import {Euler, Quaternion} from 'three';
 import fixture from '../../examples/bottle.scene.json';
-import {addProp, addPropFromLibrary, setHdriFromLibrary, colorFromHex, colorHex, defaultLighting, ensureLighting, resizeProp, setPropShape, setWorldYaw, worldYaw} from './world';
+import {addLight, addProp, addPropFromLibrary, applyDramaticSpot, setHdriFromLibrary, colorFromHex, colorHex, defaultLighting, ensureLighting, isLightTarget, lightIdFromTarget, lightTarget, removeLight, resizeProp, setLightType, setPropShape, setWorldYaw, worldYaw} from './world';
 
 describe('World editing', () => {
+  it('adds typed lights with unique ids, switches types additively and removes down to one light', () => {
+    const scene: any = structuredClone(fixture);
+    expect(addLight(scene, 'spot')).toBe('spot-1'); expect(addLight(scene, 'spot')).toBe('spot-2'); expect(addLight(scene, 'area')).toBe('area-1');
+    const lights = scene.lighting.lights, spot = lights.find((light: any) => light.id === 'spot-1');
+    expect(spot).toMatchObject({type: 'spot', coneDeg: 35, blend: .4, name: 'Spot', enabled: true});
+    expect(lights.find((light: any) => light.id === 'spot-2').name).toBe('Spot 2');
+    const area = lights.find((light: any) => light.id === 'area-1');
+    expect(area.type).toBeUndefined(); expect(area.coneDeg).toBeUndefined(); expect(area.name).toBe('Area');
+    setLightType(area, 'spot'); expect(area).toMatchObject({type: 'spot', coneDeg: 40, blend: .3});
+    area.coneDeg = 20; setLightType(area, 'spot'); expect(area.coneDeg).toBe(20);
+    setLightType(area, 'area'); expect('type' in area).toBe(false); expect('coneDeg' in area).toBe(false); expect('blend' in area).toBe(false);
+    for (const id of ['spot-1', 'spot-2', 'area-1', 'fill', 'rim']) removeLight(scene, id);
+    expect(scene.lighting.lights.map((light: any) => light.id)).toEqual(['key']);
+    expect(() => removeLight(scene, 'key')).toThrow('at least one light');
+    scene.lighting.hdri = {name: 'x'}; removeLight(scene, 'key'); expect(scene.lighting.lights).toEqual([]);
+    expect(() => {for (let count = 0; count < 9; count++) addLight(scene, 'spot');}).toThrow('eight');
+    expect(scene.lighting.lights).toHaveLength(8);
+  });
+  it('the dramatic preset keeps the HDRI and places one hard warm spot above the product', () => {
+    const scene: any = structuredClone(fixture); const scale = .137 / .12;
+    scene.lighting = {...defaultLighting(scene), hdri: {name: 'x'}};
+    applyDramaticSpot(scene);
+    expect(scene.lighting.ambientStrength).toBe(.15); expect(scene.lighting.ambientColor).toEqual([.24, .18, .16]); expect(scene.lighting.hdri).toEqual({name: 'x'});
+    expect(scene.lighting.lights).toHaveLength(1);
+    const spot = scene.lighting.lights[0];
+    expect(spot).toMatchObject({id: 'spot', type: 'spot', coneDeg: 35, blend: .4, color: [1, .86, .70], enabled: true});
+    expect(spot.positionM[1]).toBeCloseTo(.42 * scale); expect(spot.positionM[2]).toBeCloseTo(.28 * scale);
+    expect(spot.targetM).toEqual([0, .137 * .45, 0]);
+    expect(spot.powerW).toBeCloseTo(14 * scale * scale, 3); expect(spot.diameterM).toBeCloseTo(.05 * scale);
+    expect(lightTarget('spot')).toBe('$light:spot'); expect(isLightTarget('$light:spot')).toBe(true); expect(isLightTarget('$product')).toBe(false); expect(lightIdFromTarget('$light:spot')).toBe('spot');
+  });
   it('derives canonical legacy Cycles lighting without changing saved scenes', () => {
     const scene = structuredClone(fixture); const before = JSON.stringify(scene);
     const rig = defaultLighting(scene); const scale = .137 / .12;

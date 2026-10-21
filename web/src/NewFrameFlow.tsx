@@ -1,8 +1,9 @@
 import {NumberControl} from './EditorControls';
 import {UiIcon} from './UiIcon';
-import {availableMotionKinds, listMotions, type FilmMotion, type MotionKind} from './filmMotion';
+import {availableMotionKinds, listMotions, motionLights, LIGHT_MOTION_KINDS, type FilmMotion, type MotionKind} from './filmMotion';
 import {filmTargetName, motionMeasure} from './FilmWorkspace';
 import {frameObjectMotionKinds, type FrameSetup} from './frameSetup';
+import {isLightTarget, lightTarget} from './world';
 import './frame-setup.css';
 
 export interface FrameSetupProps {
@@ -27,9 +28,12 @@ export function frameHasInheritedMotion(scene: any): boolean {
 
 /** Selecting the whole product replaces the part selection; selecting parts releases it. */
 export function nextFrameTargets(current: string[], target: string, checked: boolean): string[] {
-  if (target === '$product') return checked ? ['$product'] : [];
-  const parts = current.filter(id => id !== '$product' && id !== target);
-  return checked ? [...parts, target] : parts;
+  // Lights are independent of the product/part choice and keep their selection.
+  const lights = current.filter(id => isLightTarget(id) && id !== target);
+  if (isLightTarget(target)) return checked ? [...current.filter(id => id !== target), target] : current.filter(id => id !== target);
+  if (target === '$product') return checked ? ['$product', ...lights] : lights;
+  const parts = current.filter(id => id !== '$product' && id !== target && !isLightTarget(id));
+  return checked ? [...parts, target, ...lights] : [...parts, ...lights];
 }
 
 function mechanicalName(scene: any, targets: string[]): string {
@@ -38,7 +42,7 @@ function mechanicalName(scene: any, targets: string[]): string {
 }
 
 function kindName(scene: any, setup: FrameSetup, kind: MotionKind): string {
-  return kind === 'mechanical' ? mechanicalName(scene, setup.targets) : {move: 'Move', rotate: 'Rotate', scale: 'Scale', orbit: 'Orbit', dolly: 'Push in'}[kind];
+  return kind === 'mechanical' ? mechanicalName(scene, setup.targets) : {move: 'Move', rotate: 'Rotate', scale: 'Scale', orbit: 'Orbit', dolly: 'Push in', aim: 'Aim'}[kind];
 }
 
 function anchorHint(scene: any, target: string): string {
@@ -48,11 +52,13 @@ function anchorHint(scene: any, target: string): string {
 
 export function FrameSetupObjects({scene, setup, disabled, onTargets, onCameraTarget}: FrameSetupProps) {
   const camera = setup.stage === 'camera';
-  const targets = ['$product', ...scene.product.components.map((part: any) => part.id)];
+  // Lights are animated alongside the product; the camera only aims at product geometry.
+  const targets = ['$product', ...scene.product.components.map((part: any) => part.id),
+    ...(camera ? [] : motionLights(scene).filter(light => light.enabled).map(light => lightTarget(light.id)))];
   return <section className="gesso-panel frame-setup-objects film-rail-panel" aria-label={camera ? 'Camera target' : 'Objects to animate'}>
     <header className="frame-setup-rail-heading"><h2>{camera ? 'Camera target' : 'Objects to animate'}</h2>{!camera && <span>{setup.targets.length} selected</span>}</header>
     <div className="film-rail-scroll">
-    <p className="frame-setup-hint">{camera ? 'Choose what the camera points toward.' : 'Select the product or individual parts.'}</p>
+    <p className="frame-setup-hint">{camera ? 'Choose what the camera points toward.' : 'Select the product, individual parts or lights.'}</p>
     <div className="frame-setup-targets" role="group" aria-label={camera ? 'Aim target' : 'Moving objects'}>
       {targets.map(target => {
         const supported = camera || availableMotionKinds(scene, target).length > 0;
@@ -64,6 +70,7 @@ export function FrameSetupObjects({scene, setup, disabled, onTargets, onCameraTa
               onChange={event => camera ? onCameraTarget(target) : onTargets(nextFrameTargets(setup.targets, target, event.target.checked))}/>
             <span>{filmTargetName(scene, target)}</span>
             {target === '$product' && <small>all parts</small>}
+            {isLightTarget(target) && <small>light</small>}
           </label>
           {hint && <p className="frame-setup-target-hint">{hint}</p>}
         </div>;
@@ -99,7 +106,9 @@ export function FrameSetupInspector(props: FrameSetupProps) {
   const entries = listMotions(scene, setup.shotId);
   const selectedMotion = entries.find(entry => camera ? entry.motion.id === setup.cameraMotionId : setup.objectMotionIds.includes(entry.motion.id))?.motion;
   const common = frameObjectMotionKinds(scene, setup.targets);
-  const kinds: MotionKind[] = camera ? ['orbit', 'dolly'] : ['move', 'rotate', 'scale', ...(common.includes('mechanical') ? ['mechanical' as const] : [])];
+  const lightsOnly = setup.targets.length > 0 && setup.targets.every(isLightTarget);
+  const kinds: MotionKind[] = camera ? ['orbit', 'dolly'] : lightsOnly ? [...LIGHT_MOTION_KINDS]
+    : ['move', 'rotate', 'scale', ...(common.includes('mechanical') ? ['mechanical' as const] : [])];
   const selectedKind = camera ? setup.cameraKind : setup.objectKind;
   const objectReady = setup.objectKind === null || setup.targets.length > 0;
   return <section className="gesso-panel frame-setup-inspector film-rail-panel" aria-label="New scene setup">

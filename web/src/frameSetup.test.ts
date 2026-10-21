@@ -13,6 +13,23 @@ const sampleFor = (scene: any, setup: FrameSetup) => ({frame: shotFor(scene, set
 const motions = (scene: any, setup: FrameSetup) => shotFor(scene, setup).motions ?? [];
 
 describe('new frame setup', () => {
+  it('animates lights beside the product and persists a legacy rig when it does', () => {
+    const scene = source(); const setup = newFrame(scene);
+    expect(frameObjectMotionKinds(scene, ['$product', '$light:key'])).toEqual(['move']);
+    expect(frameObjectMotionKinds(scene, ['$light:key', '$light:rim'])).toEqual(['orbit', 'move', 'aim']);
+    expect(frameObjectMotionKinds(scene, ['cap', '$light:key'])).toEqual(['move']);
+    expect(frameObjectMotionKinds(scene, ['$product', 'cap'])).toEqual([]);
+    expect(scene.lighting).toBeUndefined();
+    const next = setFrameObjects(scene, setup, ['$light:key'], 'orbit');
+    expect(scene.lighting.lights[0].id).toBe('key');
+    expect(motions(scene, next)).toHaveLength(1);
+    expect(motions(scene, next)[0]).toMatchObject({target: '$light:key', kind: 'orbit', axis: 'y', amount: 60, easing: 'ease'});
+    expect(motions(scene, next)[0].durationFrames).toBe(shotFor(scene, next).endFrame - shotFor(scene, next).startFrame + 1);
+    const both = setFrameObjects(scene, next, ['$product', '$light:key'], 'move');
+    expect(motions(scene, both).map((motion: any) => motion.target).sort()).toEqual(['$light:key', '$product']);
+    expect(() => setFrameObjects(scene, both, ['$light:missing'], 'orbit')).toThrow('no longer in this rig');
+    expect(() => setFrameObjects(scene, both, ['$product', 'cap'], 'move')).toThrow('not both');
+  });
   it('starts the first scene in an empty legacy movie without discarding motion', () => {
     const scene = source(); scene.shots = []; scene.render.durationFrames = 360;
     const actions = structuredClone(scene.actions);

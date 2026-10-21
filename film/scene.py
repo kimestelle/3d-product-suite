@@ -140,8 +140,21 @@ def _validate_depth_of_field(camera):
              "Camera focus target must remain beyond the focal length throughout the shot")
 
 
+LIGHT_TARGET_PREFIX = '$light:'
+LIGHT_MOTION_KINDS = ('orbit', 'move', 'aim')
+
+
+def _is_light_target(target):
+    return isinstance(target, str) and target.startswith(LIGHT_TARGET_PREFIX)
+
+
 def _motion_channels(motion):
     kind = motion['kind']
+    if _is_light_target(motion.get('target')):
+        # A light orbit owns the whole position; moves and aims own one axis each.
+        if kind == 'orbit':
+            return {'position'}
+        return {f"{'position' if kind == 'move' else 'target'}.{motion['axis']}"}
     if kind in ('orbit', 'dolly'):
         return {'camera.position'}
     if kind == 'mechanical':
@@ -162,6 +175,7 @@ def _validate_film_motions(scene, component_ids, moving, motion_parents):
     if 'motions' not in scene and not any('motions' in shot for shot in scene['shots']):
         return
     _require(not {'$camera', '$product'} & component_ids, 'Reserved Film target ID')
+    lights = {light['id']: light for light in scene.get('lighting', {}).get('lights', [])}
     for source in [scene, *scene['shots']]:
         motions = source.get('motions', [])
         _require(isinstance(motions, list), 'Film motions must be a list')
@@ -173,10 +187,15 @@ def _validate_film_motions(scene, component_ids, moving, motion_parents):
                      'Film motion IDs must be nonempty, bounded and unique within their scope')
             ids.add(identifier)
             target, kind = motion.get('target'), motion.get('kind')
-            _require(isinstance(target, str) and (target in component_ids or target in ('$camera', '$product')),
+            _require(isinstance(target, str) and (target in component_ids or target in ('$camera', '$product') or _is_light_target(target)),
                      'Film motion target does not exist')
-            _require(kind in ('move', 'rotate', 'scale', 'mechanical', 'orbit', 'dolly'), 'Unsupported Film motion')
-            _require((target == '$camera') == (kind in ('orbit', 'dolly')), 'Camera actions require a camera target')
+            if _is_light_target(target):
+                light = lights.get(target[len(LIGHT_TARGET_PREFIX):])
+                _require(light is not None and light['enabled'], 'Film motion light does not exist or is disabled')
+                _require(kind in LIGHT_MOTION_KINDS, 'Lights support orbit, move and aim motions')
+            else:
+                _require(kind in ('move', 'rotate', 'scale', 'mechanical', 'orbit', 'dolly'), 'Unsupported Film motion')
+                _require((target == '$camera') == (kind in ('orbit', 'dolly')), 'Camera actions require a camera target')
             _require(kind != 'mechanical' or target in moving, 'Mechanism requires an existing confirmed action')
             _require(target not in motion_parents, 'Cannot animate a part used as another mechanism reference')
             _require(motion.get('axis') in ('x', 'y', 'z'), 'Film motion axis must be x, y or z')
@@ -210,7 +229,7 @@ def _validate_film_motions(scene, component_ids, moving, motion_parents):
         _require(not shared_ids & {motion['id'] for motion in shot.get('motions', [])},
                  'Local and across-cuts motions need distinct IDs in the same shot')
         for motion, _ in _effective_motions(scene, shot):
-            if motion['kind'] in ('dolly', 'orbit'):
+            if motion['target'] == '$camera' and motion['kind'] in ('dolly', 'orbit'):
                 camera = shot['camera']
                 distance = math.dist(camera['from']['positionM'], camera['from']['targetM'])
                 # Progress is bounded [0,1], so the minimum occurs at an endpoint.
@@ -237,7 +256,7 @@ def _film_values(scene, shot, frame, animated):
     components = {part['id']: part for part in scene['product']['components']}
     for motion, local in _effective_motions(scene, shot):
         target = motion['target']
-        if target == '$camera':
+        if target == '$camera' or _is_light_target(target):
             continue
         clock = frame - shot['startFrame'] + 1 if local else frame
         progress = _motion_progress(motion, clock)
@@ -279,6 +298,40 @@ def _film_camera(scene, shot, frame, camera):
             offset = [component * (1 - value/radius) for component in offset]
         camera['positionM'] = _add(start['targetM'], offset)
         camera['targetM'] = list(start['targetM'])
+
+
+def _has_light_motions(scene):
+    """Only scenes that animate a light carry per-frame light poses in their samples."""
+    return any(motion['enabled'] and _is_light_target(motion['target'])
+               for source in [scene, *scene['shots']] for motion in source.get('motions', []))
+
+
+def _film_lights(scene, shot, frame):
+    """Evaluate enabled lights: an orbit turns the authored offset about the
+    authored aim point, moves add to the position and aims add to the target.
+    The composition is order-independent, so shared and local owners cannot
+    change a result by their list position."""
+    poses = []
+    for light in scene.get('lighting', {}).get('lights', []):
+        if not light['enabled']:
+            continue
+        angle, move, aim = 0., [0., 0., 0.], [0., 0., 0.]
+        for motion, local in _effective_motions(scene, shot):
+            if motion['target'] != LIGHT_TARGET_PREFIX + light['id']:
+                continue
+            clock = frame - shot['startFrame'] + 1 if local else frame
+            value = motion['amount'] * _motion_progress(motion, clock)
+            if motion['kind'] == 'orbit':
+                angle += value
+            else:
+                (move if motion['kind'] == 'move' else aim)['xyz'.index(motion['axis'])] += value
+        offset = [position - target for position, target in zip(light['positionM'], light['targetM'])]
+        if angle:
+            radians = math.radians(angle)
+            offset = _rotate([0, math.sin(radians / 2), 0, math.cos(radians / 2)], offset)
+        target = _add(light['targetM'], aim)
+        poses.append({'id': light['id'], 'positionM': _add(_add(target, offset), move), 'targetM': target})
+    return poses
 
 
 def validate_scene(scene):
@@ -436,6 +489,9 @@ def validate_scene(scene):
             lighting = scene["lighting"]
             _require(isinstance(lighting, dict), "Lighting must be an object")
             _number(lighting["ambientStrength"], "ambient strength", minimum=0, maximum=10)
+            if "ambientColor" in lighting:
+                _vector(lighting["ambientColor"], "ambient color")
+                _require(all(0 <= x <= 1 for x in lighting["ambientColor"]), "Ambient color must be in [0,1]")
             _require(isinstance(lighting["lights"], list) and len(lighting["lights"]) <= 8 and (lighting["lights"] or "hdri" in lighting), "Lighting must contain 1 to 8 lights or an HDRI")
             if "hdri" in lighting:
                 hdri = lighting["hdri"]
@@ -458,6 +514,13 @@ def validate_scene(scene):
                 _number(light["diameterM"], "light diameter", minimum=.001, maximum=1000)
                 _vector(light["color"], "light color")
                 _require(all(0 <= x <= 1 for x in light["color"]), "Light color must be in [0,1]")
+                # Additive: an absent type is the original area disk. Spot fields
+                # are validated only when present so saved rigs stay untouched.
+                _require(light.get("type", "area") in ("area", "spot"), "Light type must be area or spot")
+                if "coneDeg" in light:
+                    _number(light["coneDeg"], "spot cone", minimum=1, maximum=170)
+                if "blend" in light:
+                    _number(light["blend"], "spot blend", minimum=0, maximum=1)
         _require(scene["placement"]["restsOn"] == env["plinth"]["id"], "Unknown contact surface")
         _vector(scene["placement"]["translationM"], "product placement")
         _number(scene["placement"].get("scale", 1), "product scale", minimum=.01, maximum=100)
@@ -694,8 +757,12 @@ def evaluate(scene, frame):
         "focusDistanceM": optics.get("focusDistanceM", math.dist(camera["positionM"], camera["targetM"])),
     }
     clip = {"kind": "black"} if selected is None else ({"kind": "image", **selected["image"]} if selected.get("kind") == "image" else {"kind": "scene"})
-    return {"frame":frame,"timeSeconds":t,"shotId":selected["id"] if selected else None,
-            "clip":clip,"components":components,"camera":camera}
+    sample = {"frame":frame,"timeSeconds":t,"shotId":selected["id"] if selected else None,
+              "clip":clip,"components":components,"camera":camera}
+    if _has_light_motions(scene):
+        # Scenes without light motions keep their byte-identical samples.
+        sample["lights"] = _film_lights(scene, shot, frame)
+    return sample
 
 
 def sample_scene(scene):

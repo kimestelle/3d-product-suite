@@ -1,9 +1,18 @@
 import {Color, Euler, Quaternion, SRGBColorSpace, Vector3} from 'three';
 
-export type StudioLight = {id: string; name: string; enabled: boolean; positionM: number[]; targetM: number[]; powerW: number; diameterM: number; color: number[]};
+/** An absent type is the original area disk; spot fields exist only on spots. */
+export type StudioLightType = 'area' | 'spot';
+export type StudioLight = {id: string; name: string; enabled: boolean; positionM: number[]; targetM: number[]; powerW: number; diameterM: number; color: number[];
+  type?: StudioLightType; coneDeg?: number; blend?: number};
 export type HdriLighting = {asset: {path: string; sha256: string; format: 'hdr'}; name: string; sourceUrl: string; intensity: number; rotationDeg: number};
-export type StudioLighting = {ambientStrength: number; lights: StudioLight[]; hdri?: HdriLighting};
+export type StudioLighting = {ambientStrength: number; lights: StudioLight[]; hdri?: HdriLighting; ambientColor?: number[]};
 export const PLINTH_MATERIAL = {baseColor: [.56, .54, .49, 1], roughness: .58, metallic: 0};
+export const SPOT_DEFAULTS = {coneDeg: 40, blend: .3};
+export const LIGHT_TARGET_PREFIX = '$light:';
+export const lightTarget = (id: string) => LIGHT_TARGET_PREFIX + id;
+export const isLightTarget = (target: string) => target.startsWith(LIGHT_TARGET_PREFIX);
+export const lightIdFromTarget = (target: string) => target.slice(LIGHT_TARGET_PREFIX.length);
+export const lightType = (light: Pick<StudioLight, 'type'>): StudioLightType => light.type === 'spot' ? 'spot' : 'area';
 
 /** The pre-existing Cycles rig, expressed in the canonical scene coordinates. */
 export function defaultLighting(scene: any): StudioLighting {
@@ -24,6 +33,63 @@ export function defaultLighting(scene: any): StudioLighting {
 export function ensureLighting(scene: any): StudioLighting {
   if (!scene.lighting) scene.lighting = defaultLighting(scene);
   return scene.lighting;
+}
+
+/** Rig-relative placement shared by new lights and the dramatic preset. */
+function rigFrame(scene: any) {
+  const size = Math.max(...scene.product.dimensionsM);
+  const position = scene.placement.translationM as number[];
+  return {size, scale: size / .12, position, targetM: position.map((value, index) => value + (index === 1 ? size * .45 : 0))};
+}
+
+/** A hard, warm spot above and in front of the product; the emitter is small so the contact shadow stays crisp. */
+export function dramaticSpot(scene: any, id = 'spot'): StudioLight {
+  const {scale, position, targetM} = rigFrame(scene);
+  return {id, name: 'Spot', type: 'spot', enabled: true, coneDeg: 35, blend: .4,
+    positionM: [-.10, .42, .28].map((value, index) => position[index] + value * scale), targetM,
+    powerW: Number((14 * scale * scale).toPrecision(6)), diameterM: .05 * scale, color: [1, .86, .70]};
+}
+
+export function addLight(scene: any, type: StudioLightType): string {
+  const lighting = ensureLighting(scene);
+  if (lighting.lights.length >= 8) throw new Error('A rig holds at most eight lights.');
+  const ids = new Set(lighting.lights.map(light => light.id));
+  let number = 1; while (ids.has(`${type}-${number}`)) number++;
+  const id = `${type}-${number}`;
+  const names = new Set(lighting.lights.map(light => light.name));
+  let name = type === 'spot' ? 'Spot' : 'Area'; let suffix = 2;
+  while (names.has(name)) name = `${type === 'spot' ? 'Spot' : 'Area'} ${suffix++}`;
+  const light = dramaticSpot(scene, id);
+  light.name = name;
+  if (type === 'area') {
+    const {scale} = rigFrame(scene);
+    delete light.type; delete light.coneDeg; delete light.blend;
+    light.powerW = Number((2.6 * scale * scale).toPrecision(6)); light.diameterM = .23 * scale; light.color = [1, .93, .82];
+  }
+  lighting.lights.push(light);
+  return id;
+}
+
+export function removeLight(scene: any, id: string): void {
+  const lighting = ensureLighting(scene);
+  if (lighting.lights.length <= 1 && !lighting.hdri) throw new Error('Keep at least one light or an HDRI.');
+  lighting.lights = lighting.lights.filter(light => light.id !== id);
+}
+
+export function setLightType(light: StudioLight, type: StudioLightType): void {
+  if (type === 'spot') {
+    light.type = 'spot';
+    light.coneDeg ??= SPOT_DEFAULTS.coneDeg; light.blend ??= SPOT_DEFAULTS.blend;
+  } else {
+    delete light.type; delete light.coneDeg; delete light.blend;
+  }
+}
+
+/** One-click luxury-launch look: low warm ambient and a single hard spot sweeping the product. */
+export function applyDramaticSpot(scene: any): void {
+  const hdri = scene.lighting?.hdri;
+  scene.lighting = {ambientStrength: .15, ambientColor: [.24, .18, .16], lights: [dramaticSpot(scene)]};
+  if (hdri) scene.lighting.hdri = hdri;
 }
 
 export function colorHex(linear: number[]): string { return '#' + new Color().setRGB(linear[0], linear[1], linear[2]).getHexString(SRGBColorSpace); }
