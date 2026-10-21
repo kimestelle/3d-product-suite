@@ -2,7 +2,8 @@ import {useEffect, useState, type ReactNode} from 'react';
 import {NumberControl} from './EditorControls';
 import {UiIcon} from './UiIcon';
 import {exactShotAtFrame,shotAtFrame} from './sequence';
-import {addMotion, availableMotionKinds, changeMotionScope, listMotions, removeMotion, updateMotion, type FilmMotion, type MotionKind} from './filmMotion';
+import {addMotion, availableMotionKinds, changeMotionScope, listMotions, motionLights, removeMotion, updateMotion, type FilmMotion, type MotionKind} from './filmMotion';
+import {isLightTarget, lightTarget} from './world';
 import {actionName, clamp, filmTargetName, labelFor, legacyCount, motionBounds, motionMeasure, useFilmEdits} from './FilmWorkspaceShared';
 import './film-workspace.css';
 import './film-rails.css';
@@ -50,15 +51,19 @@ export function FilmObjects(props: FilmWorkspaceProps) {
   const {scene, frame, editingFrame, selectedTarget, onTargetChange, onMotionSelect, onEditCurves} = props;
   const shot = shotAtFrame(scene, editingFrame ?? frame), entries = props.mode === 'still' ? [] : listMotions(scene, shot.id);
   const isPart = !selectedTarget.startsWith('$');
+  const isLight = isLightTarget(selectedTarget);
   const [partsOpen, setPartsOpen] = useState(isPart);
+  const [lightsOpen, setLightsOpen] = useState(isLight);
   useEffect(() => {if (isPart) setPartsOpen(true);}, [selectedTarget, isPart]);
+  useEffect(() => {if (isLight) setLightsOpen(true);}, [selectedTarget, isLight]);
   const chooseTarget = (target: string) => {onTargetChange(target); onMotionSelect(null); onEditCurves?.(false);};
+  const lights = props.mode === 'still' ? [] : motionLights(scene).filter(light => light.enabled);
   const targetRow = (target: string) => {
     const count = entries.filter(entry => entry.motion.target === target).length;
     return <div className={`film-object${target === selectedTarget ? ' is-selected' : ''}`} key={target}>
       <button type="button" className="film-object-name" aria-pressed={target === selectedTarget} onClick={() => chooseTarget(target)}>
-        <span>{target === '$camera' ? <UiIcon name="circle"/> : target === '$product' ? <span className="film-product-mark" aria-hidden="true"/> : <span className="film-part-mark"/>}{filmTargetName(scene, target)}</span>
-        <small>{count ? `${count} ${count === 1 ? 'motion' : 'motions'}` : target === '$camera' ? 'frame' : 'pose'}</small>
+        <span>{target === '$camera' ? <UiIcon name="circle"/> : target === '$product' ? <span className="film-product-mark" aria-hidden="true"/> : isLightTarget(target) ? <span className="film-light-mark" aria-hidden="true"/> : <span className="film-part-mark"/>}{filmTargetName(scene, target)}</span>
+        <small>{count ? `${count} ${count === 1 ? 'motion' : 'motions'}` : target === '$camera' ? 'frame' : isLightTarget(target) ? 'still' : 'pose'}</small>
       </button>
     </div>;
   };
@@ -70,6 +75,10 @@ export function FilmObjects(props: FilmWorkspaceProps) {
         <summary><UiIcon name="chevron"/><span>Parts</span><small>{scene.product.components.length}</small></summary>
         <div className="film-parts-list">{scene.product.components.map((part: any) => targetRow(part.id))}</div>
       </details>
+      {lights.length > 0 && <details className="film-rail-disclosure film-parts-disclosure film-lights-disclosure" open={lightsOpen} onToggle={event => setLightsOpen(event.currentTarget.open)}>
+        <summary><UiIcon name="chevron"/><span>Lights</span><small>{lights.length}</small></summary>
+        <div className="film-parts-list">{lights.map(light => targetRow(lightTarget(light.id)))}</div>
+      </details>}
     </div>
   </div>;
 }
@@ -132,7 +141,7 @@ export function FilmInspector(props: FilmWorkspaceProps & {children?: ReactNode;
       <summary><UiIcon name="chevron"/><span>{selectedTarget === '$camera' ? 'Framing' : 'Position'}</span></summary>
       <div className="film-rail-detail-body">{children ?? <p className="film-hint">{selectedTarget === '$camera' ? 'Frame the camera in the product view.' : 'Select an object to set its base pose.'}</p>}</div>
     </details>
-    {props.mode !== 'still' && selectedTarget !== '$camera' && <details className="film-rail-disclosure film-custom-details">
+    {props.mode !== 'still' && selectedTarget !== '$camera' && !isLightTarget(selectedTarget) && <details className="film-rail-disclosure film-custom-details">
       <summary><UiIcon name="chevron"/><span>Custom keyframes</span>{existing > 0 && <small>Existing</small>}</summary>
       <div className="film-rail-detail-body">
         <div className="film-rail-heading"><span>{existing ? 'Existing animation' : 'Individual channels'}</span><small>Across cuts</small></div>

@@ -219,6 +219,79 @@ class FilmMotionTests(unittest.TestCase):
                 with self.assertRaises(ValueError): validate_scene(self.scene)
 
 
+def spot_rig(enabled=True):
+    return {'ambientStrength': .15, 'lights': [{'id': 'spot', 'name': 'Spot', 'type': 'spot', 'enabled': enabled, 'coneDeg': 35, 'blend': .4,
+            'positionM': [1, .5, 0], 'targetM': [0, .5, 0], 'powerW': 12, 'diameterM': .05, 'color': [1, .86, .7]}]}
+
+
+class LightMotionTests(unittest.TestCase):
+    def setUp(self):
+        self.scene = load_scene(EXAMPLE)
+        self.scene['lighting'] = spot_rig()
+
+    def light(self, frame):
+        sample = evaluate(self.scene, frame)
+        return next(pose for pose in sample['lights'] if pose['id'] == 'spot')
+
+    def test_light_orbit_turns_the_light_about_its_aim_point(self):
+        self.scene['shots'][0]['motions'] = [{**motion('orbit', '$light:spot'), 'amount': 180}]
+        validate_scene(self.scene)
+        self.assertEqual(self.light(1), {'id': 'spot', 'positionM': [1, .5, 0], 'targetM': [0, .5, 0]})
+        middle = self.light(13)
+        self.assertAlmostEqual(middle['positionM'][0], 0); self.assertAlmostEqual(middle['positionM'][2], -1)
+        self.assertAlmostEqual(math.dist(middle['positionM'], middle['targetM']), 1)
+        self.assertAlmostEqual(self.light(25)['positionM'][0], -1)
+        self.assertEqual(self.light(25)['targetM'], [0, .5, 0])
+        # The sweep is held after the motion and does not leak into later shots' local clocks.
+        self.assertAlmostEqual(self.light(120)['positionM'][0], -1)
+        self.assertEqual(self.light(121)['positionM'], [1, .5, 0])
+
+    def test_move_and_aim_add_metres_and_compose_independently_of_order(self):
+        motions = [{**motion('move', '$light:spot'), 'id': 'rise', 'axis': 'y', 'amount': .2},
+                   {**motion('aim', '$light:spot'), 'id': 'aim', 'axis': 'z', 'amount': .1},
+                   {**motion('orbit', '$light:spot'), 'id': 'sweep', 'amount': 90}]
+        self.scene['shots'][0]['motions'] = motions
+        validate_scene(self.scene)
+        final = self.light(25)
+        self.assertEqual(final['targetM'], [0, .5, .1])
+        for actual, expected in zip(final['positionM'], [0, .7, -.9]): self.assertAlmostEqual(actual, expected)
+        self.scene['shots'][0]['motions'] = list(reversed(motions))
+        validate_scene(self.scene)
+        self.assertEqual(self.light(25), final)
+        self.scene['motions'] = [{**motion('orbit', '$light:spot'), 'id': 'shared', 'amount': -90, 'durationFrames': 241}]
+        validate_scene(self.scene)
+        self.assertEqual(self.light(25), final)  # The local owner replaces the shared sweep.
+
+    def test_evaluate_adds_lights_only_for_scenes_with_light_motions(self):
+        legacy = load_scene(EXAMPLE)
+        expected = sample_scene(legacy)['frames']
+        self.assertTrue(all('lights' not in frame for frame in expected))
+        self.assertNotIn('lights', evaluate(self.scene, 1))
+        self.scene['shots'][0]['motions'] = [{**motion('orbit', '$light:spot'), 'enabled': False}]
+        validate_scene(self.scene)
+        self.assertNotIn('lights', evaluate(self.scene, 1))
+        self.scene['shots'][0]['motions'][0]['enabled'] = True
+        validate_scene(self.scene)
+        for frame in (1, 25, 121, 241):
+            self.assertEqual([pose['id'] for pose in evaluate(self.scene, frame)['lights']], ['spot'])
+        self.scene['lighting']['lights'].append({**spot_rig()['lights'][0], 'id': 'key', 'name': 'Key', 'type': 'area'})
+        self.scene['lighting']['lights'].append({**spot_rig(enabled=False)['lights'][0], 'id': 'off', 'name': 'Off'})
+        validate_scene(self.scene)
+        self.assertEqual([pose['id'] for pose in evaluate(self.scene, 25)['lights']], ['spot', 'key'])
+        self.assertEqual(evaluate(self.scene, 25)['lights'][1], {'id': 'key', 'positionM': [1, .5, 0], 'targetM': [0, .5, 0]})
+        without_lights = {key: value for key, value in evaluate(self.scene, 25).items() if key != 'lights'}
+        self.assertEqual(without_lights, evaluate(legacy, 25))
+
+    def test_light_orbit_ignores_the_camera_distance_constraint(self):
+        shot = self.scene['shots'][0]
+        shot['camera']['from'].update(positionM=[.001, .5, 0], targetM=[0, .5, 0])
+        shot['camera']['to'].update(positionM=[.001, .5, 0], targetM=[0, .5, 0])
+        shot['motions'] = [{**motion('orbit', '$light:spot'), 'amount': 90}]
+        validate_scene(self.scene)
+        shot['motions'].append({**motion('dolly', '$camera'), 'id': 'push', 'amount': .5})
+        with self.assertRaisesRegex(ValueError, 'stop before'): validate_scene(self.scene)
+
+
 class FilmMotionApiTests(unittest.TestCase):
     setUp = test_editor_api.EditorApiTests.setUp
     stop_server = test_editor_api.EditorApiTests.stop_server

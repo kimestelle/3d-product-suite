@@ -3,9 +3,23 @@ import {describe, expect, it} from 'vitest';
 import fixture from '../../examples/bottle.scene.json';
 import WorldPanel, {type WorldLayer} from './WorldPanel';
 import WorldObjectEditor from './WorldObjectEditor';
-import {addProp} from './world';
+import {addLight, addProp, applyDramaticSpot} from './world';
 function render(layer: WorldLayer, scene: any = fixture, selectedObjectId: string | null = null) {return renderToStaticMarkup(<WorldPanel selectedObjectId={selectedObjectId} scene={scene} layer={layer} worlds={[]} onChange={() => {}} onWorld={() => {}} onImport={() => {}}><button>Compare worlds</button></WorldPanel>);}
 describe('World panel', () => {
+  it('adds and removes lights, selects a type and exposes spot, ambient and preset controls', () => {
+    const scene: any = structuredClone(fixture);
+    expect(addLight(scene, 'spot')).toBe('spot-1');
+    const html = render('Lights', scene);
+    for (const value of ['Add light', 'aria-label="Light type"', 'Area disk', 'Spot', 'Ambient color', 'Dramatic spot', 'Reset studio rig', 'Remove light', 'Spot · On', 'Area · On']) expect(html).toContain(value);
+    expect(html).toContain('<option value="area" selected="">Area disk</option>');
+    expect(html).not.toContain('Cone');
+    expect(html).not.toContain('disabled="">Remove light');
+    const dramatic: any = structuredClone(fixture); applyDramaticSpot(dramatic);
+    const spot = render('Lights', dramatic);
+    for (const value of ['Cone', 'Blend', '<option value="spot" selected="">Spot</option>', 'Use world color']) expect(spot).toContain(value);
+    expect(spot).toContain('disabled="">Remove light</button>');
+    expect(spot).toContain('>Ambient</span>');
+  });
   it('marks the selected section without presenting it as a collapsible disclosure', () => {
     for (const layer of ['Environment', 'Props', 'Lights'] as const) {
       const html = render(layer);

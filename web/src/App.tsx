@@ -12,11 +12,13 @@ import FilmPanel from './FilmPanel';
 import CameraPanel from './CameraPanel';
 import {FilmObjects, FilmInspector, FilmTimeline, FilmShotHeader, type FilmWorkspaceProps} from './FilmWorkspace';
 import FilmPoseInspector from './FilmPoseInspector';
+import FilmLightPose from './FilmLightPose';
+import {isLightTarget} from './world';
 import {FilmClipDetails} from './FilmClipDetails';
 import {addImageShot, closeSequenceGaps, exactShotAtFrame, sequenceEnd, shotAtFrame} from './sequence';
 import {FrameSetupObjects, FrameSetupInspector} from './NewFrameFlow';
 import {createFrameSetup, setFrameObjects, setFrameCamera, patchFrameMotions, type FrameSetup} from './frameSetup';
-import {listMotions, motionLabel} from './filmMotion';
+import {availableMotionKinds, listMotions, motionLabel} from './filmMotion';
 import {timelineMotions} from './filmTimelineModel';
 import {legacyMotions} from './FilmWorkspaceShared';
 import './film-shell.css';
@@ -466,7 +468,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   const chooseFilmTarget=(id:string)=>{
     finishFrameSetup();resumeFilmEditing();setFilmTarget(id);setFilmMotionId(null);setFilmCurves(false);setFilmLegacy(false);
     if(id==='$product')setPositionSpace('world');
-    else if(id!=='$camera'){setPositionSpace('local');setSelected(id);}
+    else if(id!=='$camera'&&!isLightTarget(id)){setPositionSpace('local');setSelected(id);}
     navigate('renders',id==='$camera'?'Framing':'Animation');
   };
   const chooseFilmMotion=(id:string|null)=>{
@@ -478,6 +480,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   useEffect(()=>{
     if(filmMotionId&&!filmEntries.some(entry=>entry.motion.id===filmMotionId)){setFilmMotionId(null);setFilmCurves(false);}
     if(scene&&filmTarget[0]!=='$'&&!scene.product.components.some((part:any)=>part.id===filmTarget))setFilmTarget('$camera');
+    if(scene&&isLightTarget(filmTarget)&&!availableMotionKinds(scene,filmTarget).length)setFilmTarget('$camera');
   },[filmEditShot?.id,scene,filmMotionId,filmTarget]);
   function finishFrameSetup(){
     const baseline=frameSetupBaseline.current;
@@ -551,7 +554,8 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   const filmPoseContent=scene?(filmTarget==='$camera'?<>
     {filmCameraOwners.length>0&&<div className="film-owner-note"><span>Position follows {motionLabel(filmCameraOwners[0].motion).toLowerCase()}. Pause that motion to edit the base view.</span><button type="button" onClick={()=>chooseFilmMotion(filmCameraOwners[0].motion.id)}>Edit motion</button></div>}
     <fieldset className="film-camera-fields" disabled={!!filmCameraOwners.length||busy||!valid}><CameraPanel scene={scene} frame={filmEditFrame} mode={mode} embedded cameraEnd={filmCamera.end} onCameraEndChange={filmCamera.onEndChange} viewportControls cameraTargetId={filmCamera.targetId} onCameraTargetChange={filmCamera.onTargetChange} samples={valid?samples:[]} onChange={changeFilm} onFrame={previewFrame} onResetView={resetView}/></fieldset>
-  </>:<FilmPoseInspector scene={scene} frame={filmEditFrame} target={filmTarget} onChange={changeFilm} onMotionSelect={chooseFilmMotion} disabled={busy||!valid}/> ):null;
+  </>:isLightTarget(filmTarget)?<FilmLightPose scene={scene} target={filmTarget} onChange={changeFilm} disabled={busy||!valid||filmOwners.length>0}/>
+  :<FilmPoseInspector scene={scene} frame={filmEditFrame} target={filmTarget} onChange={changeFilm} onMotionSelect={chooseFilmMotion} disabled={busy||!valid}/> ):null;
   const importFilmImage=async()=>{
     const chosen=imageFile.current?.files?.[0];if(imageFile.current)imageFile.current.value='';
     const source=sceneRef.current;if(!chosen||!source)return;
@@ -627,7 +631,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
           </div>
           {scene&&filmGuidesVisible&&filmSceneVisible&&<FilmViewportControls {...filmCamera} scene={scene} frame={frame} mode={mode} editing={filmTarget==='$camera'&&layer!=='Output'&&!playing&&frame===filmEditFrame} disabled={!valid||playing||busy||frame!==filmEditFrame}/>}
           {scene&&tab==='material'&&layer==='Decals'&&<UvDecalOverlay layout={uvLayout} decal={activeDecal} partName={selectedPart?displayPartName(scene,selectedPart.id,selectedPart.name):'Part'} onPlace={placeDecal} onAdd={addDecal} onHover={hoverUv} onInteractionSurface={decalInteractionSurface}/>}
-          {scene&&<TransformShortcuts scene={scene} frame={frame} target={transformTarget} enabled={active&&!showExport&&!frameSetup&&!playing&&frame===filmEditFrame&&filmWorkspace&&filmSceneSelected&&filmTarget!=='$camera'&&layer!=='Output'&&!filmOwners.length&&valid&&!busy&&!materialPreview} viewport={host.current} createGesture={(target,pointer)=>viewport.current?.createTransformGesture(target,pointer,materializeAnimatedPose(transformDraft??scene,frame))??null} onStart={startTransform} onPreview={previewTransform} onCommit={commitTransform} onMode={updateTransformMode}/>}
+          {scene&&<TransformShortcuts scene={scene} frame={frame} target={transformTarget} enabled={active&&!showExport&&!frameSetup&&!playing&&frame===filmEditFrame&&filmWorkspace&&filmSceneSelected&&filmTarget!=='$camera'&&!isLightTarget(filmTarget)&&layer!=='Output'&&!filmOwners.length&&valid&&!busy&&!materialPreview} viewport={host.current} createGesture={(target,pointer)=>viewport.current?.createTransformGesture(target,pointer,materializeAnimatedPose(transformDraft??scene,frame))??null} onStart={startTransform} onPreview={previewTransform} onCommit={commitTransform} onMode={updateTransformMode}/>}
           {materialPreview&&materialEditorVisible&&<div className="gesso-material-preview-label" role="status" aria-label="Material preview"><UiIcon name="circle"/>Preview</div>}
           {picking&&<div className="pick-hint" role="status">View {picking.side.toUpperCase()}: click {picking.kind==='floor'?'the floor':`measurement point ${calibrationDrafts[picking.side].points.length+1} of 2`}<button onClick={()=>setPicking(null)}>Cancel</button></div>}
           <div className="gesso-view-toolbar">{(!filmWorkspace||filmSceneVisible)&&<button onClick={resetView} title="Return to the saved shot framing">{inspecting?'Return to shot':'Shot camera'}</button>}<span>{inspecting&&(!filmWorkspace||filmSceneVisible)?'Inspection view · shot unchanged':`${shot?.name??'Black'} · ${((frame-1)/fps).toFixed(2)}s`}</span>{filmWorkspace&&!playing&&frame!==filmEditFrame&&<button onClick={()=>previewFrame(frame)}>Edit this frame</button>}{!stillFilm&&!filmWorkspace&&<button aria-label={playing?'Pause playback':'Play preview'} disabled={!!transformMode||!valid} onClick={togglePlayback}>{playing?'Pause':'Play'} <kbd>Space</kbd></button>}</div>

@@ -12,6 +12,23 @@ function context(): FrameSetupProps {
 }
 
 describe('New scene rails', () => {
+  it('lists enabled rig lights as animatable targets beside the product selection with light motions', () => {
+    const props = context();
+    const html = renderToStaticMarkup(<FrameSetupObjects {...props}/>);
+    expect(html).toContain('aria-label="Animate Key"'); expect(html).toContain('aria-label="Animate Rim"'); expect(html).toContain('<small>light</small>');
+    expect(html.indexOf('Animate Key')).toBeGreaterThan(html.indexOf('Animate Cap'));
+    expect(nextFrameTargets(['$product'], '$light:key', true)).toEqual(['$product', '$light:key']);
+    expect(nextFrameTargets(['$product', '$light:key'], 'cap', true)).toEqual(['cap', '$light:key']);
+    expect(nextFrameTargets(['cap', '$light:key'], '$product', true)).toEqual(['$product', '$light:key']);
+    expect(nextFrameTargets(['cap', '$light:key'], '$light:key', false)).toEqual(['cap']);
+    expect(nextFrameTargets(['$light:key'], '$product', false)).toEqual(['$light:key']);
+    props.setup.targets = ['$light:key'];
+    const inspector = renderToStaticMarkup(<FrameSetupInspector {...props}/>);
+    for (const label of ['>Orbit<', '>Move<', '>Aim<', '>Key<']) expect(inspector).toContain(label);
+    expect(inspector).not.toContain('Rotate'); expect(inspector).not.toContain('Scale');
+    props.setup.stage = 'camera';
+    expect(renderToStaticMarkup(<FrameSetupObjects {...props}/>)).not.toContain('Aim at Key');
+  });
   it('keeps discard available when editing is disabled during an update or recovery', () => {
     const props = context(); props.disabled = true;
     const html = renderToStaticMarkup(<FrameSetupInspector {...props}/>);

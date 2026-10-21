@@ -1,17 +1,19 @@
 import {useEffect, useState} from 'react';
 import {displayPartName} from './hierarchy';
-import {motionLabel, type FilmMotion, type MotionKind, type MotionEntry} from './filmMotion';
+import {motionLabel, motionLights, type FilmMotion, type MotionKind, type MotionEntry} from './filmMotion';
+import {isLightTarget, lightIdFromTarget} from './world';
 
 export const round = (value: number) => Number(value.toFixed(3));
 export const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 export function filmTargetName(scene: any, id: string): string {
+  if (isLightTarget(id)) return motionLights(scene).find(light => light.id === lightIdFromTarget(id))?.name ?? lightIdFromTarget(id);
   return id === '$camera' ? 'Camera' : id === '$product' ? 'Whole product' : displayPartName(scene, id);
 }
 
 export function actionName(scene: any, target: string, kind: MotionKind): string {
   if (kind === 'mechanical') return scene.actions?.find((action: any) => action.componentId === target)?.type === 'screw' ? 'Unscrew' : 'Lift';
-  return {move: 'Move', rotate: 'Rotate', scale: 'Scale', orbit: 'Orbit', dolly: 'Push in'}[kind];
+  return {move: 'Move', rotate: 'Rotate', scale: 'Scale', orbit: 'Orbit', dolly: 'Push in', aim: 'Aim'}[kind];
 }
 
 export function labelFor(scene: any, motion: FilmMotion) {
@@ -19,7 +21,7 @@ export function labelFor(scene: any, motion: FilmMotion) {
 }
 
 export function motionMeasure(motion: FilmMotion) {
-  if (motion.kind === 'move' || motion.kind === 'dolly') return {label: 'Distance', factor: 1000, unit: 'mm', step: 1};
+  if (motion.kind === 'move' || motion.kind === 'dolly' || motion.kind === 'aim') return {label: 'Distance', factor: 1000, unit: 'mm', step: 1};
   if (motion.kind === 'rotate' || motion.kind === 'orbit') return {label: 'Angle', factor: 1, unit: '°', step: 1};
   if (motion.kind === 'scale') return {label: 'Final size', factor: 100, unit: '%', step: 1};
   return {label: 'Travel', factor: 100, unit: '%', step: 1};
@@ -64,6 +66,7 @@ export function useFilmEdits({scene, onChange, disabled}: {scene: any; onChange:
         if (draft.actions !== undefined) next.actions = draft.actions;
         if (draft.motions !== undefined) next.motions = draft.motions;
         if (draft.animation !== undefined) next.animation = draft.animation;
+        if (draft.lighting !== undefined && next.lighting === undefined) next.lighting = draft.lighting;
       });
       setError('');
       return {value, draft};

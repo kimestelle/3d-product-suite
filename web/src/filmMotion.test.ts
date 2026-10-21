@@ -1,10 +1,54 @@
 import {describe, expect, it} from 'vitest';
 import fixture from '../../examples/bottle.scene.json';
-import {addMotion, filmCameraPoseAtFrame, availableMotionKinds, changeMotionScope, listMotions, removeMotion, setMotionKeys, updateMotion, validateFilmMotions} from './filmMotion';
+import {addMotion, filmCameraPoseAtFrame, availableMotionKinds, changeMotionScope, listMotions, motionChannels, removeMotion, setMotionKeys, updateMotion, validateFilmMotions} from './filmMotion';
 import {cameraPoseAtFrame} from './cameraFraming';
 import {addShot, duplicateShot, moveShot, setFrameRate, setShotFrames, stretchShotFrames} from './sequence';
+import {defaultLighting} from './world';
 const source = () => structuredClone(fixture) as any;
 const get = (scene: any, shotId = scene.shots[0].id) => listMotions(scene, shotId)[0].motion;
+
+describe('light motions', () => {
+  it('offers orbit, move and aim on enabled rig lights and persists a legacy rig when animating it', () => {
+    const scene = source(), shot = scene.shots[0].id;
+    expect(scene.lighting).toBeUndefined();
+    expect(availableMotionKinds(scene, '$light:key')).toEqual(['orbit', 'move', 'aim']);
+    expect(availableMotionKinds(scene, '$light:missing')).toEqual([]);
+    const id = addMotion(scene, shot, '$light:key', 'orbit');
+    expect(scene.lighting.lights.map((light: any) => light.id)).toEqual(['key', 'fill', 'rim']);
+    expect(get(scene)).toMatchObject({id, target: '$light:key', kind: 'orbit', axis: 'y', amount: 60, startFrame: 1, durationFrames: 120, easing: 'ease', enabled: true});
+    addMotion(scene, shot, '$light:key', 'move'); addMotion(scene, shot, '$light:key', 'aim');
+    expect(listMotions(scene, shot).map(entry => entry.motion.amount)).toEqual([60, .1, .05]);
+    expect(() => addMotion(scene, shot, '$light:key', 'orbit')).toThrow('already has a motion');
+    expect(() => addMotion(scene, shot, '$light:key', 'aim')).toThrow('already has a motion');
+    expect(addMotion(scene, shot, '$light:rim', 'orbit')).toBeTruthy();
+  });
+  it('rejects disabled or missing lights, unsupported kinds and unsaved rigs like the sampler', () => {
+    const scene = source(), shot = scene.shots[0].id;
+    scene.lighting = defaultLighting(scene); scene.lighting.lights[1].enabled = false;
+    expect(availableMotionKinds(scene, '$light:fill')).toEqual([]);
+    expect(() => addMotion(scene, shot, '$light:fill', 'orbit')).toThrow('unavailable');
+    expect(() => addMotion(scene, shot, '$product', 'aim')).toThrow('unavailable');
+    expect(() => addMotion(scene, shot, '$camera', 'aim')).toThrow('unavailable');
+    expect(() => addMotion(scene, shot, 'cap', 'aim')).toThrow('unavailable');
+    const id = addMotion(scene, shot, '$light:key', 'orbit');
+    expect(() => updateMotion(scene, shot, id, {kind: 'rotate'})).toThrow('unavailable');
+    expect(() => updateMotion(scene, shot, id, {axis: 'x'})).toThrow('vertical Y axis');
+    const unsaved = source(); unsaved.shots[0].motions = [structuredClone(get(scene))];
+    expect(() => validateFilmMotions(unsaved)).toThrow('Save the studio rig');
+  });
+  it('light orbits ignore the camera distance rule and own channels like the sampler', () => {
+    const scene = source(), shot = scene.shots[0];
+    shot.camera.from = {positionM: [.001, .5, 0], targetM: [0, .5, 0], focalLengthMm: 50};
+    shot.camera.to = structuredClone(shot.camera.from);
+    expect(() => addMotion(scene, shot.id, '$light:key', 'orbit')).not.toThrow();
+    expect(() => addMotion(scene, shot.id, '$camera', 'dolly')).toThrow('stop before');
+    expect(motionChannels({kind: 'orbit', axis: 'y', target: '$light:key'})).toEqual(['position']);
+    expect(motionChannels({kind: 'move', axis: 'x', target: '$light:key'})).toEqual(['position.x']);
+    expect(motionChannels({kind: 'aim', axis: 'z', target: '$light:key'})).toEqual(['target.z']);
+    expect(motionChannels({kind: 'orbit', axis: 'y', target: '$camera'})).toEqual(['camera.position']);
+    expect(motionChannels({kind: 'orbit', axis: 'y'})).toEqual(['camera.position']);
+  });
+});
 
 describe('bounded Film motions', () => {
   it('offers only supported actions and existing confirmed mechanics', () => {

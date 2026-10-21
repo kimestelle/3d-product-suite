@@ -361,5 +361,70 @@ class SceneTests(unittest.TestCase):
                 self.assertInvalid(scene)
 
 
+class LightMotionSchemaTests(unittest.TestCase):
+    """Spot lights and light motions are additive: absent fields keep the saved rig."""
+
+    def setUp(self):
+        self.scene = json.loads(EXAMPLE.read_text())
+        self.scene["lighting"] = {"ambientStrength": .15, "lights": [
+            {"id": "spot", "name": "Spot", "type": "spot", "enabled": True, "coneDeg": 35, "blend": .4,
+             "positionM": [1, .5, 0], "targetM": [0, .5, 0], "powerW": 12, "diameterM": .05, "color": [1, .86, .7]},
+            {"id": "off", "name": "Off", "enabled": False,
+             "positionM": [0, 1, 0], "targetM": [0, 0, 0], "powerW": 1, "diameterM": .1, "color": [1, 1, 1]}]}
+
+    def light_motion(self, kind="orbit", target="$light:spot", **changes):
+        return {"id": "light-1", "target": target, "kind": kind, "axis": "y", "amount": 60,
+                "startFrame": 1, "durationFrames": 25, "easing": "ease", "enabled": True, **changes}
+
+    def test_spot_light_validates_and_survives_a_json_roundtrip(self):
+        validate_scene(self.scene)
+        self.assertEqual(validate_scene(json.loads(json.dumps(self.scene))), self.scene)
+        del self.scene["lighting"]["lights"][0]["type"]
+        validate_scene(self.scene)
+        self.assertNotIn("type", self.scene["lighting"]["lights"][0])
+
+    def test_light_motions_accept_orbit_move_and_aim_on_enabled_lights(self):
+        self.scene["shots"][0]["motions"] = [self.light_motion(), self.light_motion("move", id="rise", axis="y", amount=.1),
+                                             self.light_motion("move", id="slide", axis="x", amount=.1),
+                                             self.light_motion("aim", id="aim", axis="z", amount=.05)]
+        validate_scene(self.scene)
+        self.scene["motions"] = [self.light_motion(id="shared", durationFrames=241)]
+        validate_scene(self.scene)
+        self.assertEqual(scene_digest(validate_scene(json.loads(json.dumps(self.scene)))), scene_digest(self.scene))
+
+    def test_light_motion_rejections(self):
+        invalid = [{"target": "$light:missing"}, {"target": "$light:off"}, {"kind": "rotate"}, {"kind": "scale"},
+                   {"kind": "dolly"}, {"kind": "mechanical"}, {"axis": "x"}, {"kind": "aim", "target": "$product"},
+                   {"kind": "aim", "target": "$camera"}, {"kind": "aim", "target": "cap"}, {"target": "$light:"}]
+        for patch in invalid:
+            with self.subTest(patch=patch):
+                scene = copy.deepcopy(self.scene)
+                scene["shots"][0]["motions"] = [{**self.light_motion(), **patch}]
+                with self.assertRaises(ValueError):
+                    validate_scene(scene)
+        competing = [[self.light_motion(), self.light_motion(id="again")],
+                     [self.light_motion("aim", axis="z"), self.light_motion("aim", id="again", axis="z")],
+                     [self.light_motion("move", axis="x"), self.light_motion("move", id="again", axis="x")]]
+        for motions in competing:
+            with self.subTest(motions=motions):
+                scene = copy.deepcopy(self.scene)
+                scene["shots"][0]["motions"] = motions
+                with self.assertRaisesRegex(ValueError, "competing owners"):
+                    validate_scene(scene)
+        scene = copy.deepcopy(self.scene)
+        del scene["lighting"]
+        scene["shots"][0]["motions"] = [self.light_motion()]
+        with self.assertRaisesRegex(ValueError, "light does not exist"):
+            validate_scene(scene)
+
+    def test_validation_never_inserts_lighting_defaults(self):
+        before = copy.deepcopy(self.scene)
+        validate_scene(self.scene)
+        self.assertEqual(self.scene, before)
+        legacy = json.loads(EXAMPLE.read_text())
+        validate_scene(legacy)
+        self.assertNotIn("lighting", legacy)
+
+
 if __name__ == "__main__":
     unittest.main()

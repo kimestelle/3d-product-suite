@@ -11,6 +11,8 @@
 .film-object-name:hover,.film-motion-link:hover{background:var(--gesso-surface-hover)}
 .film-part-mark{width:12px;height:12px;display:block;flex:none;position:relative}
 .film-part-mark:after{content:'';display:block;position:absolute;left:5px;top:4px;width:4px;height:4px;border:1px solid currentColor;border-radius:1px}
+.film-light-mark{width:12px;height:12px;display:block;flex:none;position:relative}
+.film-light-mark:after{content:'';display:block;position:absolute;left:3px;top:3px;width:6px;height:6px;border:1px solid currentColor;border-radius:50%}
 .film-object-motions{margin:var(--gesso-space-2) 0 var(--gesso-space-4) var(--gesso-space-18);padding-left:var(--gesso-space-6);border-left:1px solid var(--gesso-border-subtle)}
 .film-motion-link{font-size:12px;min-height:28px;padding:var(--gesso-space-4) var(--gesso-space-6)}
 .film-motion-link>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

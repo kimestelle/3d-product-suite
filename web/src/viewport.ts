@@ -73,6 +73,10 @@ export class StudioViewport {
   private filmClip: FilmClip = {kind: 'scene'};
   private imageRenderer: FilmImageRenderer | null = null;
   private productGround: THREE.Mesh | null = null;
+  /** Studio lights by scene ID, so sampled light poses can move them per frame.
+   * Created on first use: test harnesses build viewports from the prototype. */
+  private studioLights: Map<string, {light: THREE.RectAreaLight | THREE.SpotLight; target: THREE.Object3D | null; shadow: THREE.DirectionalLight | null}> | null = null;
+  private rigLights() { return this.studioLights ??= new Map(); }
   private readonly parts = new Map<string, THREE.Object3D>();
   private readonly originalVisibility = new Map<THREE.Object3D, boolean>();
   private readonly focusMaterials = new Map<THREE.Mesh, { material: THREE.Material | THREE.Material[]; castShadow: boolean }>();
@@ -1083,11 +1087,38 @@ export class StudioViewport {
     if (source.lighting) {
       if (!areaLightUniformsReady) { RectAreaLightUniformsLib.init(); areaLightUniformsReady = true; }
       const lighting = source.lighting;
-      const ambient = new THREE.HemisphereLight(this.color(source.environment.worldColor), 0x454a43, lighting.ambientStrength * (1.2 / .45));
+      // An optional ambient colour tints the sky half of the hemisphere; the
+      // world colour remains the default, matching the Cycles world background.
+      const ambient = new THREE.HemisphereLight(this.color(lighting.ambientColor ?? source.environment.worldColor), 0x454a43, lighting.ambientStrength * (1.2 / .45));
       this.content.add(ambient);
       const size = Math.max(...source.product.dimensionsM);
       for (const specification of lighting.lights) {
         if (!specification.enabled || specification.powerW === 0) continue;
+        if (specification.type === 'spot') {
+          // Cycles specifies a spot's watts like a point light's: the cone masks
+          // the emission, it does not concentrate it. Three's SpotLight.power uses
+          // the same convention (candela = lumens / 4π), so treating the saved
+          // watts as lumens keeps the spot on the scale of the area lights below,
+          // whose watts become radiance the same way Cycles reads them.
+          const aim = new THREE.Vector3().fromArray(specification.targetM);
+          const distance = Math.max(.001, new THREE.Vector3().fromArray(specification.positionM).distanceTo(aim));
+          const light = new THREE.SpotLight(this.color(specification.color), specification.powerW / (4 * Math.PI), 0,
+            THREE.MathUtils.degToRad((specification.coneDeg ?? 40) / 2), specification.blend ?? .3, 2);
+          light.name = 'Studio / ' + specification.name;
+          light.position.fromArray(specification.positionM);
+          light.target.position.copy(aim);
+          light.castShadow = true;
+          light.shadow.mapSize.set(2048, 2048);
+          light.shadow.bias = -.0002;
+          // Curved product surfaces: offset by a fraction of the product size so
+          // the hard shadow does not self-shadow into acne.
+          light.shadow.normalBias = size * .004;
+          light.shadow.camera.near = Math.max(.001, distance * .1);
+          light.shadow.camera.far = distance * 3 + size * 10;
+          this.content.add(light, light.target);
+          this.rigLights().set(specification.id, {light, target: light.target, shadow: null});
+          continue;
+        }
         // WebGL uses a rectangular area emitter; Cycles exports the declared
         // disk with exact watts and diameter. Equal area keeps size meaningful.
         const side = specification.diameterM * Math.sqrt(Math.PI) / 2;
@@ -1118,6 +1149,7 @@ export class StudioViewport {
           (shadow.shadow.camera.right - shadow.shadow.camera.left) / shadow.shadow.mapSize.x,
           (shadow.shadow.camera.top - shadow.shadow.camera.bottom) / shadow.shadow.mapSize.y) * 2;
         this.content.add(shadow, shadow.target);
+        this.rigLights().set(specification.id, {light, target: null, shadow});
       }
       return;
     }
@@ -1410,6 +1442,7 @@ export class StudioViewport {
         component.quaternion.fromArray(pose.rotationXyzw);
         component.scale.setScalar(pose.scale ?? 1);
       }
+      this.applyLightPoses(sample.lights ?? []);
       const values = sample.camera;
       this.sampledOptics = sampledDepthOfField(values);
       const inspection = this.inspectingCamera ? {
@@ -1443,6 +1476,19 @@ export class StudioViewport {
     });
     this.frameQueue = result;
     return result;
+  }
+
+  /** Sampled light poses exist only for scenes that animate a light. A spot
+   * moves with its aim target; an area light re-aims with its shadow helper. */
+  private applyLightPoses(poses: any[]): void {
+    for (const pose of poses) {
+      const entry = this.studioLights?.get(pose.id);
+      if (!entry) continue;
+      const aim = new THREE.Vector3().fromArray(pose.targetM);
+      entry.light.position.fromArray(pose.positionM);
+      if (entry.target) entry.target.position.copy(aim); else entry.light.lookAt(aim);
+      if (entry.shadow) { entry.shadow.position.copy(entry.light.position); entry.shadow.target.position.copy(aim); }
+    }
   }
 
   private render(settle: boolean): Promise<void> {
@@ -1838,6 +1884,7 @@ export class StudioViewport {
     this.scene.environmentRotation.set(0, 0, 0);
     this.environmentMap?.dispose(); this.environmentMap = null;
     this.productGround = null;
+    this.studioLights?.clear();
   }
 
   clearScene(): void {

@@ -11,6 +11,20 @@ function context(): FilmWorkspaceProps {
 }
 
 describe('Film workspace ownership and editing context', () => {
+  it('lists enabled rig lights after the parts and offers light motions for a light target', () => {
+    const props = context(), html = renderToStaticMarkup(<FilmObjects {...props}/>);
+    expect(html).toContain('film-lights-disclosure'); expect(html).toContain('>Lights</span>');
+    for (const name of ['>Key<', '>Fill<', '>Rim<']) expect(html.replace(/<span class="film-light-mark" aria-hidden="true"><\/span>/g, '>')).toContain(name);
+    expect(html.indexOf('>Lights</span>')).toBeGreaterThan(html.indexOf('>Parts</span>'));
+    expect(filmTargetName(props.scene, '$light:key')).toBe('Key');
+    expect(filmTargetName(props.scene, '$light:missing')).toBe('missing');
+    props.selectedTarget = '$light:key';
+    const inspector = renderToStaticMarkup(<FilmInspector {...props}/>);
+    for (const label of ['Orbit', 'Move', 'Aim']) expect(inspector).toContain(label);
+    expect(inspector).not.toContain('Custom keyframes'); expect(inspector).not.toContain('Rotate');
+    props.mode = 'still';
+    expect(renderToStaticMarkup(<FilmObjects {...props}/>)).not.toContain('film-lights-disclosure');
+  });
   it('keeps camera, whole product and all parts selectable before any action is added', () => {
     const props = context(), html = renderToStaticMarkup(<FilmObjects {...props}/>);
     expect(html).toContain('Shot objects');
@@ -25,7 +39,8 @@ describe('Film workspace ownership and editing context', () => {
     const inspector = renderToStaticMarkup(<FilmInspector {...props}/>);
     expect(inspector).toContain('Orbit');
     expect(inspector).toContain('Push in');
-    expect(html.match(/class="film-object-name"/g)).toHaveLength(props.scene.product.components.length + 2);
+    // Camera, whole product, every part, and the three lights of the implicit legacy rig.
+    expect(html.match(/class="film-object-name"/g)).toHaveLength(props.scene.product.components.length + 2 + 3);
     expect(html).not.toContain('Custom keyframes');
   });
 

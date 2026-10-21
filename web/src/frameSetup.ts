@@ -1,6 +1,7 @@
 import {cameraTarget, editCamera} from './camera';
 import {addMotion, availableMotionKinds, cameraBaseForSharedMotion, filmCameraPoseAtFrame, updateMotion, validateFilmMotions, type FilmMotion, type MotionKind} from './filmMotion';
 import {addShot} from './sequence';
+import {isLightTarget} from './world';
 
 export type FrameSetup = {
   shotId: string;
@@ -26,13 +27,16 @@ function commit<T>(scene: any, operation: (draft: any) => T): T {
   validateFilmMotions(draft);
   scene.shots = draft.shots;
   scene.render = draft.render;
+  if (draft.lighting !== undefined && scene.lighting === undefined) scene.lighting = draft.lighting;
   return result;
 }
 function objectTargets(scene: any, targets: string[]): string[] {
   fail(Array.isArray(targets), 'Choose objects from the product.');
   const selected = [...new Set(targets)];
-  fail(!selected.includes('$product') || selected.length === 1, 'Choose Whole product or individual parts, not both.');
-  fail(selected.every(target => target === '$product' || scene.product.components.some((part: any) => part.id === target)), 'An object is no longer in this product.');
+  // Lights sit beside the product selection: they never compete with parts.
+  fail(!selected.includes('$product') || selected.every(target => target === '$product' || isLightTarget(target)), 'Choose Whole product or individual parts, not both.');
+  fail(selected.every(target => target === '$product' || isLightTarget(target) || scene.product.components.some((part: any) => part.id === target)), 'An object is no longer in this product.');
+  fail(selected.every(target => !isLightTarget(target) || availableMotionKinds(scene, target).length > 0), 'A light is no longer in this rig.');
   return selected;
 }
 function parameters(motion: FilmMotion): FrameMotionPatch {
@@ -42,8 +46,8 @@ function parameters(motion: FilmMotion): FrameMotionPatch {
 
 /** Available actions must apply to every selected object. */
 export function frameObjectMotionKinds(scene: any, targets: string[]): MotionKind[] {
-  if (!targets.length || (targets.includes('$product') && targets.length > 1)) return [];
-  return availableMotionKinds(scene, targets[0]).filter(kind => kind !== 'orbit' && kind !== 'dolly'
+  if (!targets.length || (targets.includes('$product') && targets.some(target => target !== '$product' && !isLightTarget(target)))) return [];
+  return availableMotionKinds(scene, targets[0]).filter(kind => kind !== 'dolly'
     && targets.every(target => availableMotionKinds(scene, target).includes(kind)));
 }
 

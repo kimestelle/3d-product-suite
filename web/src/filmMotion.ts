@@ -1,8 +1,11 @@
 import {cameraPoseAtFrame} from './cameraFraming';
 import type {CameraPose} from './camera';
+import {defaultLighting, ensureLighting, isLightTarget, lightIdFromTarget} from './world';
 
-/** Authored Film actions. Frames are one-based; duration includes both samples. */
-export type MotionKind = 'move' | 'rotate' | 'scale' | 'mechanical' | 'orbit' | 'dolly';
+/** Authored Film actions. Frames are one-based; duration includes both samples.
+ * Lights are addressed as `$light:<id>` and accept orbit, move and aim. */
+export type MotionKind = 'move' | 'rotate' | 'scale' | 'mechanical' | 'orbit' | 'dolly' | 'aim';
+export const LIGHT_MOTION_KINDS: MotionKind[] = ['orbit', 'move', 'aim'];
 export type MotionScope = 'shot' | 'film';
 export type MotionEasing = 'linear' | 'ease' | 'hold';
 export type FilmMotionKey = {frame: number; value: number; interpolation: MotionEasing};
@@ -10,7 +13,7 @@ export type FilmMotion = {id: string; target: string; kind: MotionKind; axis: 'x
   startFrame: number; durationFrames: number; easing: MotionEasing; enabled: boolean; keys?: FilmMotionKey[]};
 export type MotionEntry = {motion: FilmMotion; scope: MotionScope; shotId?: string};
 
-const kinds: MotionKind[] = ['move', 'rotate', 'scale', 'mechanical', 'orbit', 'dolly'];
+const kinds: MotionKind[] = ['move', 'rotate', 'scale', 'mechanical', 'orbit', 'dolly', 'aim'];
 const easings: MotionEasing[] = ['linear', 'ease', 'hold'];
 const fail = (condition: unknown, message: string) => {if (!condition) throw new Error(message);};
 const whole = (value: number, label: string) => fail(Number.isSafeInteger(value) && value >= 1, `${label} must be a positive whole number.`);
@@ -21,12 +24,18 @@ const findShot = (scene: any, shotId: string) => {
 };
 
 export function motionLabel(motion: Pick<FilmMotion, 'kind'>): string {
-  return ({move: 'Move', rotate: 'Rotate', scale: 'Scale', mechanical: 'Mechanism', orbit: 'Orbit', dolly: 'Dolly'})[motion.kind];
+  return ({move: 'Move', rotate: 'Rotate', scale: 'Scale', mechanical: 'Mechanism', orbit: 'Orbit', dolly: 'Dolly', aim: 'Aim'})[motion.kind];
+}
+
+/** Lights offered as motion targets: the saved rig, or the implicit legacy rig that saving a motion persists. */
+export function motionLights(scene: any): {id: string; name: string; enabled: boolean}[] {
+  return ((scene.lighting ?? defaultLighting(scene)).lights as any[]).map(light => ({id: light.id, name: light.name, enabled: light.enabled}));
 }
 
 export function availableMotionKinds(scene: any, target: string): MotionKind[] {
   if (target === '$camera') return ['orbit', 'dolly'];
   if (target === '$product') return ['move', 'rotate', 'scale'];
+  if (isLightTarget(target)) return motionLights(scene).some(light => light.id === lightIdFromTarget(target) && light.enabled) ? [...LIGHT_MOTION_KINDS] : [];
   if (!scene.product.components.some((part: any) => part.id === target)) return [];
   // The current evaluator cannot move an assembly reference independently.
   if (scene.actions.some((action: any) => action.relativeTo === target)) return [];
@@ -35,7 +44,12 @@ export function availableMotionKinds(scene: any, target: string): MotionKind[] {
 }
 
 /** Camera actions own the complete camera position; independent spatial owners cannot compete. */
-export function motionChannels(motion: Pick<FilmMotion, 'kind' | 'axis'>): string[] {
+export function motionChannels(motion: Pick<FilmMotion, 'kind' | 'axis'> & {target?: string}): string[] {
+  if (motion.target !== undefined && isLightTarget(motion.target)) {
+    // A light orbit owns its whole position; moves and aims own one axis each.
+    if (motion.kind === 'orbit') return ['position'];
+    return [`${motion.kind === 'move' ? 'position' : 'target'}.${motion.axis}`];
+  }
   if (motion.kind === 'orbit' || motion.kind === 'dolly') return ['camera.position'];
   if (motion.kind === 'mechanical') return ['motion', ...['x', 'y', 'z'].flatMap(axis => [`position.${axis}`, `rotation.${axis}`])];
   return motion.kind === 'scale' ? ['scale'] : [`${motion.kind === 'move' ? 'position' : 'rotation'}.${motion.axis}`];
@@ -58,6 +72,8 @@ export function validateFilmMotions(scene: any): void {
       fail(typeof motion.id === 'string' && motion.id.trim().length > 0 && motion.id.length <= 120 && !ids.has(motion.id), 'Motion IDs must be unique within their scope.');
       ids.add(motion.id);
       fail(kinds.includes(motion.kind) && availableMotionKinds(scene, motion.target).includes(motion.kind), 'This action is unavailable for the selected object.');
+      // Mirrors film.scene: the renderer only animates a light saved in the rig.
+      if (isLightTarget(motion.target)) fail((scene.lighting?.lights ?? []).some((light: any) => light.id === lightIdFromTarget(motion.target) && light.enabled), 'Save the studio rig before animating its lights.');
       fail(['x', 'y', 'z'].includes(motion.axis), 'Choose an X, Y or Z axis.');
       // Vertical-axis orbits preserve the renderer’s Y-up camera convention.
       fail(motion.kind !== 'orbit' || motion.axis === 'y', 'Orbit uses the vertical Y axis. Use framing for elevation.');
@@ -106,6 +122,8 @@ export function validateFilmMotions(scene: any): void {
 function edit(scene: any, callback: (draft: any) => void) {
   const draft = structuredClone(scene);
   callback(draft); validateFilmMotions(draft);
+  // Animating a legacy rig persists it, so the renderer sees the same light.
+  if (draft.lighting !== undefined && scene.lighting === undefined) scene.lighting = draft.lighting;
   if (draft.motions !== undefined) scene.motions = draft.motions;
   for (let index = 0; index < scene.shots.length; index++) {
     if (draft.shots[index].motions !== undefined) scene.shots[index].motions = draft.shots[index].motions;
@@ -124,9 +142,14 @@ export function addMotion(scene: any, shotId: string, target: string, kind: Moti
   const id = `motion-${index}`;
   edit(scene, draft => {
     const shot = findShot(draft, shotId);
-    const amount = {move: .05, rotate: 30, scale: 1.15, mechanical: 1, orbit: 30, dolly: .05}[kind];
+    const light = isLightTarget(target);
+    if (light) ensureLighting(draft);
+    // A light sweep is a dramatic gesture: it spans the whole shot by default.
+    const amount = light ? {orbit: 60, move: .1, aim: .05}[kind as 'orbit' | 'move' | 'aim'] ?? .05
+      : {move: .05, rotate: 30, scale: 1.15, mechanical: 1, orbit: 30, dolly: .05, aim: .05}[kind];
+    const shotFrames = shot.endFrame - shot.startFrame + 1;
     const motion: FilmMotion = {id, target, kind, axis: 'y', amount, startFrame: 1,
-      durationFrames: Math.max(2, Math.min(shot.endFrame - shot.startFrame + 1, Math.round(draft.render.fps * 2) + 1)), easing: 'ease', enabled: true};
+      durationFrames: Math.max(2, light ? shotFrames : Math.min(shotFrames, Math.round(draft.render.fps * 2) + 1)), easing: 'ease', enabled: true};
     (shot.motions ??= []).push(motion);
   });
   return id;
