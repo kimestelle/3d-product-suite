@@ -211,7 +211,7 @@ For future changes, append a dated entry with a stable ID, **decision, reason, s
 
 ### D47 — A 16-shape catalog using the same 64-point engine
 
-**In code.** The stripped-down `/curves` demo selects two shapes from a left catalog and interpolates them in the main window, using the production morph engine rather than a halo demo. Sixteen distinct shapes replace repetitive variants: circle, square, rectangle, capsule, triangle, diamond, pentagon, hexagon, trapezoid, octagon, arch, corner, cross, plus, eight-point star and oval. Oval replaces chevron. Old specimen URLs have aliases. See [CurveDemo](../web/src/CurveDemo.tsx) and [curve presets](../web/src/curvePresets.ts).
+**Original pair interaction superseded by D92.** The stripped-down `/curves` demo selects two shapes from a left catalog and interpolates them in the main window, using the production morph engine rather than a halo demo. Sixteen distinct shapes replace repetitive variants: circle, square, rectangle, capsule, triangle, diamond, pentagon, hexagon, trapezoid, octagon, arch, corner, cross, plus, eight-point star and oval. Oval replaces chevron. Old specimen URLs have aliases. See [CurveDemo](../web/src/CurveDemo.tsx) and [curve presets](../web/src/curvePresets.ts).
 
 ### D48 — Guides must explain a boundary
 
@@ -582,3 +582,16 @@ Report excluded names in the import notice and reasons in bounded metadata. Keep
 Verification: all 26 native Blender import tests passed, including scene-plane exclusion, preserved labels/base/screen/unknown planes, explicit overrides, unsupported environment materials and particles, excluded-ancestor bypass and unchanged source hashes. The supplied bottle imports as 10 product meshes with all 17 generated maps; Ground, FillLight and Camera are excluded. The resulting GLB is 12.67 MiB. Original material conversion limits still apply.
 
 Pre-push checks: 944 web tests passed with two workers; the default highly parallel run had timed out in two exhaustive geometry tests. The Python suite ran 397 tests with 31 optional integrations skipped, and the native import suite ran separately. Production build, nine capture-script tests and whitespace checks passed. Compared all retained bottle triangles against the prior conversion: geometry is unchanged apart from recentering and float rounding. Also fixed empty legacy Film recovery and publishing the updated movie duration when creating a scene.
+
+
+### 2026-10-20 — D92 — Compose a pattern in the curve demo
+
+**In code.** Keep the 16-shape catalog and production 64-anchor renderer. Replace the A/B picker with an ordered pattern along the bottom of `/curves`. Catalog clicks append a shape; selecting a numbered step exposes Replace, Duplicate, Remove and earlier/later controls. Drag steps to reorder, or use Alt + arrow keys. Repeated entries hold their shape. Keep at least one entry and bound the pattern to 64 steps.
+
+Each adjacent pair uses the shared `createFrameTransition` with 30% midpoint contraction and eased timing: full size at each shape, 70% at the midpoint. Precompile transitions when the pattern changes; update the SVG, guides, playhead and readouts on one animation clock. Loop adds a visible return step and a real last-to-first morph. Playback pauses when hidden; compact screens and reduced motion retain scrubbing without autoplay. Existing endpoint/anchor inspection and SVG export remain available.
+
+Store the ordered IDs, progress, transition duration and loop setting in the URL. Migrate old `a` / `b` links and retired preset aliases. Editing pauses playback, preserves step identity through reordering, and keeps newly added steps visible. A restored endpoint selects the visible step; leaving Loop at its completed return keeps the first shape in view.
+
+Reason: inspect a repeatable sequence of shapes with the same size change as the live frame, rather than testing isolated pairs with different motion. Supersedes D47’s pair-only interaction and applies D74’s contraction to the demo. Scope: [CurveDemo](../web/src/CurveDemo.tsx), [pattern model](../web/src/curvePattern.ts), [styles](../web/src/curve-demo.css), and [pattern tests](../web/src/curvePattern.test.ts).
+
+Verification: 65 focused pattern, catalog, geometry and morph tests passed, including exact endpoints, 70% midpoint bounds, duplicate holds, URL recovery, reverse playback and the loop seam. Production build passed. Browser checks covered adding, replacement/cancel, duplicate/remove, drag and keyboard reorder, loop return, playback and saved URL state.
