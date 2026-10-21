@@ -25,6 +25,7 @@ function GalleryLoop({item}: {item: GalleryItem}) {
   return <li>
     <video ref={video} className="about-gallery-video" muted loop playsInline preload="none"
       poster={`/media/gallery/${item.slug}.jpg`} aria-label={`${item.product} in ${item.world}`}>
+      <source src={`/media/gallery/${item.slug}.webm`} type="video/webm"/>
       <source src={`/media/gallery/${item.slug}.mp4`} type="video/mp4"/>
     </video>
     <p className="about-gallery-caption"><span>{item.product}</span> · {item.world}</p>
