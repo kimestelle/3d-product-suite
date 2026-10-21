@@ -22,6 +22,7 @@ import math
 from pathlib import Path
 import re
 import struct
+import os
 import sys
 import tempfile
 
@@ -411,13 +412,26 @@ def configure_scene(source, width, height, samples):
     scene.unit_settings.length_unit = "METERS"
     scene.unit_settings.scale_length = 1
     scene.render.engine = "CYCLES"
+    # CPU without denoising remains the reference profile. GESSO_CYCLES_DEVICE=METAL
+    # and GESSO_CYCLES_DENOISE=1 opt into local acceleration; both are recorded in
+    # render-config.json so an accelerated job is never mistaken for a reference one.
     scene.cycles.device = "CPU"
+    if os.environ.get("GESSO_CYCLES_DEVICE", "").upper() == "METAL":
+        preferences = bpy.context.preferences.addons["cycles"].preferences
+        preferences.compute_device_type = "METAL"
+        preferences.get_devices()
+        for device in preferences.devices:
+            device.use = device.type != "CPU"
+        scene.cycles.device = "GPU"
     scene.cycles.samples = samples or settings["samples"]
     scene.cycles.seed = settings["seed"]
     scene.cycles.use_animated_seed = False
     # Avoid optional OIDN/OptiX dependencies: some Blender 4.3.2 builds omit them.
     # The same sampled scene and seed therefore use the same portable settings.
-    scene.cycles.use_denoising = False
+    scene.cycles.use_denoising = os.environ.get("GESSO_CYCLES_DENOISE", "") == "1"
+    if scene.cycles.use_denoising:
+        scene.cycles.denoiser = "OPENIMAGEDENOISE"
+        scene.cycles.denoising_use_gpu = True
     scene.cycles.max_bounces = 8
     scene.cycles.transmission_bounces = 8
     scene.render.resolution_x = width or settings["width"]
@@ -495,6 +509,23 @@ def environment(source, samples_root=None):
         porcelain = specified_material("Set / plinth surface", plinth["material"], samples_root) if "material" in plinth else material("Set / warm matte porcelain", (0.56, 0.54, 0.49, 1), 0.58)
         obj = primitive(plinth["id"], "box", plinth["sizeM"], porcelain, min(0.004, min(plinth["sizeM"]) / 2))
         obj.location = blender_position(plinth["translationM"])
+    if source["environment"]["kind"] == "splat":
+        # The Gaussian world is a colour plate with no geometry, so the product's
+        # contact shadow would otherwise vanish. An invisible Cycles shadow catcher
+        # at the support height receives the product shadow for the compositor.
+        floor_height = plinth["translationM"][1] + plinth["sizeM"][1] / 2
+        extent = max(source["product"]["dimensionsM"]) * 40
+        mesh = bpy.data.meshes.new("World / shadow catcher mesh")
+        mesh.from_pydata([(-extent, -extent, 0), (extent, -extent, 0), (extent, extent, 0), (-extent, extent, 0)], [], [(0, 1, 2, 3)])
+        mesh.update()
+        catcher = bpy.data.objects.new("World / shadow catcher", mesh)
+        bpy.context.collection.objects.link(catcher)
+        catcher.location = blender_position([0, floor_height, 0])
+        catcher.data.materials.append(material("World / shadow catcher surface", (0.8, 0.8, 0.8, 1), 0.9))
+        catcher.is_shadow_catcher = True
+        catcher.visible_glossy = False
+        catcher.visible_transmission = False
+        catcher["role"] = "Invisible shadow catcher at the support height for Gaussian plate worlds"
     for prop in source["environment"].get("props", []):
         if bpy.data.objects.get(prop["id"]):
             raise ValueError(f"Near-field prop ID collides with an existing object: {prop['id']}")
@@ -1044,7 +1075,7 @@ def main():
                 "Gaussian world is a camera-matched color plate, not native Cycles splat geometry or shading.",
                 "No splat depth: the distant plate cannot occlude product or near-field geometry.",
                 "Optical focus is sampled separately: Spark focuses Gaussian depth in the plate; Cycles focuses foreground geometry. No second blur is applied after compositing, and cross-boundary occlusion remains unavailable.",
-                "No world-plate glass transmission, refraction, reflection, indirect illumination or shadow equivalence; Cycles sees only explicit near-field geometry and the declared world color.",
+                "No world-plate glass transmission, refraction, reflection or indirect illumination; Cycles sees explicit near-field geometry, an invisible shadow catcher at the support height and the declared world color.",
                 "Keep plate/ with scene.blend: the captured frame sequence remains an external dependency of the saved native scene.",
             ])
     elif kind != "authored":

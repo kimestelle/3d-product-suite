@@ -595,3 +595,31 @@ Store the ordered IDs, progress, transition duration and loop setting in the URL
 Reason: inspect a repeatable sequence of shapes with the same size change as the live frame, rather than testing isolated pairs with different motion. Supersedes D47’s pair-only interaction and applies D74’s contraction to the demo. Scope: [CurveDemo](../web/src/CurveDemo.tsx), [pattern model](../web/src/curvePattern.ts), [styles](../web/src/curve-demo.css), and [pattern tests](../web/src/curvePattern.test.ts).
 
 Verification: 65 focused pattern, catalog, geometry and morph tests passed, including exact endpoints, 70% midpoint bounds, duplicate holds, URL recovery, reverse playback and the loop seam. Production build passed. Browser checks covered adding, replacement/cancel, duplicate/remove, drag and keyboard reorder, loop return, playback and saved URL state.
+
+
+### 2026-10-21 — D93 — Imported products start on the world's floor
+
+**In code.** New product campaigns keep the explicit contact plinth as the deterministic support surface but create it with `visible: false`. The product therefore sits at the world's ground level (Y 0) and the white platform appears only when the user shows it from World → Objects. Existing campaigns and the MORA fixture are unchanged.
+
+Reason: with a generated world under the product, the default porcelain block read as "a random white platform" rather than a staging choice. Scope: `film/products.py` prepared-scene defaults; the plinth schema, evaluation and the Show plinth control are untouched. Verification: `tests.test_products`, `tests.test_scene` and `tests.test_renderer_bundle` pass (48 tests); six Khronos sample imports open with the product on the floor.
+
+
+### 2026-10-21 — D94 — Generated worlds: splat plus free collider and panorama, no paid mesh
+
+**In code.** `scripts/worldlabs_generate.py` creates one world from a local inspiration photo and text prompt (1,580 credits), polls it, downloads the 500k SPZ, the provider's collider GLB and the equirectangular panorama, and imports the splat into the local library with the provider's metric scale and ground offset. The collider and panorama stay beside the provider state for the renderer and lighting. The 3,500-credit HQ mesh export is not requested. `scripts/pano_to_hdr.py` turns the LDR panorama into a Radiance HDRI (highlight expansion, 2048 × 1024) that the existing `lighting.hdri` path accepts, so glass and metal reflect the world's own palette.
+
+Reason: the demo budget is 7,000 credits for four environments; the free assets cover placement and lighting, and the splat already provides the look in the browser and the camera-matched plate in Cycles. Scope: generation and lighting scripts; the schema, importer and server are unchanged. Verification: the Velvet jewel-box world imported with scale 1.250 and ground 1.081; the HDRI passes `validate_hdri`; balance 7,000 → 5,420.
+
+
+### 2026-10-21 — D95 — Gaussian worlds receive the product's contact shadow
+
+**In code.** For `splat` environments the Blender adapter adds an invisible Cycles shadow catcher plane at the support height (the plinth top). It is excluded from glossy and transmission rays and only writes shadow alpha, which the existing transparent-film AlphaOver compositor darkens over the camera-matched plate. The limitation text no longer claims the plate has no shadow equivalence.
+
+Reason: without geometry under the product, films in generated worlds showed the product floating over the plate. Scope: `scripts/blender_scene.py` `environment()`; mesh and authored worlds are unchanged, and the plate still provides no occlusion. Verification: adapter compiles; a Metal still of the MORA fixture renders; splat-world verification follows with the first showcase loop.
+
+
+### 2026-10-21 — D96 — Render acceleration is an opt-in environment choice
+
+**In code.** `GESSO_CYCLES_DEVICE=METAL` switches Cycles to the Metal GPU and `GESSO_CYCLES_DENOISE=1` enables OpenImageDenoise; both are read inside the Blender adapter and recorded in `render-config.json` (`device`, `denoising`). The pinned CPU, no-denoise profile remains the reference and the default. `scripts/dev-serve.sh` starts the local server with the pinned Blender 4.3.2 and FFmpeg 7.1.5 paths, keychain secrets and these flags.
+
+Reason: the demo loops need hundreds of frames in hours, not days; a 960 × 540 Metal still with 64 samples completed in four seconds after a one-time 55-second kernel compile. Scope: adapter configuration and the launcher script; job profiles, digests and tests are unchanged. Verification: `render-config.json` reports `"device": "GPU"`, `"denoising": true` for the test still.

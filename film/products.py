@@ -259,6 +259,9 @@ def _prepared_scene(source_path, *, name, provenance, template=None, dimensions_
     plinth = scene["environment"]["plinth"]
     plinth["sizeM"] = [max(dimensions[0] * 1.5, dimensions[2]), max(dimensions) * 0.25, max(dimensions[2] * 1.5, dimensions[0])]
     plinth["translationM"] = [0, -plinth["sizeM"][1] / 2, 0]
+    # Imported products start on the world's own floor: the contact plinth stays
+    # the deterministic support surface but is hidden until the user shows it.
+    plinth["visible"] = False
     # Fit the same actual product bounds in every shot, including portrait gates.
     radius = math.sqrt(sum(value * value for value in dimensions)) / 2
     half_vertical = math.atan(36 / (2 * 50))
