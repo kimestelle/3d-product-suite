@@ -10,6 +10,8 @@ export type GlassineStudyHandle = {update:(frame:GlassineFrame)=>void};
 type Connection = EventTarget & {saveData?:boolean};
 type Props = {active:boolean;page:RefObject<HTMLDivElement|null>};
 const REST={x:.68,y:.28};
+/* Loops rendered by Gesso, shown inside the window for each principle (stage = sequence position). */
+const STAGE_LOOPS=[{stage:1,slug:'chronograph-watch'},{stage:2,slug:'stained-glass-lamp'},{stage:3,slug:'sunglasses'},{stage:4,slug:'candle-holder'},{stage:5,slug:'barn-lamp'}];
 const smooth=(value:number)=>{const t=Math.max(0,Math.min(1,value));return t*t*(3-2*t);};
 
 /** One canvas follows the existing frame's scroll playhead. It has no geometry
@@ -69,14 +71,27 @@ export const GlassineStudy=forwardRef<GlassineStudyHandle,Props>(function Glassi
     const update=()=>{
       const frame=frameRef.current;if(!frame)return;
       if(!activeRef.current)pointerInside=false;
-      windowElement.style.opacity=String(1-smooth((frame.progress-.12)/.72));
+      const fade=smooth((frame.progress-.12)/.72);
+      const stage=Math.round(frame.progress);
+      const loops=[...windowElement.querySelectorAll<HTMLVideoElement>('video.shape-light-loop')];
+      let loopActive=false;
+      for(const video of loops){
+        const on=activeRef.current&&!document.hidden&&frame.width>900&&frame.progress>=.6&&Number(video.dataset.stage)===stage;
+        if(on!==(video.dataset.active==='true')){
+          video.dataset.active=String(on);
+          if(on){if(video.preload!=='auto')video.preload='auto';void video.play().catch(()=>{});}else video.pause();
+        }
+        loopActive=loopActive||on;
+      }
+      windowElement.dataset.loop=String(loopActive);
+      windowElement.style.opacity=loopActive?'1':String(1-fade);
       const size=`${frame.width},${frame.height},${window.devicePixelRatio}`;
       if(renderer&&size!==lastSize){renderer.resize(frame.width,frame.height);lastSize=size;dirty=true;windowElement.dataset.ready='false';}
       const b=frame.bounds,key=`${b.x},${b.y},${b.width},${b.height}`;
       if(key!==lastBounds){
         lastBounds=key;dirty=true;
-        const poster=windowElement.querySelector<HTMLElement>('.shape-light-glassine-still');
-        if(poster)Object.assign(poster.style,{left:`${b.x*100}%`,top:`${b.y*100}%`,width:`${b.width*100}%`,height:`${b.height*100}%`});
+        for(const fill of windowElement.querySelectorAll<HTMLElement>('.shape-light-glassine-still, video.shape-light-loop'))
+          Object.assign(fill.style,{left:`${b.x*100}%`,top:`${b.y*100}%`,width:`${b.width*100}%`,height:`${b.height*100}%`});
       }
       if(dirty||!still())wake();
       else if(!visible())stop();
@@ -105,6 +120,10 @@ export const GlassineStudy=forwardRef<GlassineStudyHandle,Props>(function Glassi
   return <FrameWindow ref={windowRef} className="shape-light-glassine" aria-hidden="true" data-ready="false" data-state="loading" data-running="false">
     <img className="shape-light-glassine-still" src={posterUrl} alt=""/>
     <canvas ref={canvas}/>
+    {STAGE_LOOPS.map(loop=><video key={loop.slug} className="shape-light-loop" data-stage={loop.stage} data-active="false" muted loop playsInline preload="metadata" poster={`/media/gallery/${loop.slug}.jpg`}>
+      <source src={`/media/gallery/${loop.slug}.webm`} type="video/webm"/>
+      <source src={`/media/gallery/${loop.slug}.mp4`} type="video/mp4"/>
+    </video>)}
   </FrameWindow>;
 });
 

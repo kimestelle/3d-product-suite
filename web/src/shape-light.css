@@ -101,6 +101,10 @@
 .shape-light-glassine canvas, .shape-light-glassine-still { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 .shape-light-glassine-still { object-fit: cover; }
 .shape-light-glassine canvas { opacity: 0; }
+/* Rendered loops fill the window for the principle chapters; the glassine study keeps the cover. */
+.shape-light-glassine video.shape-light-loop { position: absolute; display: block; object-fit: cover; opacity: 0; transition: opacity .32s ease; background: #131313; }
+.shape-light-glassine video.shape-light-loop[data-active="true"] { opacity: 1; }
+.shape-light-glassine[data-loop="true"] canvas, .shape-light-glassine[data-loop="true"] .shape-light-glassine-still { opacity: 0; }
 .shape-light-glassine[data-ready="true"] canvas { opacity: 1; }
 .shape-light-mobile-shape { overflow: hidden; }
 .shape-light-mobile-shape img { display: block; width: 100%; height: 100%; object-fit: cover; }

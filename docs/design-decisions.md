@@ -655,3 +655,10 @@ Reason: the page described the four steps but never showed an output; the loops 
 **In code; refines D97.** A `splat` world entry may carry `environment.collider` (a mesh asset record aligned like the splat). Cycles imports it invisibly as a shadow catcher and holdout, so the product casts its shadow onto the room and is cut out where room geometry stands in front of it, while the camera-matched Gaussian plate supplies the look. The browser loads the same collider as a shadow-receiving `ShadowMaterial` beneath the splat. Renders bundle the collider with the world asset.
 
 Reason: the user judged the vertex-coloured collider too blurry as the visible room, but still requires the product and room to interact. The splat is the photoreal representation the provider ships; the collider is its geometry. Scope: scene validation, asset bundling, the Blender splat branch, the viewport splat loader and the three generated world entries; mesh worlds and the plane fallback are unchanged. Verification: scene, worlds and renderer-bundle suites pass; a watch draft in the velvet splat room is rendering for review.
+
+
+### 2026-10-21 — D102 — Form + light shows the studio's own films inside the opening
+
+**In code.** After the glassine cover, each principle chapter fills the shared window with a loop rendered by Gesso (watch, stained-glass lamp, sunglasses, candle holder, barn lamp), positioned to the live contour bounds like the glassine still and switched by the scroll sequence stage. Loops are muted, preload only metadata, play only while their stage is current on wide layouts, and the glassine canvas keeps the cover. Media comes from the same `public/media/gallery` loops as About (D99).
+
+Reason: the user asked that the opening show what the tool makes, not a grey specimen. Scope: [GlassineStudy](../web/src/GlassineStudy.tsx) and [Form + light styles](../web/src/shape-light.css); shapes, text flow and scroll behaviour are unchanged. Verification: production build; a browser scroll to chapter 02 showed the sunglasses loop playing inside the arch with the glassine hidden.
