@@ -35,6 +35,19 @@ COORDINATE_ROTATION = Quaternion((1.0, 0.0, 0.0), math.pi / 2.0)
 
 
 @lru_cache(maxsize=1)
+
+def package_root():
+    """Locate the film package from the repo or from a job directory's renderer snapshot."""
+    here = Path(__file__).resolve()
+    candidates = [here.parents[1], *list(here.parents)[2:6]]
+    if os.environ.get("GESSO_ROOT"):
+        candidates.append(Path(os.environ["GESSO_ROOT"]))
+    for candidate in candidates:
+        if (candidate / "film" / "__init__.py").is_file():
+            return candidate
+    raise ValueError("Cannot locate the film package for renderer helpers; set GESSO_ROOT to the repository root")
+
+
 def decal_geometry():
     """Load the frozen job helper; direct source runs use the repository helper."""
     renderer = Path(__file__).resolve()
@@ -81,7 +94,7 @@ def specified_material(name, specification, samples_root=None, *, source_uv_flip
         return result
     if samples_root is None:
         raise ValueError("PBR maps require the sampled scene asset bundle")
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    sys.path.insert(0, str(package_root()))
     from film.material_assets import validate_material_textures, validate_png
     validate_material_textures(specification)
     nodes, links = result.node_tree.nodes, result.node_tree.links
@@ -457,7 +470,7 @@ def hdri_lighting(source, samples_root):
     specification = source.get("lighting", {}).get("hdri")
     if not specification:
         return
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    sys.path.insert(0, str(package_root()))
     from film.material_assets import validate_hdri_asset
     from film.polyhaven import validate_hdri
     asset = validate_hdri_asset(specification["asset"])
