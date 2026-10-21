@@ -8,6 +8,7 @@ import {frameAfterSceneReorder} from './sceneReorder';
 import {setMotionKeys, updateMotion, type FilmMotion, type MotionEntry} from './filmMotion';
 import {clamp, round, filmTargetName, labelFor, legacyMotions, motionBounds, useFilmEdits} from './FilmWorkspaceShared';
 import {motionStartAfterDrag, motionStartMaximum, timelineMotionBounds, timelineMotions} from './filmTimelineModel';
+import {barTimes, beatTimes} from './beatGrid';
 import './film-timeline.css';
 
 export interface FilmTimelineProps extends FilmWorkspaceProps {editingFrame?: number; onOutput?: () => void; detailContent?: ReactNode; onImportImage?: () => void; importingImage?: boolean}
@@ -20,6 +21,8 @@ export function FilmTimeline(props: FilmTimelineProps) {
   const {scene, frame, editingFrame = frame, selectedTarget, onFrame, selectedMotionId, onMotionSelect, onTargetChange, disabled, playing, onPlay, editCurves, onEditCurves, onResetView} = props;
   const editingShot = exactShotAtFrame(scene, editingFrame), shot = editingShot ?? shotAtFrame(scene, editingFrame), fps = scene.render.fps, total = sequenceEnd(scene);
   const entries = timelineMotions(scene, selectedTarget), legacy = legacyMotions(scene).filter(entry => entry.target === selectedTarget);
+  const totalSeconds = total / fps, tempo = scene.audio?.bpm, anchor = scene.audio?.offsetS ?? 0;
+  const beatGrid = tempo ? {bars: barTimes(tempo, anchor, totalSeconds), beats: beatTimes(tempo, anchor, totalSeconds)} : null;
   const selected = editingShot?.kind !== 'image' && editingShot ? entries.find(entry => entry.motion.id === selectedMotionId && (entry.scope === 'film' || entry.shotId === editingShot.id)) : undefined;
   const [preview, setPreview] = useState<{key: string; startFrame: number} | null>(null);
   const drag = useRef<BlockDrag | null>(null), {edit, error} = useFilmEdits(props);
@@ -98,7 +101,9 @@ export function FilmTimeline(props: FilmTimelineProps) {
       {props.onOutput && <button type="button" className="film-output-action" onClick={props.onOutput}>Output <UiIcon name="chevron"/></button>}</div>
     </header>
     <div className="film-time-scroll"><div className="film-time-surface">
-      <div className="film-time-ruler" aria-hidden="true"><span className="film-row-label">Scenes</span><div>{[0, .25, .5, .75, 1].map(fraction => <span key={fraction} style={{left: `${fraction * 100}%`}}>{round(fraction * total / fps)} s</span>)}</div></div>
+      <div className="film-time-ruler" aria-hidden="true"><span className="film-row-label">Scenes</span><div>
+        {beatGrid && <div className="film-beat-grid">{beatGrid.beats.map(time => <i key={time} className="film-beat-tick" style={{left: `${time / totalSeconds * 100}%`}}/>)}{beatGrid.bars.map(time => <i key={time} className="film-bar-tick" style={{left: `${time / totalSeconds * 100}%`}}/>)}</div>}
+        {[0, .25, .5, .75, 1].map(fraction => <span key={fraction} style={{left: `${fraction * 100}%`}}>{round(fraction * total / fps)} s</span>)}</div></div>
       <div className="film-scenes-lane"><span className="film-row-label">{scene.shots.length} {scene.shots.length === 1 ? 'scene' : 'scenes'}</span>
       <FilmShotStrip scene={scene} frame={frame} editingFrame={editingFrame} onFrame={seekFilm} disabled={disabled} onPlay={onPlay}
         reorderDisabled={playing}

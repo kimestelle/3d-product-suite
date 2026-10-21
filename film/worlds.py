@@ -438,6 +438,9 @@ def verify_scene_assets(scene, source_dir):
     from .film_images import validate_film_image_asset, verify_film_image
     references.extend((validate_film_image_asset(shot["image"]["asset"]), "film-image")
                       for shot in scene.get("shots", []) if shot.get("kind") == "image")
+    from .audio import validate_audio_asset, verify_audio
+    if scene.get("audio"):
+        references.append((validate_audio_asset(scene["audio"].get("asset")), "audio"))
     records = {}
     for asset, component in references:
         path = safe_asset_path(source_dir, asset["path"])
@@ -445,6 +448,8 @@ def verify_scene_assets(scene, source_dir):
         _require(hashlib.sha256(payload).hexdigest() == asset["sha256"], "Asset hash does not match the immutable scene revision")
         if component == "film-image":
             metadata = verify_film_image(payload, asset)
+        elif component == "audio":
+            metadata = verify_audio(payload, asset)
         elif component == "material-image":
             metadata = validate_png(payload)
         elif component == "hdri":

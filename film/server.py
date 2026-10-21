@@ -25,9 +25,10 @@ from .comparison_jobs import ComparisonJobs
 from .materials import MaterialLibrary
 from .polyhaven import PolyHavenLibrary
 from .film_images import import_film_image, MAX_IMAGE_BYTES
+from .audio import MAX_AUDIO_BYTES, MIME_TYPES as AUDIO_MIME_TYPES, ffprobe_command, import_audio
 
 ARTIFACTS = {"scene.blend", "contact-sheet.png", "still-01.png", "still-02.png", "still-03.png"} | {item[1] for item in FORMATS.values()}
-ASSET_NAME = re.compile(r"[0-9a-f]{64}\.(?:glb|spz|ply|png|jpeg|webp|hdr)\Z")
+ASSET_NAME = re.compile(r"[0-9a-f]{64}\.(?:glb|spz|ply|png|jpeg|webp|hdr|mp3|wav|m4a)\Z")
 
 
 def export_filename(value):
@@ -320,7 +321,9 @@ def make_handler(app):
                 raise FileNotFoundError("File not found")
             self.send_response(200)
             mime = {".glb": "model/gltf-binary", ".spz": "application/octet-stream", ".ply": "application/octet-stream",
-                    ".blend": "application/octet-stream"}.get(path.suffix, mimetypes.guess_type(str(path))[0] or "application/octet-stream")
+                    ".blend": "application/octet-stream",
+                    **{f".{suffix}": mime for suffix, mime in AUDIO_MIME_TYPES.items()}
+                    }.get(path.suffix, mimetypes.guess_type(str(path))[0] or "application/octet-stream")
             self.send_header("Content-Type", mime)
             self.send_header("Content-Length", str(path.stat().st_size))
             self.send_header("Cache-Control", "public,max-age=31536000,immutable" if immutable else "no-store")
@@ -406,6 +409,10 @@ def make_handler(app):
             if self.command == "POST" and path == "/api/film/images/import":
                 return self._json(import_film_image(self._body(binary=True, limit=MAX_IMAGE_BYTES),
                                   self.headers.get("X-Asset-Filename", ""), app.store.root), 201)
+            if self.command == "POST" and path == "/api/audio/import":
+                return self._json(import_audio(self._body(binary=True, limit=MAX_AUDIO_BYTES),
+                                  self.headers.get("X-Asset-Filename", ""), app.store.root,
+                                  ffprobe=ffprobe_command(app.renders.ffmpeg)), 201)
             if self.command == "POST" and path == "/api/products/import":
                 payload = self._body(binary=True)
                 query = parse_qs(parsed.query)

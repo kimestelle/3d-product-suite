@@ -26,6 +26,7 @@ import FilmViewportControls from './FilmViewportControls';
 import ViewportLoading from './ViewportLoading';
 import {useFilmCamera} from './useFilmCamera';
 import {useFilmPlayhead} from './useFilmPlayhead';
+import {useFilmAudio} from './useFilmAudio';
 import type {FilmGuideProjection} from './filmGuides';
 import TransformShortcuts from './TransformShortcuts';
 import type {TransformMode,TransformTarget} from './transforms';
@@ -241,6 +242,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   const pickHandler=useRef<(side:Side,point:any)=>void>(()=>{});
   const [worldName,setWorldName]=useState('Campaign room');const [owner,setOwner]=useState('');const [reuse,setReuse]=useState('');const [sourceUp,setSourceUp]=useState('Y');
   const file=useRef<HTMLInputElement>(null);const total=scene?sequenceEnd(scene):360;const fps=scene?.render.fps??24;
+  const filmAudio=useFilmAudio(scene,{playing,frame,fps});
   const shot=scene?exactShotAtFrame(scene,frame):undefined;
   const filmEditShot=scene?exactShotAtFrame(scene,filmEditFrame):undefined;
   const filmSceneSelected=!!filmEditShot&&filmEditShot.kind!=='image';
@@ -316,7 +318,8 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   useEffect(()=>{const hidden=()=>{if(document.hidden)setPlaying(false)};document.addEventListener('visibilitychange',hidden);
     const observer=new IntersectionObserver(entries=>{if(!entries[0]?.isIntersecting)setPlaying(false)});if(stageHost.current)observer.observe(stageHost.current);
     return()=>{document.removeEventListener('visibilitychange',hidden);observer.disconnect()}},[]);
-  useEffect(()=>{if(!playing)return;setPicking(null);let raf=0;let start=performance.now();const first=frame;const tick=(time:number)=>{const next=first+Math.floor((time-start)/1000*fps);if(next>playbackEnd){setPlaying(false);setPlaybackFrame(playbackEnd);return}setPlaybackFrame(next);raf=requestAnimationFrame(tick)};raf=requestAnimationFrame(tick);return()=>cancelAnimationFrame(raf)},[playing,fps,playbackEnd]);
+  // While the soundtrack is audibly running it is the master clock; the frame clock only fills in before, after and while it buffers.
+  useEffect(()=>{if(!playing)return;setPicking(null);let raf=0;let start=performance.now();let first=frame;let previous=frame;filmAudio.play((first-1)/fps);const tick=(time:number)=>{let next=first+Math.floor((time-start)/1000*fps);const heard=filmAudio.sync((next-1)/fps);if(heard!==null){next=Math.max(previous,1+Math.floor(heard*fps+1e-6));first=next;start=time}previous=next;if(next>playbackEnd){setPlaying(false);setPlaybackFrame(playbackEnd);return}setPlaybackFrame(next);raf=requestAnimationFrame(tick)};raf=requestAnimationFrame(tick);return()=>{cancelAnimationFrame(raf);filmAudio.pause()}},[playing,fps,playbackEnd,filmAudio]);
   useEffect(()=>{if(!active||showExport)return;const key=(e:KeyboardEvent)=>{const target=e.target as HTMLElement;if(e.defaultPrevented||transformModeRef.current)return;if(e.isComposing||['INPUT','TEXTAREA','SELECT'].includes(target?.tagName)||target?.isContentEditable)return;
     const destination=shortcutDestination(e,tab,mode);if(destination){e.preventDefault();if(target?.closest('.timeline')){const label=destination.group?groups.find(group=>group.id===destination.group)?.label:destination.layer;menuHost.current?.querySelector<HTMLButtonElement>(`.gesso-navrow button[aria-label="${label}"]`)?.focus()}if(destination.group)chooseGroup(destination.group);if(destination.layer)selectLayer(destination.layer);setMenu(null);return}
     if(!e.altKey&&!e.ctrlKey&&!e.metaKey&&e.code==='KeyF'){e.preventDefault();setPlaying(false);if(e.shiftKey){setInspecting(false);viewport.current?.resetFraming();viewportB.current?.resetFraming()}else{setInspecting(true);viewport.current?.frameSelection();viewportB.current?.frameSelection()}return}

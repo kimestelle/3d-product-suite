@@ -34,8 +34,6 @@ BLENDER_VERSION = (4, 3, 2)
 COORDINATE_ROTATION = Quaternion((1.0, 0.0, 0.0), math.pi / 2.0)
 
 
-@lru_cache(maxsize=1)
-
 def package_root():
     """Locate the film package from the repo or from a job directory's renderer snapshot."""
     here = Path(__file__).resolve()
@@ -48,6 +46,7 @@ def package_root():
     raise ValueError("Cannot locate the film package for renderer helpers; set GESSO_ROOT to the repository root")
 
 
+@lru_cache(maxsize=1)
 def decal_geometry():
     """Load the frozen job helper; direct source runs use the repository helper."""
     renderer = Path(__file__).resolve()

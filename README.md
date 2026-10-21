@@ -130,6 +130,10 @@ Offline **Studio** is the authored neutral set. **Gallery** and **Botanical room
 
 Native splat plate diagnostics additionally need Chromium: `cd web && npx playwright install chromium`. These plates approximate distant surroundings and do not reproduce native near-field occlusion, reflections, or glass transport. The mesh comparisons avoid that plate rendering path.
 
+### Sound
+
+Open **Output** in the Film workspace and use **Add sound…** to attach one MP3, WAV or M4A file (up to 64 MiB). The file is stored unchanged under its content hash, measured once with `ffprobe` (found beside the configured `ffmpeg`, otherwise on `PATH`), and saved in the scene as `scene.audio` with an offset, a gain and an optional tempo. During playback the film clock locks to the running audio element; the offset is the film time where the sound starts (negative values trim its beginning), and the tempo draws bar and beat ticks on the timeline ruler. MP4 and ProRes exports mux the soundtrack (AAC 192 kb/s or 16-bit PCM, gain applied, silence-padded to the picture length); PNG sequences and stills are unchanged.
+
 ## Render from the command line
 
 The reference render setup uses **Python 3.12.14**, **Blender 4.3.2**, and **FFmpeg 7.1.5**. Blender must support Cycles CPU rendering, and FFmpeg must include the `libx264` encoder and PNG support. Install the tools separately; the worker rejects different Blender or FFmpeg versions.

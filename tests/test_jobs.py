@@ -1,4 +1,5 @@
 """Worker failure/recovery tests use real small PNGs and mocked subprocesses."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -66,6 +67,63 @@ class JobTests(unittest.TestCase):
         with patch.object(jobs.subprocess, "run", side_effect=versions), patch.object(
                 jobs, "_run_process", side_effect=callback or self.process):
             return jobs.run_job(self.output)
+
+    def encode_command(self):
+        return next(command for command in self.commands if "-c:v" in command)
+
+    def test_scene_without_audio_encodes_with_the_unchanged_command(self):
+        self.init()
+        self.run_worker()
+        output = self.output.resolve()
+        self.assertEqual(self.encode_command(), [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+            "-framerate", str(self.scene["render"]["fps"]), "-start_number", "1", "-i", str(output / "frames" / "%06d.png"),
+            "-frames:v", "30", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(output / ".film.partial.mp4")])
+
+    def attach_audio(self, **overrides):
+        payload = b"RIFF\x24\0\0\0WAVEfmt " + b"\0" * 20 + b"data\0\0\0\0"
+        digest = hashlib.sha256(payload).hexdigest()
+        (self.root / "assets").mkdir(exist_ok=True)
+        (self.root / "assets" / f"{digest}.wav").write_bytes(payload)
+        self.scene["audio"] = {"asset": {"path": f"assets/{digest}.wav", "sha256": digest, "format": "wav"},
+                               "offsetS": 1.5, "gain": 0.8, "bpm": 120, "durationS": 10, **overrides}
+        self.source.write_text(json.dumps(self.scene))
+        return f"assets/{digest}.wav"
+
+    def test_scene_with_audio_muxes_the_bundled_soundtrack(self):
+        asset = self.attach_audio()
+        job = self.init()
+        self.assertTrue((self.output / asset).is_file())
+        self.assertIn(asset, [record["path"] for record in job["assets"]])
+        self.assertEqual(self.run_worker()["state"], "succeeded")
+        output = self.output.resolve()
+        self.assertEqual(self.encode_command(), [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+            "-framerate", str(self.scene["render"]["fps"]), "-start_number", "1", "-i", str(output / "frames" / "%06d.png"),
+            "-itsoffset", "1.5", "-i", str(output / asset),
+            "-frames:v", "30", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+            "-filter:a", "volume=0.8,apad", "-map", "0:v:0", "-map", "1:a:0", "-c:a", "aac", "-b:a", "192k", "-shortest",
+            str(output / ".film.partial.mp4")])
+        stills = [command for command in self.commands if "-update" in command]
+        self.assertEqual(len(stills), 4)
+        self.assertFalse(any("-map" in command for command in stills))
+
+    def test_negative_offset_trims_the_soundtrack_and_prores_keeps_pcm(self):
+        asset = self.attach_audio(offsetS=-2, gain=1)
+        self.init(export_format="prores")
+        self.assertEqual(self.run_worker()["state"], "succeeded")
+        output = self.output.resolve()
+        command = self.encode_command()
+        self.assertEqual(command[command.index("-ss"):command.index("-frames:v")], ["-ss", "2", "-i", str(output / asset)])
+        self.assertNotIn("-itsoffset", command)
+        self.assertEqual(command[-10:], ["-filter:a", "volume=1,apad", "-map", "0:v:0", "-map", "1:a:0", "-c:a", "pcm_s16le",
+                                         "-shortest", str(output / ".film.partial.mov")])
+
+    def test_png_sequence_export_ignores_the_soundtrack(self):
+        self.attach_audio()
+        self.init(export_format="png-sequence")
+        self.assertEqual(self.run_worker()["state"], "succeeded")
+        self.assertFalse(any("-c:v" in command or "-map" in command for command in self.commands))
 
     def test_creation_is_idempotent_but_other_sources_or_profiles_are_rejected(self):
         first = self.init()

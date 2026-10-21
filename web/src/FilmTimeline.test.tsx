@@ -151,3 +151,19 @@ describe('Scene editing and persistent curve context', () => {
     expect(image).not.toContain('aria-label="Motion progress curve"');
   });
 });
+
+describe('Soundtrack tempo on the ruler', () => {
+  it('draws bar and beat ticks from the tempo, anchored at the soundtrack offset', () => {
+    const props = context();
+    props.scene.audio = {asset: {path: `assets/${'a'.repeat(64)}.wav`, sha256: 'a'.repeat(64), format: 'wav'}, offsetS: 0, gain: 1, bpm: 120, durationS: 10};
+    const html = renderToStaticMarkup(<FilmTimeline {...props}/>);
+    expect(html.match(/class="film-bar-tick"/g)).toHaveLength(3);
+    expect(html.match(/class="film-beat-tick"/g)).toHaveLength(9);
+    expect(html).toContain('class="film-bar-tick" style="left:50%"');
+    props.scene.audio.offsetS = 0.5;
+    expect(renderToStaticMarkup(<FilmTimeline {...props}/>).match(/class="film-bar-tick"/g)).toHaveLength(2);
+    delete props.scene.audio.bpm;
+    expect(renderToStaticMarkup(<FilmTimeline {...props}/>)).not.toContain('film-beat-grid');
+    expect(renderToStaticMarkup(<FilmTimeline {...context()}/>)).not.toContain('film-beat-grid');
+  });
+});

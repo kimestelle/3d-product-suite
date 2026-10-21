@@ -9,6 +9,7 @@ from pathlib import Path
 from .worlds import validate_asset_record, validate_product_asset_record
 from .material_assets import validate_material_textures, validate_hdri_asset
 from .film_images import validate_film_image_asset
+from .audio import validate_scene_audio
 
 
 def scene_digest(scene):
@@ -536,6 +537,8 @@ def validate_scene(scene):
         if "comparison" in scene:
             from .comparison import validate_comparison
             validate_comparison(scene)
+        if "audio" in scene:
+            validate_scene_audio(scene["audio"])
         scene_digest(scene)  # rejects non-finite numbers even in additional metadata
     except (KeyError, TypeError, IndexError, OverflowError) as exc:
         raise ValueError(f"Malformed scene: {exc}") from exc

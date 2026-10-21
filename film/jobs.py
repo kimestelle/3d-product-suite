@@ -507,6 +507,18 @@ def _render_command(blender, output, profile, frames):
     return command
 
 
+def _audio_arguments(output, job, scene):
+    """Mux the bundled soundtrack: offset places the file on the film clock, gain scales it, silence pads the tail."""
+    audio = scene.get("audio")
+    if not audio:
+        return [], []
+    offset = float(audio.get("offsetS", 0))
+    placement = ["-itsoffset", f"{offset:g}"] if offset > 0 else ["-ss", f"{-offset:g}"] if offset < 0 else []
+    encoder = ["-c:a", "pcm_s16le"] if job_format(job) == "prores" else ["-c:a", "aac", "-b:a", "192k"]
+    return (placement + ["-i", str(output / audio["asset"]["path"])],
+            ["-filter:a", f"volume={float(audio.get('gain', 1)):g},apad", "-map", "0:v:0", "-map", "1:a:0"] + encoder + ["-shortest"])
+
+
 def _encode(output, job, scene, ffmpeg, *, worker_fd=None):
     profile = job["renderProfile"]
     count = profile["frameCount"]
@@ -520,9 +532,10 @@ def _encode(output, job, scene, ffmpeg, *, worker_fd=None):
     temporary = output / (".film.partial.mov" if job_format(job) == "prores" else ".film.partial.mp4")
     codec = (["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le"]
              if job_format(job) == "prores" else ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart"])
+    audio_input, audio_output = _audio_arguments(output, job, scene)
     _run_process(common + ["-framerate", str(profile["fps"]), "-start_number", "1",
-                          "-i", str(output / "frames" / "%06d.png"), "-frames:v", str(count)] + codec +
-                          [str(temporary)], output, "ffmpeg.log", worker_fd=worker_fd)
+                          "-i", str(output / "frames" / "%06d.png")] + audio_input + ["-frames:v", str(count)] + codec +
+                          audio_output + [str(temporary)], output, "ffmpeg.log", worker_fd=worker_fd)
     if not temporary.exists() or temporary.stat().st_size == 0:
         raise RuntimeError("FFmpeg returned without a film")
     os.replace(temporary, output / name)
