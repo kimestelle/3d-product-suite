@@ -11,6 +11,7 @@ import {formatScalePercent} from './transforms';
 import {matchWorldRevision} from './comparison';
 import PolyHavenLibrary from './PolyHavenLibrary';
 import {addLight, addProp, addPropFromLibrary, applyDramaticSpot, setHdriFromLibrary, colorFromHex, colorHex, defaultLighting, ensureLighting, lightType, removeLight, setLightType, setWorldYaw, worldYaw, SPOT_DEFAULTS, type StudioLightType} from './world';
+import {objectName, productSupportTargets, relationLabels, sceneFloorY, setProductSupport, type RelationType, type ResolvedObjects} from './sceneGraph';
 
 export type WorldLayer = 'Environment' | 'Props' | 'Lights';
 export interface WorldPanelProps extends CurrentWorldCapture {
@@ -23,6 +24,13 @@ export interface WorldPanelProps extends CurrentWorldCapture {
   onSelectObject?: (id: string | null) => void;
   editorHost?: HTMLElement | null;
   children?: ReactNode;
+  /** Resolved scene-object poses from the last evaluation (film/scene_objects.py). */
+  resolved?: ResolvedObjects;
+  pickingSurface?: boolean;
+  onPickSurface?: () => void;
+  onCancelPick?: () => void;
+  onFrameObjects?: () => void;
+  ready?: boolean;
 }
 function Field({label, children}: {label: string; children: ReactNode}) {return <label className="gesso-field"><span>{label}</span>{children}</label>;}
 const NumberField = NumberControl;
@@ -34,7 +42,29 @@ function ColorField({label, value, onChange}: {label: string; value: number[]; o
   return <Field label={label}><div className="gesso-color"><input type="color" aria-label={label} value={colorHex(value)} onChange={event => onChange(colorFromHex(event.target.value))}/><span>{colorHex(value).toUpperCase()}</span></div></Field>;
 }
 
-export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onImport, onFitProduct, fitDisabled, onFrameProp, selectedObjectId = null, onSelectObject, editorHost, children, captureCurrentWorld, worldPreviewReady, worldPreviewRevision}: WorldPanelProps) {
+/** Where the product rests, shared by the browser and Cycles (D160). */
+function ProductPlacement({scene, onChange, pickingSurface = false, onPickSurface, onCancelPick, onFrameObjects, ready = true}: Pick<WorldPanelProps, 'scene' | 'onChange' | 'pickingSurface' | 'onPickSurface' | 'onCancelPick' | 'onFrameObjects' | 'ready'>) {
+  const placement = scene.placement;
+  const targets = productSupportTargets(scene);
+  // A hidden contact plinth (D93) is not offered as a new support, but stays selectable while in use.
+  if (!targets.some(target => target.id === placement.restsOn)) targets.push({id: placement.restsOn, label: placement.restsOn === scene.environment.plinth.id ? 'Plinth (hidden)' : objectName(scene, placement.restsOn)});
+  const plinthSupport = placement.restsOn === scene.environment.plinth.id;
+  return <section className="gesso-section gesso-product-placement" aria-label="Product placement"><div className="gesso-section-heading"><span className="gesso-section-label">Product placement</span></div>
+    <Field label="Rests on"><select aria-label="Rest product on" value={placement.restsOn} onChange={event => {const id = event.target.value; onChange(next => setProductSupport(next, id));}}>
+      {targets.map(target => <option key={target.id} value={target.id}>{target.label}</option>)}
+    </select></Field>
+    {scene.environment.kind === 'mesh' && <button type="button" aria-pressed={pickingSurface} disabled={!ready && !pickingSurface} onClick={pickingSurface ? onCancelPick : onPickSurface}>{pickingSurface ? 'Cancel surface pick' : 'Pick a surface in the world'}</button>}
+    {placement.restsOn === 'world-surface' && <p className="gesso-meta gesso-note">Re-pick the surface after replacing or realigning the world.</p>}
+    {scene.environment.kind === 'splat' && <p className="gesso-meta gesso-note">Surface picking needs a mesh world. Rest the product on the floor or an object.</p>}
+    <VectorField label="Offset · mm" values={placement.translationM} factor={1000} onChange={(axis, value) => onChange(next => {next.placement.translationM[axis] = value;})}/>
+    <NumberField label="Turn" unit="°" ariaLabel="Product rotation" value={placement.rotationYDegrees ?? 0} min={-360} max={360} step={1} onChange={value => onChange(next => {if (value) next.placement.rotationYDegrees = value; else delete next.placement.rotationYDegrees;})}/>
+    <NumberField label="Floor" unit="mm" ariaLabel="Floor height" value={sceneFloorY(scene) * 1000} step={1} onChange={value => onChange(next => {next.environment.floorY = value / 1000;})}/>
+    <p className="gesso-meta gesso-note">{plinthSupport && scene.environment.plinth.visible === false ? 'The hidden plinth is the floor at the product’s contact.' : 'Objects on the floor follow its height.'}</p>
+    {onFrameObjects && <button type="button" disabled={!ready} onClick={onFrameObjects}>Frame product and objects</button>}
+  </section>;
+}
+
+export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onImport, onFitProduct, fitDisabled, onFrameProp, selectedObjectId = null, onSelectObject, editorHost, children, captureCurrentWorld, worldPreviewReady, worldPreviewRevision, resolved, pickingSurface, onPickSurface, onCancelPick, onFrameObjects, ready}: WorldPanelProps) {
   const root = useRef<HTMLDivElement>(null);
   const [selectedLight, setSelectedLight] = useState('key');
   const [addLightOpen, setAddLightOpen] = useState(false);
@@ -60,8 +90,9 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
     const isPlinth = object.id === environment.plinth.id;
     const kind = isPlinth ? 'Contact surface' : object.shape === 'mesh' ? 'Imported mesh' : object.shape === 'cylinder' ? 'Cylinder' : 'Box';
     const dimensions = object.sizeM.map((value: number) => Number((value * 1000).toFixed(1))).join(' × ');
+    const relation = object.relationship ? ` · ${relationLabels[object.relationship.type as RelationType] ?? object.relationship.type} ${objectName(scene, object.relationship.targetId)}` : '';
     return {id: object.id, name: isPlinth ? 'Plinth' : object.displayName ?? object.id, object, isPlinth,
-      description: `${kind}${object.visible === false ? ' · Hidden' : ''} · ${dimensions} mm`};
+      description: `${kind}${object.visible === false ? ' · Hidden' : ''}${relation} · ${dimensions} mm`};
   });
   const closeEditor = (removed = false) => {
     // Return keyboard users to the object they were editing before collapsing the rail.
@@ -72,7 +103,7 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
     onSelectObject?.(null);
   };
   const editor = layer === 'Props' && selectedObjectId && objects.some(item => item.id === selectedObjectId)
-    ? <WorldObjectEditor scene={scene} objectId={selectedObjectId} onChange={onChange} onClose={closeEditor} onFrameProp={onFrameProp}/> : null;
+    ? <WorldObjectEditor scene={scene} objectId={selectedObjectId} onChange={onChange} onClose={closeEditor} onFrameProp={onFrameProp} resolved={resolved}/> : null;
 
   return <div ref={root} className="gesso-panel gesso-condensed-world gesso-control-sections">
     {editorHost && editor ? createPortal(editor, editorHost) : editor}
@@ -118,6 +149,7 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
         <details className="gesso-disclosure"><summary>Prop library</summary><PolyHavenLibrary kind="models" scopeKey={scene.sceneId} onImport={result => {const id = addPropFromLibrary(structuredClone(scene), result.entry); onChange(next => {addPropFromLibrary(next, result.entry);}); onSelectObject?.(id);}}/></details>
       </div>
       <WorldObjectPreviews items={objects} selectedId={selectedObjectId ?? undefined} onSelect={id => onSelectObject?.(id)}/>
+      <ProductPlacement scene={scene} onChange={onChange} pickingSurface={pickingSurface} onPickSurface={onPickSurface} onCancelPick={onCancelPick} onFrameObjects={onFrameObjects} ready={ready}/>
       </>}
       {layer==='Lights' && <>
       <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">Environment light</span></div>

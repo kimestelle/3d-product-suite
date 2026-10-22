@@ -7,7 +7,7 @@ describe('product import settings', () => {
     expect(productImportSettings(filename, 'z', '')).toEqual({sourceUp: 'z'});
     expect(productImportSettings(filename, 'y', 'mm')).toEqual({sourceUp: 'y'});
   });
-  it.each(['part.STL', 'part.obj'])('requires an explicit unit choice for %s', filename => {
+  it.each(['part.STL', 'part.obj', 'part.ply'])('requires an explicit unit choice for %s', filename => {
     expect(() => productImportSettings(filename, 'z', '')).toThrow('Choose the units');
     for (const sourceUnits of ['mm', 'cm', 'm', 'in', 'ft'] as const) {
       expect(productImportSettings(filename, 'y', sourceUnits)).toEqual({sourceUp: 'y', sourceUnits});

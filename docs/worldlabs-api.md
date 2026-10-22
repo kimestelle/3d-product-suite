@@ -40,7 +40,9 @@ Official API documentation checked **2026-10-16**:
 | `marble-1.0` / `marble-1.1` | 1,580 | 3,500 | 5,080 | $4.064 |
 | `marble-1.1-plus` | 3,080 | 3,500 | 6,580 | $5.264 |
 
-The default `marble-1.1` experiment uses a 6,000-credit cap. World Labs documents
+The default `marble-1.1` experiment uses a 6,000-credit cap. Matching requests now
+reuse saved worlds by default; these prices apply when new provider work is needed.
+World Labs documents
 up to one hour for HQ mesh export, independently of generation time. Plus is rejected at
 that cap before any request. HQ export caching can reduce the actual charge: one
 new export run produces both textured and vertex-colored variants, and an
@@ -54,6 +56,56 @@ settles above its expected maximum. Provider pricing can change. The API permits
 overages, so its own low-balance threshold is not a substitute for this preflight.
 
 ## Recovery and artifacts
+
+### Reuse before generation
+
+The editor remembers matching requests across restarts, rather than just
+deduplicating clicks for a minute. Once a successful comparison is imported,
+matching requests return the verified local meshes and Gaussian source without
+contacting GitHub or World Labs. A request still running or awaiting import links
+to its existing workflow instead of submitting another one.
+
+The command-line runner shares a persistent cache across output directories.
+Its identity includes the effective prompt, model, seed and reference image
+(file contents for local images; the exact URL for hosted images). Use stable,
+immutable image URLs. Spending caps, experiment names, products, camera paths and
+scene edits do not create a different world request. Scene edits rebuild only the
+local comparison probes. Asset hashes and paired world lineage are checked before
+reuse; missing or corrupt cached assets stop the run rather than authorize a
+replacement generation. A complete hit needs no API key and makes zero provider
+requests, including balance checks.
+
+GitHub Actions restores the matching cache before generation and saves accepted
+operation journals even after failures. Local runs default to
+`<output-parent>/.worldlabs-cache/`; pass `--cache-dir /persistent/path` to share
+across other output parents. Keep this private cache and `workspace-data/` when
+moving or backing up the editor. Both contain generated assets and recovery data
+and belong outside Git.
+
+For an intentional new paid result, select **Generate a new variation** in the
+editor or set `force_new` in the workflow. Locally, use `--force-new` with a new
+`--experiment-id` and output directory. The same explicit variation remains
+resumable: its namespace is the GitHub run ID, or the local experiment ID.
+
+GitHub caches can expire or be evicted. The editor's local assets remain reusable
+while preserved; keep artifacts and operation IDs for recovery when remote cache
+storage is unavailable.
+
+To backfill a successful result made before caching, supply its GitHub run ID in
+the workflow's `existing_artifact_run_id` field with the same prompt, preset,
+image and model. The workflow verifies the artifact and seeds the cache; that
+run receives no World Labs API key and cannot submit paid work. Missing artifacts
+or mismatched inputs stop the run. Local backfill from GitHub is also available:
+
+```bash
+python scripts/seed_worldlabs_cache.py --run-id YOUR_SUCCESSFUL_RUN_ID \
+  --cache-dir /persistent/worldlabs-cache
+```
+
+Set the same `WORLDLABS_PROMPT`, `WORLDLABS_DEFAULT_ENVIRONMENT`,
+`WORLDLABS_REFERENCE_IMAGE_URL` and `WORLDLABS_MODEL` environment variables as
+the original request when using this helper. An existing completed CLI output
+also seeds the shared cache automatically when run with its original settings.
 
 Before every paid POST the client durably saves its intent. It never automatically
 retries a POST with an uncertain outcome. Accepted operation IDs are saved and
@@ -87,6 +139,10 @@ python scripts/worldlabs_experiment.py --output outputs/worldlabs-experiment \
 
 python scripts/worldlabs_experiment.py --output outputs/worldlabs-image \
   --image-path /absolute/path/reference.png --budget-credits 6000
+
+# Same inputs, another output: reuses the cached world without provider calls.
+python scripts/worldlabs_experiment.py --output outputs/another-comparison \
+  --default-environment botanical-studio --model marble-1.1 --budget-credits 6000
 ```
 
 Local PNG, JPEG and WebP references up to 6 MiB use the API's inline base64 image

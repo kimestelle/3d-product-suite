@@ -13,7 +13,7 @@ import re
 
 from .worlds import validate_asset_record
 
-_SHARED_ENVIRONMENT = ("plinth", "props", "worldColor", "studioSizeM")
+_SHARED_ENVIRONMENT = ("plinth", "props", "floorY", "worldColor", "studioSizeM")
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _CALIBRATION_FIELDS = {"sourceFloorPoint", "measurement", "yawDeltaDegrees"}
 
@@ -92,7 +92,7 @@ def validate_comparison(scene):
     _require(isinstance(alternative, dict) and alternative.get("kind") == "mesh",
              "Comparison B must be a visual mesh environment")
     _require(not any(key in alternative for key in _SHARED_ENVIRONMENT),
-             "Comparison alternative must omit shared plinth, props, worldColor and studioSizeM")
+             "Comparison alternative must omit shared plinth, props, floorY, worldColor and studioSizeM")
     validate_asset_record(alternative.get("asset"), kind="mesh")
     _pairing(scene)
     if "calibration" in comparison:
@@ -148,7 +148,7 @@ def _alignment_digest(scene):
     return _digest({"schemaVersion": 1, "a": geometry(scene["environment"]),
                     "b": geometry(scene["comparison"]["alternative"]),
                     "contact": {key: copy.deepcopy(scene["environment"][key])
-                                for key in ("plinth", "props") if key in scene["environment"]},
+                                for key in ("plinth", "props", "floorY") if key in scene["environment"]},
                     "placement": scene["placement"], "productGeometry": product_geometry,
                     "actions": scene["actions"],
                     "timeSampling": {"fps": scene["render"]["fps"], "lastFrame": film_duration(scene)}})
@@ -248,8 +248,8 @@ def calibrate_scene(scene, side, data):
     if floor is not None:
         floor = _point(floor, "Saved source floor point")
         rotated = _rotate(asset["rotationXyzw"], floor)
-        plinth = result["environment"]["plinth"]
-        target = plinth["translationM"][1] - plinth["sizeM"][1] / 2
+        from .scene_objects import resolve_scene_objects
+        target = resolve_scene_objects(result)["floorY"]
         translation = target - rotated[1] * asset["scaleToMeters"]
         _require(math.isfinite(translation), "Floor calibration produced a nonfinite translation")
         asset["translationM"][1] = translation

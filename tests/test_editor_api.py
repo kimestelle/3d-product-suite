@@ -360,6 +360,71 @@ class EditorApiTests(unittest.TestCase):
         self.assertEqual(status, 404)
         self.assertIn("error", error)
 
+    def test_mesh_upload_normalizes_into_a_reopenable_pinned_product_project(self):
+        # Polygon PLY uses main's normalizer through the editor's one product handoff
+        # (D109, D160); STL/OBJ keep the editor's own mesh worker.
+        baseline = self.bootstrap()["project"]
+        source = (b"ply\nformat ascii 1.0\nelement vertex 3\nproperty float x\nproperty float y\nproperty float z\n"
+                  b"element face 1\nproperty list uchar int vertex_indices\nend_header\n0 0 0\n60 0 0\n60 120 40\n3 0 1 2\n")
+        normalized = product_glb()
+        metadata = {"sourceFormat": "ply", "sourceSha256": hashlib.sha256(source).hexdigest(),
+                    "units": "mm", "sourceUp": "Z", "scaleToMeters": .001}
+
+        def convert(source_path, output_path, **options):
+            self.assertEqual(source_path.read_bytes(), source)
+            self.assertEqual(source_path.suffix, ".ply")
+            self.assertEqual(options, {"source_up": "Z", "units": "mm", "blender": self.app.renders.blender})
+            output_path.write_bytes(normalized)
+            return metadata
+
+        query = urlencode({"name": "Supplied mesh", "owner": "Design team", "reuseBasis": "Original model",
+                           "source": "Approved supplier model", "sourceUnits": "mm", "sourceUp": "z"})
+        with patch("film.mesh_import.prepare_product_mesh", side_effect=convert) as converter:
+            status, project, _ = self.request("POST", "/api/products/import?" + query, raw=source,
+                                              headers={"X-Asset-Filename": "product.PLY", "Content-Type": "application/octet-stream"})
+        self.assertEqual(status, 201)
+        converter.assert_called_once()
+        self.assertEqual(project["scene"]["product"]["metadata"]["meshImport"], metadata)
+        asset = project["scene"]["product"]["components"][0]["asset"]
+        self.assertEqual(self.request("GET", "/api/" + asset["path"])[1], normalized)
+        self.assertEqual(self.request("GET", f"/api/projects/{project['id']}")[1], project)
+        self.assertEqual(self.request("GET", f"/api/projects/{baseline['id']}")[1], baseline)
+        self.assertEqual(project["scene"]["actions"], [])
+        self.assertEqual(list(self.app.store.root.glob("product-import-*")), [])
+
+    def test_mesh_upload_requires_explicit_scale_orientation_and_provenance_before_conversion(self):
+        baseline = self.bootstrap()["projects"]
+        original_assets = {path.name: path.read_bytes() for path in (self.app.store.root / "assets").iterdir()}
+        query = {"name": "Mesh", "owner": "Design team", "reuseBasis": "Original model", "source": "Supplier",
+                 "sourceUnits": "mm", "sourceUp": "z"}
+        headers = {"X-Asset-Filename": "product.ply", "Content-Type": "application/octet-stream"}
+        # The editor's up axis defaults to Z (D109); units and provenance must be explicit.
+        requests = [{k: v for k, v in query.items() if k != key} for key in ("sourceUnits", "owner", "reuseBasis")]
+        requests.append({**query, "sourceUp": "x"})
+        with patch("film.mesh_import.prepare_product_mesh") as converter:
+            for request in requests:
+                with self.subTest(query=request):
+                    status, error, _ = self.request("POST", "/api/products/import?" + urlencode(request),
+                                                    raw=b"not a complete mesh", headers=headers)
+                    self.assertEqual(status, 400)
+                    self.assertIn("error", error)
+            converter.assert_not_called()
+        self.assertEqual(self.request("GET", "/api/projects")[1], baseline)
+        self.assertEqual({path.name: path.read_bytes() for path in (self.app.store.root / "assets").iterdir()}, original_assets)
+        self.assertEqual(list(self.app.store.root.glob("product-import-*")), [])
+
+    def test_failed_mesh_conversion_leaves_no_partial_project_or_assets(self):
+        baseline = self.bootstrap()["projects"]
+        query = urlencode({"name": "Mesh", "owner": "Design team", "reuseBasis": "Original model", "source": "Supplier",
+                           "sourceUnits": "mm", "sourceUp": "z"})
+        with patch("film.mesh_import.prepare_product_mesh", side_effect=ValueError("Install Blender 4.3.2 to import OBJ/STL/PLY meshes")):
+            status, error, _ = self.request("POST", "/api/products/import?" + query, raw=b"mesh",
+                                            headers={"X-Asset-Filename": "product.ply", "Content-Type": "application/octet-stream"})
+        self.assertEqual(status, 400)
+        self.assertIn("Blender 4.3.2", error["error"])
+        self.assertEqual(self.request("GET", "/api/projects")[1], baseline)
+        self.assertEqual(list(self.app.store.root.glob("product-import-*")), [])
+
     def test_provider_status_exposes_boolean_and_no_api_key(self):
         key = "worldlabs-key-that-must-never-reach-browser"
         with patch.dict("os.environ", {"WORLDLABS_API_KEY": key}):
@@ -372,6 +437,62 @@ class EditorApiTests(unittest.TestCase):
             self.assertNotIn(key, json.dumps(value))
         with patch.dict("os.environ", {"WORLDLABS_API_KEY": ""}):
             self.assertEqual(self.request("GET", "/api/worldlabs/status")[1], {"configured": False})
+
+    def test_new_editor_scene_rests_on_its_plinth_at_the_world_origin(self):
+        # The editor's starter campaign (D127) keeps its contact plinth; the
+        # resolved support is that plinth's top at the world origin.
+        scene = self.bootstrap()["project"]["scene"]
+        self.assertEqual(scene["placement"]["restsOn"], scene["environment"]["plinth"]["id"])
+        self.assertNotIn("floorY", scene["environment"])
+        status, evaluated, _ = self.request("POST", "/api/evaluate", {"scene": scene})
+        self.assertEqual(status, 200)
+        self.assertEqual(evaluated["objects"]["supportOriginM"], [0, 0, 0])
+
+    def test_scene_relations_persist_and_drive_product_and_prop_poses(self):
+        project = self.bootstrap()["project"]
+        scene = copy.deepcopy(project["scene"])
+        material = {"baseColor": [.4, .4, .4, 1], "roughness": .5, "metallic": 0}
+        scene["environment"]["props"] = [
+            {"id": "support", "name": "Display stone", "shape": "cylinder", "sizeM": [.2, .1, .2],
+             "translationM": [.3, .05, -.2], "rotationXyzw": [0, 0, 0, 1], "material": material},
+            {"id": "companion", "shape": "box", "sizeM": [.03, .03, .03], "translationM": [0, 0, 0],
+             "rotationXyzw": [0, 0, 0, 1], "material": material,
+             "relationship": {"type": "beside", "targetId": "product", "gapM": .02}},
+        ]
+        scene["placement"]["restsOn"] = "support"
+        status, evaluated, _ = self.request("POST", "/api/evaluate", {"scene": scene})
+        self.assertEqual(status, 200)
+        self.assertEqual(evaluated["objects"]["supportOriginM"], [.3, .1, -.2])
+        # The starter campaign's uniform product scale (D127) also scales the assembly offset.
+        body = next(c for c in scene["product"]["components"] if c["id"] == "bottle-body")
+        self.assertAlmostEqual(evaluated["frames"][0]["components"]["bottle-body"]["translationM"][1],
+                               .1 + body["assembly"]["translationM"][1] * scene["placement"].get("scale", 1))
+        product_bounds = evaluated["objects"]["product"]["boundsM"]
+        companion = evaluated["frames"][0]["props"]["companion"]
+        self.assertAlmostEqual(companion["boundsM"][0][0] - product_bounds[1][0], .02)
+        status, saved, _ = self.request("PUT", f"/api/projects/{project['id']}",
+                                        {"scene": scene, "expectedRevisionId": project["revisionId"]})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.request("GET", f"/api/projects/{saved['id']}")[1]["scene"], scene)
+        status, framed, _ = self.request("POST", "/api/scene-objects/frame", {"scene": scene})
+        self.assertEqual(status, 200)
+        self.assertEqual(framed["scene"]["product"], scene["product"])
+        self.assertEqual(framed["scene"]["environment"], scene["environment"])
+        self.assertNotEqual(framed["scene"]["shots"], scene["shots"])
+
+    def test_cyclic_interactions_are_rejected_without_saving(self):
+        project = self.bootstrap()["project"]
+        scene = copy.deepcopy(project["scene"])
+        scene["environment"]["props"] = [{"id": "cycle", "shape": "box", "sizeM": [.1, .1, .1],
+            "translationM": [0, .05, 0], "rotationXyzw": [0, 0, 0, 1],
+            "material": {"baseColor": [.5, .5, .5, 1], "roughness": .5, "metallic": 0},
+            "relationship": {"type": "beside", "targetId": "product"}}]
+        scene["placement"]["restsOn"] = "cycle"
+        status, error, _ = self.request("PUT", f"/api/projects/{project['id']}",
+                                        {"scene": scene, "expectedRevisionId": project["revisionId"]})
+        self.assertEqual(status, 400)
+        self.assertIn("cycle", error["error"])
+        self.assertEqual(self.request("GET", f"/api/projects/{project['id']}")[1]["scene"], project["scene"])
 
     def test_render_requests_pin_source_and_defaults_and_validate_frame(self):
         scene = self.bootstrap()["project"]["scene"]

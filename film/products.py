@@ -2,6 +2,7 @@
 
 GLB input must already use glTF's Y-up metres and be centered at its visible bounds.
 Conversions feed the same handoff; no format infers mechanisms or native CAD constraints.
+Polygon PLY meshes use the bounded normalizer in film.mesh_import.
 """
 from __future__ import annotations
 
@@ -361,7 +362,8 @@ def _write_assets(scene, payload, destination, template_root):
     _immutable_write(safe_asset_path(destination, asset["path"]), payload)
 
 
-PRODUCT_SUFFIXES = (".glb", ".blend", ".step", ".stp", ".iges", ".igs", ".stl", ".obj")
+PRODUCT_SUFFIXES = (".glb", ".blend", ".step", ".stp", ".iges", ".igs", ".stl", ".obj", ".ply")
+PRODUCT_SUFFIX_ERROR = "Choose GLB, Blender, STEP, IGES, STL, OBJ or PLY; export native CAD to STEP first"
 
 
 @contextmanager
@@ -369,7 +371,7 @@ def _converted_product(source_path, *, name, provenance, metadata, blender, sour
     """Normalize once, then let all callers use the same immutable GLB handoff."""
     import tempfile
     suffix = Path(source_path).suffix.lower()
-    _require(suffix in PRODUCT_SUFFIXES, "Choose GLB, Blender, STEP, IGES, STL or OBJ; export native CAD to STEP first")
+    _require(suffix in PRODUCT_SUFFIXES, PRODUCT_SUFFIX_ERROR)
     _require(isinstance(name, str) and 0 < len(name.strip()) <= 120, "Product name must contain 1 to 120 characters")
     validate_provenance(provenance)
     _require(metadata is None or isinstance(metadata, dict), "Product metadata must be an object")
@@ -387,6 +389,15 @@ def _converted_product(source_path, *, name, provenance, metadata, blender, sour
             from .cad_import import convert_cad_product
             report = convert_cad_product(source_path, converted, source_up=source_up)
             key = "cadImport"
+        elif suffix == ".ply":
+            # Polygon PLY goes through main's bounded mesh normalizer with the same
+            # explicit units and up axis that STL/OBJ require.
+            from .mesh_import import UNIT_SCALES, prepare_product_mesh
+            _require(source_units in UNIT_SCALES, "Choose source mesh units: mm, cm, m, in, or ft")
+            _require(source_up in ("y", "z"), "Mesh source up axis must be y or z")
+            report = prepare_product_mesh(source_path, converted, source_up=source_up.upper(), units=source_units,
+                                          blender=blender)
+            key = "meshImport"
         else:
             from .cad_import import convert_mesh_product
             report = convert_mesh_product(source_path, converted, source_units=source_units,

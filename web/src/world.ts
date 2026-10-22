@@ -1,4 +1,5 @@
 import {Color, Euler, Quaternion, SRGBColorSpace, Vector3} from 'three';
+import {productSupportOrigin} from './sceneGraph';
 
 /** An absent type is the original area disk; spot fields exist only on spots. */
 export type StudioLightType = 'area' | 'spot';
@@ -14,11 +15,18 @@ export const isLightTarget = (target: string) => target.startsWith(LIGHT_TARGET_
 export const lightIdFromTarget = (target: string) => target.slice(LIGHT_TARGET_PREFIX.length);
 export const lightType = (light: Pick<StudioLight, 'type'>): StudioLightType => light.type === 'spot' ? 'spot' : 'area';
 
-/** A fixed studio stays on its support while the product's source anchor moves. */
+/** A fixed studio stays on its support while the product's source anchor moves.
+ * Matches the renderers' implicit rig: a product on its plinth keeps D127's rule;
+ * on the floor, a picked surface or a prop it anchors to that support (D160). */
 function rigOrigin(scene: any): number[] {
-  if (scene.environment.studioSizeM === undefined) return scene.placement.translationM;
   const plinth = scene.environment.plinth;
-  return plinth.translationM.map((value: number, axis: number) => value + (axis === 1 ? plinth.sizeM[1] / 2 : 0));
+  const onPlinth = (scene.placement.restsOn ?? plinth.id) === plinth.id;
+  if (onPlinth && scene.environment.studioSizeM === undefined) return scene.placement.translationM;
+  if (onPlinth) return plinth.translationM.map((value: number, axis: number) => value + (axis === 1 ? plinth.sizeM[1] / 2 : 0));
+  const support = productSupportOrigin(scene);
+  if (scene.environment.studioSizeM !== undefined) return support;
+  // Legacy rigs follow the product's resolved root: its support plus placement.
+  return support.map((value, axis) => value + scene.placement.translationM[axis]);
 }
 
 /** The pre-existing Cycles rig, expressed in the canonical scene coordinates. */
@@ -114,10 +122,11 @@ export function addProp(scene: any, shape: 'box' | 'cylinder'): string {
   const id = `prop-${number}`;
   const extent = scene.environment.studioSizeM ?? Math.max(...scene.product.dimensionsM);
   const side = extent * .35;
-  const plinth = scene.environment.plinth;
-  const top = plinth.translationM[1] + plinth.sizeM[1] / 2;
+  // Beside the product at its contact height: the plinth top, floor, picked
+  // world surface or supporting prop (D160).
+  const [x, top, z] = productSupportOrigin(scene);
   (scene.environment.props ??= []).push({id, displayName: `${shape === 'box' ? 'Box' : 'Cylinder'} ${number}`, shape,
-    sizeM: [side, side, side], translationM: [plinth.translationM[0] + extent * .65, top + side / 2, plinth.translationM[2]],
+    sizeM: [side, side, side], translationM: [x + extent * .65, top + side / 2, z],
     rotationXyzw: [0, 0, 0, 1], material: structuredClone(PLINTH_MATERIAL), bevelM: Math.min(.002, side / 4)});
   return id;
 }
@@ -143,10 +152,9 @@ export function addPropFromLibrary(scene: any, entry: any): string {
     asset: { ...structuredClone(entry.asset), sourceDimensionsM: [...(entry.asset.sourceDimensionsM || dimensions)] },
     sizeM: dimensions, bevelM: 0, materialOverride: false,
     source: {provider: 'Poly Haven', assetId: entry.id, url: entry.sourceUrl, license: 'CC0'} });
-  const plinth = scene.environment.plinth;
+  const [x, top, z] = productSupportOrigin(scene);
   const extent = scene.environment.studioSizeM ?? Math.max(...scene.product.dimensionsM);
-  prop.translationM = [plinth.translationM[0] + extent * .65 + dimensions[0] / 2,
-    plinth.translationM[1] + plinth.sizeM[1] / 2 + dimensions[1] / 2, plinth.translationM[2]];
+  prop.translationM = [x + extent * .65 + dimensions[0] / 2, top + dimensions[1] / 2, z];
   return id;
 }
 

@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from film import comparison, jobs, worlds
-from film.scene import evaluate, load_scene, validate_scene
+from film.scene import evaluate, load_scene, sample_scene, validate_scene
 from tests.test_worlds import glb_bytes, glb_document, PROVENANCE
 
 
@@ -17,6 +17,20 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ComparisonTests(unittest.TestCase):
+    def test_floor_contact_without_plinth_is_shared_calibrated_and_reviewed(self):
+        self.scene["environment"]["plinth"]["visible"] = False
+        self.scene["environment"]["floorY"] = .13
+        self.scene["placement"]["restsOn"] = "floor"
+        reviewed = comparison.review_alignment(self.scene)
+        payload = comparison.comparison_payload(reviewed)
+        self.assertEqual(payload["b"]["environment"]["floorY"], .13)
+        self.assertFalse(payload["b"]["environment"]["plinth"]["visible"])
+        self.assertEqual(sample_scene(payload["a"])["frames"], sample_scene(payload["b"])["frames"])
+        calibrated = comparison.calibrate_scene(reviewed, "a", {"sourceFloorPoint": [0, 0, 0]})
+        self.assertAlmostEqual(calibrated["environment"]["asset"]["translationM"][1], .13)
+        calibrated["environment"]["floorY"] = .14
+        self.assertEqual(comparison.comparison_payload(calibrated)["alignmentStatus"], "draft")
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

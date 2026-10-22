@@ -688,7 +688,107 @@ def hdri_lighting(source, samples_root):
     world["hdri_policy"] = "Lighting and reflections only; authored camera background preserved"
 
 
-def environment(source, samples_root=None):
+def vertical_half_extent(size, rotation_xyzw=(0, 0, 0, 1)):
+    """World-space half height of a rotated box (canonical Y-up), without mathutils.
+
+    Kept pure so tests can execute it outside Blender; matches the editor's
+    sceneFloorY and film.scene_objects bounds.
+    """
+    x, y, z, w = rotation_xyzw
+    norm = math.sqrt(x * x + y * y + z * z + w * w) or 1
+    x, y, z, w = x / norm, y / norm, z / norm, w / norm
+    row = (2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w))
+    return sum(abs(coefficient) * value / 2 for coefficient, value in zip(row, size))
+
+
+def authored_floor_height(source):
+    """The declared floor, a visible plinth's bottom, or a hidden plinth's top.
+
+    A hidden plinth is where the product makes contact (D93), so the sweep and
+    shadow sit at the product's contact height instead of a plinth below it.
+    """
+    specification = source["environment"]
+    height = specification.get("floorY")
+    if type(height) in (int, float) and math.isfinite(height):
+        return height
+    plinth = specification["plinth"]
+    extent = vertical_half_extent(plinth["sizeM"], plinth.get("rotationXyzw", (0, 0, 0, 1)))
+    return plinth["translationM"][1] + (extent if plinth.get("visible", True) is False else -extent)
+
+
+def product_support_origin(source, first_sample=None):
+    """Top centre of the product's contact surface: plinth top (shown or hidden), floor, picked contact or prop top."""
+    environment = source["environment"]
+    placement = source["placement"]
+    support = placement.get("restsOn", environment["plinth"]["id"])
+    if support == "floor":
+        return [0, authored_floor_height(source), 0]
+    if support == "world-surface":
+        return list(placement["contactPointM"])
+    if support == environment["plinth"]["id"]:
+        box = pose = environment["plinth"]
+    else:
+        box = next(prop for prop in environment.get("props", []) if prop["id"] == support)
+        pose = (first_sample or {}).get("props", {}).get(support, box)
+    x, y, z = pose["translationM"]
+    return [x, y + vertical_half_extent(box["sizeM"], pose.get("rotationXyzw", (0, 0, 0, 1))), z]
+
+
+def product_support_height(source, first_sample=None):
+    """Height of the product's contact surface: plinth top (shown or hidden), floor, picked contact or prop top."""
+    return product_support_origin(source, first_sample)[1]
+
+
+def sampled_product_origin(source, first_sample=None):
+    """Recover the resolved rigid root from an assembled component sample.
+
+    The standalone renderer consumes exported samples without importing the
+    evaluator. Removing the component's authored assembly transform recovers
+    the support/placement origin, including product yaw and off-center CAD.
+    """
+    if first_sample:
+        # A project may reopen on a frame where its first-listed cap is already
+        # lifted. A rigid component still carries the unchanged assembly root.
+        moving = {action["componentId"] for action in source.get("actions", [])}
+        components = sorted(source["product"]["components"], key=lambda component: component["id"] in moving)
+        for component in components:
+            pose = first_sample.get("components", {}).get(component["id"])
+            if pose is None:
+                continue
+            x, y, z, w = pose["rotationXyzw"]
+            world_rotation = Quaternion((w, x, y, z))
+            x, y, z, w = component["assembly"]["rotationXyzw"]
+            assembly_rotation = Quaternion((w, x, y, z))
+            root_rotation = world_rotation @ assembly_rotation.inverted()
+            root_rotation.normalize()
+            # Uniform product scale multiplies the assembly offset as well.
+            scale = pose.get("scale", 1) / component["assembly"].get("scale", 1)
+            return list(Vector(pose["translationM"]) - root_rotation @ (Vector(component["assembly"]["translationM"]) * scale))
+    return list(source["placement"]["translationM"])
+
+
+def studio_rig_origin(source, first_sample=None):
+    """Origin of the implicit studio rig.
+
+    A product on its plinth keeps D127's rule: with a fixed studio reference the
+    rig anchors to the plinth top, so moving the product never moves the lights;
+    legacy scenes keep the authored placement. A product resting on the floor, a
+    picked world surface or a prop anchors to that support with a fixed studio,
+    and otherwise follows the resolved product root as on main.
+    """
+    environment = source["environment"]
+    plinth = environment["plinth"]
+    if source["placement"].get("restsOn", plinth["id"]) == plinth["id"]:
+        if "studioSizeM" not in environment:
+            return source["placement"]["translationM"]
+        return [value + (plinth["sizeM"][1] / 2 if axis == 1 else 0)
+                for axis, value in enumerate(plinth["translationM"])]
+    if "studioSizeM" in environment:
+        return product_support_origin(source, first_sample)
+    return sampled_product_origin(source, first_sample)
+
+
+def environment(source, samples_root=None, first_sample=None):
     """Build only explicit near-field geometry plus the common studio lights."""
     if source.get("lighting", {}).get("hdri"):
         if samples_root is None:
@@ -700,6 +800,8 @@ def environment(source, samples_root=None):
         porcelain = specified_material("Set / plinth surface", plinth["material"], samples_root) if "material" in plinth else material("Set / warm matte porcelain", (0.56, 0.54, 0.49, 1), 0.58)
         obj = primitive(plinth["id"], "box", plinth["sizeM"], porcelain, min(0.004, min(plinth["sizeM"]) / 2))
         obj.location = blender_position(plinth["translationM"])
+        obj.rotation_mode = "QUATERNION"
+        obj.rotation_quaternion = blender_rotation(plinth.get("rotationXyzw", [0, 0, 0, 1]))
     if source["environment"]["kind"] == "splat" and source["environment"].get("collider") and samples_root is not None:
         # The provider's collider mesh stands in for the world's geometry: it catches
         # the product's shadow, and world geometry in front of the product cuts it out
@@ -721,8 +823,8 @@ def environment(source, samples_root=None):
     elif source["environment"]["kind"] == "splat":
         # The Gaussian world is a colour plate with no geometry, so the product's
         # contact shadow would otherwise vanish. An invisible Cycles shadow catcher
-        # at the support height receives the product shadow for the compositor.
-        floor_height = plinth["translationM"][1] + plinth["sizeM"][1] / 2
+        # at the product's contact height receives the product shadow for the compositor.
+        floor_height = product_support_height(source, first_sample)
         extent = studio_size * 40
         mesh = bpy.data.meshes.new("World / shadow catcher mesh")
         mesh.from_pydata([(-extent, -extent, 0), (extent, -extent, 0), (extent, extent, 0), (-extent, extent, 0)], [], [(0, 1, 2, 3)])
@@ -735,7 +837,10 @@ def environment(source, samples_root=None):
         catcher.visible_glossy = False
         catcher.visible_transmission = False
         catcher["role"] = "Invisible shadow catcher at the support height for Gaussian plate worlds"
+    props = {}
     for prop in source["environment"].get("props", []):
+        if not prop.get("visible", True):
+            continue
         if bpy.data.objects.get(prop["id"]):
             raise ValueError(f"Near-field prop ID collides with an existing object: {prop['id']}")
         if prop["shape"] == "mesh":
@@ -748,15 +853,18 @@ def environment(source, samples_root=None):
             obj.scale = (sx, sz, sy)
         else:
             obj = primitive(prop["id"], prop["shape"], prop["sizeM"], specified_material(prop["id"] + " / surface", prop["material"], samples_root), prop.get("bevelM", 0))
-        obj.location = blender_position(prop["translationM"])
+        # Related props take their resolved pose from the Python sample.
+        pose = (first_sample or {}).get("props", {}).get(prop["id"], prop)
+        obj.location = blender_position(pose["translationM"])
         obj.rotation_mode = "QUATERNION"
-        obj.rotation_quaternion = blender_rotation(prop["rotationXyzw"])
+        obj.rotation_quaternion = blender_rotation(pose["rotationXyzw"])
         obj["role"] = "Explicit near-field prop; independent of imported world alignment"
+        props[prop["id"]] = obj
     if source["environment"]["kind"] == "authored":
         # The authored fallback sweep must never cover a mesh or splat plate.
-        # Product placement stays at the support top even when the plinth is hidden.
-        support_side = -1 if plinth.get("visible", True) else 1
-        floor_height = plinth["translationM"][1] + support_side * plinth["sizeM"][1] / 2
+        # Product placement stays at the support top even when the plinth is hidden:
+        # the floor is environment.floorY, a visible plinth's bottom or a hidden one's top.
+        floor_height = authored_floor_height(source)
         radius = studio_size * 3
         sweep = [(-radius * 15, floor_height - 0.0001), (radius, floor_height - 0.0001)]
         sweep.extend((radius + radius * math.sin(index * math.pi / 64), floor_height + radius * (1 - math.cos(index * math.pi / 64))) for index in range(1, 33))
@@ -782,14 +890,11 @@ def environment(source, samples_root=None):
                     obj = area_light("Studio / " + light["name"], position, target, light["powerW"], light["diameterM"], light["color"])
                 # The sampled light poses are matched back by scene ID, never by name.
                 obj["gesso_light_id"] = light["id"]
-        return
+        return props
     # Use the fixed stage reference when supplied; legacy scenes follow product size.
     size = studio_size
     scale = size / 0.12
-    rig_origin = (source["placement"]["translationM"] if "studioSizeM" not in source["environment"] else
-                  [value + (plinth["sizeM"][1] / 2 if axis == 1 else 0)
-                   for axis, value in enumerate(plinth["translationM"])])
-    position = blender_position(rig_origin)
+    position = blender_position(studio_rig_origin(source, first_sample))
     target = Vector(position) + Vector((0, 0, size * 0.52))
     for name, offset, power, diameter, color in (
         ("Studio / large soft key", (-0.19, -0.24, 0.32), 2.6, 0.23, (1.0, 0.93, 0.82)),
@@ -797,6 +902,7 @@ def environment(source, samples_root=None):
         ("Studio / edge strip", (0.06, 0.19, 0.30), 3.4, 0.16, (1.0, 0.98, 0.90)),
     ):
         area_light(name, Vector(position) + Vector(offset) * scale, target, power * scale * scale, diameter * scale, color)
+    return props
 
 
 def verified_asset_record(asset, samples_root, role="World"):
@@ -1163,6 +1269,280 @@ def product_mesh(component, samples_root, material_presets=()):
                     "excludedEmbeddedCamerasAndLights": excluded, "geometryPolicy": "Centered local metres; no rescaling or recentering"}
 
 
+def verified_label_image(asset, samples_root):
+    """Decode only the hash-pinned PNG/JPEG bundled with the sampled scene.
+
+    Render jobs copy this script without the film package, so keep the image
+    boundary self-contained and verify headers before asking Blender to decode.
+    """
+    kind, digest = asset.get("format"), asset.get("sha256")
+    if kind not in {"png", "jpg"} or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("Label texture requires a PNG or JPEG with a lowercase SHA256")
+    if asset.get("path") != f"assets/{digest}.{kind}":
+        raise ValueError("Label texture path must be assets/<sha256>.png or .jpg")
+    path = verified_asset_record(asset, samples_root, "Label texture")
+    if path.stat().st_size > 8 * 1024 * 1024:
+        raise ValueError("Label texture exceeds the 8 MiB limit")
+    raw = path.read_bytes()
+    dimensions = None
+    if kind == "png":
+        if len(raw) >= 33 and raw[:8] == b"\x89PNG\r\n\x1a\n" and raw[12:16] == b"IHDR" and struct.unpack_from(">I", raw, 8)[0] == 13:
+            dimensions = struct.unpack_from(">II", raw, 16)
+    elif raw.startswith(b"\xff\xd8"):
+        position = 2
+        while position < len(raw):
+            if raw[position] != 0xff:
+                break
+            while position < len(raw) and raw[position] == 0xff:
+                position += 1
+            if position >= len(raw):
+                break
+            marker = raw[position]
+            position += 1
+            if marker in {0xd9, 0xda}:
+                break
+            if marker == 0x01 or 0xd0 <= marker <= 0xd7:
+                continue
+            if position + 2 > len(raw):
+                break
+            length = struct.unpack_from(">H", raw, position)[0]
+            if length < 2 or position + length > len(raw):
+                break
+            if marker in {0xc0, 0xc1, 0xc2} and length >= 8:
+                height, width = struct.unpack_from(">HH", raw, position + 3)
+                dimensions = (width, height)
+                break
+            position += length
+    if dimensions is None:
+        raise ValueError("Label texture must have a valid PNG or supported JPEG image header")
+    width, height = dimensions
+    if not 1 <= width <= 8192 or not 1 <= height <= 8192 or width * height > 32_000_000:
+        raise ValueError("Label texture dimensions exceed 8192 per side or 32 million pixels")
+    if type(asset.get("widthPx")) is not int or type(asset.get("heightPx")) is not int or dimensions != (asset["widthPx"], asset["heightPx"]):
+        raise ValueError("Label texture dimensions do not match the image header")
+    image = bpy.data.images.load(str(path), check_existing=False)
+    if tuple(image.size) != dimensions or not image.has_data:
+        raise ValueError("Label texture could not be decoded at the declared dimensions")
+    image.name = f"Label artwork / {digest[:12]}"
+    image.colorspace_settings.name = "sRGB"
+    image.alpha_mode = "STRAIGHT"
+    image.pack()
+    return image
+
+
+def label_coordinates(point, normal, size, mapping, source_uv=None):
+    """Canonical component-local Y-up projection, shared with the editor."""
+    x, y, z = point
+    sx, sy, sz = size
+    mode = mapping["mode"]
+    if mode == "uv":
+        if source_uv is None:
+            raise ValueError("This component has no source UV map; choose Front or Wrap instead")
+        return tuple(source_uv), 1.0
+    if mode == "cylindrical":
+        return (math.atan2(x, z) / (2 * math.pi) + 0.5, y / sy + 0.5), float(abs(normal.y) < 0.95)
+    face = mapping.get("face", "front")
+    if face == "front":
+        return (x / sx + 0.5, y / sy + 0.5), float(normal.z > 0)
+    if face == "back":
+        return (-x / sx + 0.5, y / sy + 0.5), float(normal.z < 0)
+    if face == "right":
+        return (-z / sz + 0.5, y / sy + 0.5), float(normal.x > 0)
+    if face == "left":
+        return (z / sz + 0.5, y / sy + 0.5), float(normal.x < 0)
+    if face == "top":
+        return (x / sx + 0.5, -z / sz + 0.5), float(normal.y > 0)
+    if face == "bottom":
+        return (x / sx + 0.5, z / sz + 0.5), float(normal.y < 0)
+    raise ValueError(f"Unsupported label face: {face}")
+
+
+def placed_label_uv(uv, mapping):
+    scale = mapping.get("scale", [1, 1])
+    offset = mapping.get("offset", [0, 0])
+    u, v = (uv[index] - 0.5 - offset[index] for index in (0, 1))
+    if mapping["mode"] == "cylindrical":
+        u = (u + 0.5) % 1 - 0.5
+    u, v = u / scale[0], v / scale[1]
+    angle = math.radians(-mapping.get("rotationDegrees", 0))
+    cosine, sine = math.cos(angle), math.sin(angle)
+    return (cosine * u - sine * v + 0.5, sine * u + cosine * v + 0.5)
+
+
+def label_uvs(obj, anchor, component):
+    """Add corner data only; keep imported geometry, hierarchy and UVs intact."""
+    mapping = component["labelTexture"]["mapping"]
+    if mapping["mode"] == "uv" and component["shape"] != "mesh":
+        raise ValueError("Source UV mapping requires an imported mesh; choose Front or Wrap instead")
+    mesh = obj.data
+    original_uv = mesh.uv_layers[0] if mesh.uv_layers else None
+    if mapping["mode"] == "uv" and original_uv is None:
+        raise ValueError("This component has no source UV map; choose Front or Wrap instead")
+    # Blender's glTF importer already flips raw glTF V to V-up artwork, matching
+    # the editor's raw (u, 1-v) source-UV mapping and downloadable guide.
+    source_uvs = [tuple(loop.uv) for loop in original_uv.data] if original_uv else None
+    uv_name = mesh.uv_layers.new(name="Gesso Label UV").name
+    coverage_name = mesh.attributes.new("Gesso Label Coverage", "FLOAT", "CORNER").name
+    # Allocating another corner attribute can relocate Blender's custom-data
+    # storage; reacquire both RNA handles after all layers exist.
+    layer = mesh.uv_layers[uv_name]
+    coverage = mesh.attributes[coverage_name]
+    transform = anchor.matrix_world.inverted() @ obj.matrix_world
+    normal_transform = transform.to_3x3().inverted().transposed()
+    for polygon in mesh.polygons:
+        normal = normal_transform @ polygon.normal
+        normal.normalize()
+        canonical_normal = Vector((normal.x, normal.z, -normal.y))
+        values, coverages = [], []
+        for loop_index in polygon.loop_indices:
+            position = transform @ mesh.vertices[mesh.loops[loop_index].vertex_index].co
+            point = (position.x, position.z, -position.y)
+            uv, mask = label_coordinates(point, canonical_normal, component["sizeM"], mapping,
+                                         source_uvs[loop_index] if source_uvs else None)
+            values.append(uv)
+            coverages.append(mask)
+        if mapping["mode"] == "cylindrical" and max(value[0] for value in values) - min(value[0] for value in values) > 0.5:
+            values = [(u + 1 if u < 0.5 else u, v) for u, v in values]
+        for loop_index, uv, mask in zip(polygon.loop_indices, values, coverages):
+            # Cylindrical placement wraps per fragment in the material. Baking
+            # the discontinuity here would interpolate artwork across the seam.
+            layer.data[loop_index].uv = uv if mapping["mode"] == "cylindrical" else placed_label_uv(uv, mapping)
+            coverage.data[loop_index].value = mask
+    return layer.name, coverage.name
+
+
+def label_material(original, image, specification, uv_name, coverage_name, mapping):
+    """Mix a physical opaque print over the untouched original surface shader."""
+    surface = original.copy() if original else material("Unassigned product surface", (0.8, 0.8, 0.8, 1))
+    surface.name += " / label print"
+    surface.use_nodes = True
+    tree = surface.node_tree
+    output = next((node for node in tree.nodes if node.type == "OUTPUT_MATERIAL" and node.is_active_output), None)
+    if output is None:
+        output = tree.nodes.new("ShaderNodeOutputMaterial")
+    original_shader = output.inputs["Surface"].links[0].from_socket if output.inputs["Surface"].is_linked else None
+    uv = tree.nodes.new("ShaderNodeUVMap")
+    uv.name = "Gesso Label UV"
+    uv.uv_map = uv_name
+    coordinates = uv.outputs["UV"]
+    if mapping["mode"] == "cylindrical":
+        separate = tree.nodes.new("ShaderNodeSeparateXYZ")
+        tree.links.new(coordinates, separate.inputs[0])
+        offset = mapping.get("offset", [0, 0])
+        scale = mapping.get("scale", [1, 1])
+
+        def math_node(operation, source, value):
+            node = tree.nodes.new("ShaderNodeMath")
+            node.operation = operation
+            tree.links.new(source, node.inputs[0])
+            node.inputs[1].default_value = value
+            return node
+
+        centered_u = math_node("SUBTRACT", separate.outputs["X"], offset[0])
+        wrap = math_node("WRAP", centered_u.outputs[0], 1)
+        wrap.name = "Gesso Label Periodic Cylinder Placement"
+        wrap.inputs[2].default_value = 0
+        centered_u = math_node("SUBTRACT", wrap.outputs[0], 0.5)
+        scaled_u = math_node("DIVIDE", centered_u.outputs[0], scale[0])
+        centered_v = math_node("SUBTRACT", separate.outputs["Y"], 0.5 + offset[1])
+        scaled_v = math_node("DIVIDE", centered_v.outputs[0], scale[1])
+        combined = tree.nodes.new("ShaderNodeCombineXYZ")
+        tree.links.new(scaled_u.outputs[0], combined.inputs["X"])
+        tree.links.new(scaled_v.outputs[0], combined.inputs["Y"])
+        rotate = tree.nodes.new("ShaderNodeVectorRotate")
+        rotate.rotation_type = "AXIS_ANGLE"
+        rotate.inputs["Axis"].default_value = (0, 0, 1)
+        rotate.inputs["Angle"].default_value = math.radians(-mapping.get("rotationDegrees", 0))
+        tree.links.new(combined.outputs[0], rotate.inputs["Vector"])
+        translate = tree.nodes.new("ShaderNodeVectorMath")
+        translate.operation = "ADD"
+        translate.inputs[1].default_value = (0.5, 0.5, 0)
+        tree.links.new(rotate.outputs[0], translate.inputs[0])
+        coordinates = translate.outputs[0]
+    texture = tree.nodes.new("ShaderNodeTexImage")
+    texture.name = "Gesso Label Artwork"
+    texture.image = image
+    texture.interpolation = "Linear"
+    # Match the editor's clamped edge filtering. Explicit bounds below provide
+    # clipping without making the last opaque texel fade into transparent black.
+    texture.extension = "EXTEND"
+    tree.links.new(coordinates, texture.inputs["Vector"])
+    color = tree.nodes.new("ShaderNodeMixRGB")
+    color.name = "Gesso Label Ink Tint"
+    color.blend_type = "MULTIPLY"
+    color.inputs[0].default_value = 1
+    color.inputs[2].default_value = tuple(specification["baseColor"])
+    tree.links.new(texture.outputs["Color"], color.inputs[1])
+    printed = tree.nodes.new("ShaderNodeBsdfPrincipled")
+    printed.name = "Gesso Label Surface"
+    printed.inputs["Roughness"].default_value = specification["roughness"]
+    printed.inputs["Metallic"].default_value = specification["metallic"]
+    printed.inputs["IOR"].default_value = specification.get("ior", 1.5)
+    printed.inputs["Transmission Weight"].default_value = 0
+    tree.links.new(color.outputs["Color"], printed.inputs["Base Color"])
+    attribute = tree.nodes.new("ShaderNodeAttribute")
+    attribute.name = "Gesso Label Face Coverage"
+    attribute.attribute_name = coverage_name
+    separate = tree.nodes.new("ShaderNodeSeparateXYZ")
+    tree.links.new(coordinates, separate.inputs[0])
+
+    def multiply(first, second, name):
+        node = tree.nodes.new("ShaderNodeMath")
+        node.name = name
+        node.operation = "MULTIPLY"
+        tree.links.new(first, node.inputs[0])
+        tree.links.new(second, node.inputs[1])
+        return node.outputs[0]
+
+    mask = multiply(texture.outputs["Alpha"], attribute.outputs["Fac"], "Gesso Label Alpha")
+    opacity = tree.nodes.new("ShaderNodeMath")
+    opacity.name = "Gesso Label Opacity"
+    opacity.operation = "MULTIPLY"
+    tree.links.new(mask, opacity.inputs[0])
+    opacity.inputs[1].default_value = specification["baseColor"][3]
+    mask = opacity.outputs[0]
+    # JPEG decoders expose alpha=1 even outside the artwork. Explicit UV bounds
+    # also guarantee placement never paints the remaining product black.
+    for axis in ("X", "Y"):
+        for operation, bound in (("GREATER_THAN", 0), ("LESS_THAN", 1)):
+            compare = tree.nodes.new("ShaderNodeMath")
+            compare.operation = operation
+            compare.inputs[1].default_value = bound
+            tree.links.new(separate.outputs[axis], compare.inputs[0])
+            mask = multiply(mask, compare.outputs[0], "Gesso Label Artwork Bounds")
+    mix = tree.nodes.new("ShaderNodeMixShader")
+    mix.name = "Gesso Label Over Original Surface"
+    tree.links.new(mask, mix.inputs[0])
+    if original_shader is not None:
+        tree.links.new(original_shader, mix.inputs[1])
+    tree.links.new(printed.outputs["BSDF"], mix.inputs[2])
+    tree.links.new(mix.outputs[0], output.inputs["Surface"])
+    return surface
+
+
+def apply_label_texture(anchor, component, samples_root):
+    specification = component["labelTexture"]
+    image = verified_label_image(specification["asset"], samples_root)
+    bpy.context.view_layer.update()
+    meshes = [anchor] if anchor.type == "MESH" else [obj for obj in anchor.children_recursive if obj.type == "MESH"]
+    surfaces = {}
+    for obj in meshes:
+        # Sharing a glTF mesh/material with another component must not attach its
+        # artwork there. A local data copy preserves the source topology/UVs.
+        obj.data = obj.data.copy()
+        uv_name, coverage_name = label_uvs(obj, anchor, component)
+        if not obj.data.materials:
+            obj.data.materials.append(None)
+        for index, original in enumerate(obj.data.materials):
+            key = (original.as_pointer() if original else None, uv_name, coverage_name)
+            if key not in surfaces:
+                surfaces[key] = label_material(original, image, specification["material"], uv_name, coverage_name, specification["mapping"])
+            obj.data.materials[index] = surfaces[key]
+    return {"asset": specification["asset"], "mapping": specification["mapping"],
+            "material": specification["material"], "packedInBlend": True,
+            "surfacePolicy": "Image alpha blends opaque label ink over the original surface"}
+
+
 def plate_compositor(source, frames, requested, samples_root, output_root, scene):
     """Composite the captured Gaussian world behind transparent Cycles geometry."""
     visible_frames = [sample for sample in frames if sample.get("clip", {}).get("kind", "scene") == "scene"]
@@ -1240,7 +1620,11 @@ def keyframe_camera_optics(camera_data, values, frame):
         camera_data.keyframe_insert(data_path=f"dof.{property_name}", frame=frame, group="Sampled optical focus")
 
 
-def animate(source, frames, objects, part_carriers=None):
+def animate(source, frames, objects, part_carriers=None, props=None):
+    props = props or {}
+    source_props = {prop["id"]: prop for prop in source["environment"].get("props", [])}
+    sampled_objects = [("product", identity, obj) for identity, obj in objects.items()]
+    sampled_objects.extend(("prop", identity, obj) for identity, obj in props.items())
     scene = bpy.context.scene
     camera_data = bpy.data.cameras.new("Camera / sampled 36mm vertical gate")
     camera_data.type = "PERSP"
@@ -1280,22 +1664,27 @@ def animate(source, frames, objects, part_carriers=None):
             light.rotation_quaternion = rotation
             light.keyframe_insert(data_path="location", frame=frame, group="Sampled light")
             light.keyframe_insert(data_path="rotation_quaternion", frame=frame, group="Sampled light")
-        for component_id, obj in objects.items():
-            transform = sample["components"][component_id]
+        for role, identity, obj in sampled_objects:
+            transform = (sample["components"][identity] if role == "product"
+                         else sample.get("props", {}).get(identity, source_props[identity]))
             obj.location = blender_position(transform["translationM"])
-            # Pose the rigid component root; GLB hierarchy, label typography and
-            # decals inherit scale without changing their source local geometry.
-            obj.scale = (transform.get("scale", 1),) * 3
+            if role == "product":
+                # Pose the rigid component root; GLB hierarchy, label typography and
+                # decals inherit scale without changing their source local geometry.
+                # Props keep the (possibly non-uniform) size scale set at creation.
+                obj.scale = (transform.get("scale", 1),) * 3
             rotation = blender_rotation(transform["rotationXyzw"])
             # Quaternion sign is arbitrary; keep neighbouring samples continuous.
-            if component_id in previous_rotations and rotation.dot(previous_rotations[component_id]) < 0:
+            key = (role, identity)
+            if key in previous_rotations and rotation.dot(previous_rotations[key]) < 0:
                 rotation.negate()
-            previous_rotations[component_id] = rotation.copy()
+            previous_rotations[key] = rotation.copy()
             obj.rotation_mode = "QUATERNION"
             obj.rotation_quaternion = rotation
             obj.keyframe_insert(data_path="location", frame=frame, group="Sampled world transform")
             obj.keyframe_insert(data_path="rotation_quaternion", frame=frame, group="Sampled world transform")
-            obj.keyframe_insert(data_path="scale", frame=frame, group="Sampled world transform")
+            if role == "product":
+                obj.keyframe_insert(data_path="scale", frame=frame, group="Sampled world transform")
         for part_id, carrier in part_carriers.items():
             pose = sample.get("parts", {}).get(part_id)
             carrier.rotation_mode = "QUATERNION"
@@ -1322,7 +1711,7 @@ def animate(source, frames, objects, part_carriers=None):
         camera.keyframe_insert(data_path="location", frame=frame, group="Sampled camera")
         camera.keyframe_insert(data_path="rotation_quaternion", frame=frame, group="Sampled camera")
         camera_data.keyframe_insert(data_path="lens", frame=frame)
-    for item in [*objects.values(), *part_carriers.values(), *lights.values(), camera, camera_data]:
+    for item in [*objects.values(), *part_carriers.values(), *props.values(), *lights.values(), camera, camera_data]:
         if item.animation_data and item.animation_data.action:
             for curve in item.animation_data.action.fcurves:
                 for keyframe in curve.keyframe_points:
@@ -1390,13 +1779,16 @@ def main():
                 for item in source["product"].get("artwork", [])) else primitive
             obj = build_primitive(component["id"], component["shape"], component["sizeM"], surface, component.get("bevelM", 0))
             details = {"id": component["id"], "shape": component["shape"], "materialSource": "declared"}
+        if component.get("labelTexture"):
+            details["labelTexture"] = apply_label_texture(obj, component, args.samples.parent)
         objects[component["id"]] = obj
         product_components.append(details)
     label = source["product"].get("label")
     if (label and not any(item["partId"] == label["componentId"] for item in source["product"].get("artwork", []))
             and not any(decal["componentId"] == label["componentId"] for decal in source["product"].get("decals", []))):
         component = next(item for item in source["product"]["components"] if item["id"] == label["componentId"])
-        text_on_label(objects[label["componentId"]], label, component["sizeM"])
+        if not component.get("labelTexture"):
+            text_on_label(objects[label["componentId"]], label, component["sizeM"])
     replace_product_artwork(source, objects, args.samples.parent)
     part_carriers = part_motion_carriers(objects) if any(sample.get("parts") for sample in frames) else {}
     decal_details = product_decals(source, objects, args.samples.parent, args.output)
@@ -1404,8 +1796,8 @@ def main():
     if any(sample.get("removedPartIds", []) != removed for sample in frames):
         raise ValueError("Product part removal is scene-wide and must match in every sampled frame")
     apply_product_removal(objects, removed)
-    environment(source, args.samples.parent)
-    animate(source, frames, objects, part_carriers)
+    props = environment(source, args.samples.parent, frames[0])
+    animate(source, frames, objects, part_carriers, props)
     kind = source["environment"]["kind"]
     world_details = {}
     limitations = []
@@ -1471,7 +1863,13 @@ def main():
         "renderingPath": {"authored": "authored-cycles", "mesh": "visual-glb-cycles", "splat": "gaussian-plate-cycles-foreground"}[kind],
         "limitations": limitations,
         "environment": {"kind": kind, "revisionId": source["environment"]["revisionId"], "asset": source["environment"].get("asset"), "provenance": source["environment"]["provenance"], "fixture": source["environment"].get("fixture", False), "reviewStatus": source["environment"].get("reviewStatus"), "details": world_details},
-        "nearField": {"plinth": source["environment"]["plinth"], "props": source["environment"].get("props", [])},
+        "nearField": {"plinth": source["environment"]["plinth"], "props": source["environment"].get("props", []),
+                      "resolvedFirstFrame": {"productOriginM": sampled_product_origin(source, frames[0]),
+                                             "floorY": authored_floor_height(source),
+                                             "supportHeightM": product_support_height(source, frames[0]),
+                                             "visiblePlinth": source["environment"]["plinth"].get("visible", True),
+                                             "props": {prop["id"]: frames[0].get("props", {}).get(prop["id"], prop)
+                                                       for prop in source["environment"].get("props", []) if prop["id"] in props}}},
         "coordinateConversion": {"from": "right-handed Y-up metres", "to": "right-handed Z-up metres", "position": "(x,-z,y)"},
         "lightingSource": source.get("lighting", {"preset": "legacy studio", "ambientStrength": 0.45}),
         "lighting": [

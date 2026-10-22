@@ -3,6 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import io
+import hashlib
 import json
 from pathlib import Path
 import stat
@@ -14,6 +15,7 @@ from unittest.mock import patch
 import zipfile
 
 from film import github_worlds, worlds
+from film.world_requests import DEFAULT_ENVIRONMENTS, generation_identity
 from tests.test_worlds import glb_bytes, ply_bytes
 
 
@@ -32,6 +34,7 @@ class GitHubWorldTests(unittest.TestCase):
         invalid = [
             {"budgetCredits": budget} for budget in (0, 5079, 6001, True, 5080.0, "6000")
         ] + [{"preset": "unknown"}, {"prompt": "x" * 4001}, {"prompt": None}, {"imageUrl": None}, {"imageUrl": []}]
+        invalid += [{"forceNew": value} for value in (None, 0, 1, "false", "true", [], {})]
         invalid += [{"imageUrl": url} for url in ("http://example.com/image.jpg", "https://localhost/image.jpg",
                     "https://127.0.0.1/image.jpg", "https://169.254.169.254/image.jpg", "https://user:password@example.com/image.jpg",
                     "https://example.com:444/image.jpg", "https://example.com/image.jpg#fragment")]
@@ -52,12 +55,14 @@ class GitHubWorldTests(unittest.TestCase):
         self.assertTrue(result["imageProvided"])
         api.assert_called_once_with("actions/workflows/worldlabs-pair.yml/dispatches", method="POST", body={"ref": "main", "inputs": {
             "experiment_id": result["id"], "prompt": "Empty stone studio", "default_environment": "warm-gallery",
-            "reference_image_url": reference, "model": "marble-1.1", "budget_credits": "5080"}})
-        self.assertEqual(self.records(), [result])
+            "reference_image_url": reference, "model": "marble-1.1", "budget_credits": "5080",
+            "cache_key": result["cacheKey"], "force_new": "false"}})
+        self.assertEqual(self.records()[0]["id"], result["id"])
         persisted = json.dumps(result)
         self.assertNotIn(secret, persisted)
         self.assertNotIn(reference, persisted)
         self.assertNotIn("private-reference-token", persisted)
+        self.assertNotIn("Empty stone studio", persisted)
 
     def test_uncertain_post_is_durable_and_never_automatically_resubmitted(self):
         with patch.object(self.client, "api", side_effect=subprocess.TimeoutExpired("gh", 40)) as api:
@@ -78,7 +83,9 @@ class GitHubWorldTests(unittest.TestCase):
             return {}
         with patch.object(self.client, "api", side_effect=post) as api:
             first = self.client.dispatch({})
-            self.assertEqual(self.client.dispatch({}), first)
+            reused = self.client.dispatch({})
+            self.assertEqual(reused["id"], first["id"])
+            self.assertEqual(reused["cacheStatus"], "reused-request")
         self.assertEqual(api.call_count, 1)
         self.assertEqual(len(self.records()), 1)
 
@@ -94,19 +101,92 @@ class GitHubWorldTests(unittest.TestCase):
             self.assertTrue(entered.wait(timeout=3))
             second = executor.submit(self.client.dispatch, {})
             release.set()
-            self.assertEqual(first.result(timeout=3), second.result(timeout=3))
+            self.assertEqual(first.result(timeout=3)["id"], second.result(timeout=3)["id"])
         self.assertEqual(api.call_count, 1)
         self.assertEqual(len(self.records()), 1)
 
     def test_explicit_new_request_after_dedup_window_can_submit(self):
         with patch.object(self.client, "api", return_value={}) as api:
-            first = self.client.dispatch({})
+            first = self.client.dispatch({"forceNew": True})
+            self.assertEqual(self.client.dispatch({"forceNew": True})["id"], first["id"])
             path = self.client.requests / f"{first['id']}.json"
             first["createdAt"] = (datetime.now(timezone.utc) - timedelta(seconds=61)).isoformat()
             path.write_text(json.dumps(first))
-            second = self.client.dispatch({})
+            second = self.client.dispatch({"forceNew": True})
         self.assertNotEqual(second["id"], first["id"])
         self.assertEqual(api.call_count, 2)
+        self.assertEqual(api.call_args.kwargs["body"]["inputs"]["force_new"], "true")
+
+    def test_request_reuse_survives_restart_and_ignores_elapsed_time_and_spending_cap(self):
+        with patch.object(self.client, "api", return_value={}):
+            first = self.client.dispatch({"budgetCredits": 5080})
+        path = self.client.requests / f"{first['id']}.json"
+        record = json.loads(path.read_text())
+        record["createdAt"] = (datetime.now(timezone.utc) - timedelta(days=400)).isoformat()
+        path.write_text(json.dumps(record))
+        restarted = github_worlds.GitHubWorlds(self.data, repository=self.client.repository)
+        with patch.object(restarted, "api") as api:
+            reused = restarted.dispatch({"budgetCredits": 6000})
+        api.assert_not_called()
+        self.assertEqual(reused["id"], first["id"])
+        self.assertEqual(reused["cacheStatus"], "reused-request")
+        self.assertTrue(reused["needsImport"])
+        self.assertEqual(len(self.records()), 1)
+
+    def test_effective_prompt_matches_regardless_of_preset_or_whitespace(self):
+        with patch.object(self.client, "api", return_value={}) as api:
+            first = self.client.dispatch({})
+            reused = self.client.dispatch({"preset": "modern-loft",
+                "prompt": "  " + DEFAULT_ENVIRONMENTS["botanical-studio"] + "  "})
+        self.assertEqual(first["id"], reused["id"])
+        self.assertEqual(api.call_count, 1)
+
+    def test_different_provider_inputs_create_separate_requests(self):
+        with patch.object(self.client, "api", return_value={}) as api:
+            results = [self.client.dispatch(data) for data in ({}, {"preset": "warm-gallery"},
+                {"prompt": "A private white room"}, {"imageUrl": "https://example.com/a.jpg"},
+                {"imageUrl": "https://example.com/b.jpg"})]
+        self.assertEqual(len({result["cacheKey"] for result in results}), 5)
+        self.assertEqual(api.call_count, 5)
+
+    def test_matching_legacy_record_is_adopted_even_when_budget_changes(self):
+        request_id = "a" * 32
+        record = {"id": request_id, "state": "dispatched", "repository": self.client.repository,
+            "createdAt": "2024-01-01T00:00:00+00:00", "budgetCredits": 5080,
+            "requestDigest": hashlib.sha256(json.dumps({"image": "", "preset": "warm-gallery",
+                "budget": 5080, "prompt": "An empty room"}, sort_keys=True).encode()).hexdigest()}
+        path = self.client.requests / f"{request_id}.json"
+        path.write_text(json.dumps(record))
+        with patch.object(self.client, "api") as api:
+            reused = self.client.dispatch({"preset": "warm-gallery", "prompt": "An empty room", "budgetCredits": 6000})
+        api.assert_not_called()
+        self.assertEqual(reused["id"], request_id)
+        self.assertEqual(json.loads(path.read_text())["cacheKey"], reused["cacheKey"])
+
+    def test_known_failed_request_reuses_and_uncertain_request_blocks_fresh_variation(self):
+        with patch.object(self.client, "api", return_value={}):
+            known = self.client.dispatch({})
+        path = self.client.requests / f"{known['id']}.json"
+        record = json.loads(path.read_text())
+        record["state"] = "failed"
+        path.write_text(json.dumps(record))
+        with patch.object(self.client, "api") as api:
+            self.assertEqual(self.client.dispatch({})["id"], known["id"])
+        api.assert_not_called()
+        with patch.object(self.client, "api", side_effect=subprocess.TimeoutExpired("gh", 40)):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                self.client.dispatch({"prompt": "Different room"})
+        with patch.object(self.client, "api") as api:
+            self.assertEqual(self.client.dispatch({})["id"], known["id"])
+            with self.assertRaisesRegex(RuntimeError, "uncertain"):
+                self.client.dispatch({"forceNew": True})
+        api.assert_not_called()
+
+    def test_concurrent_force_new_double_clicks_submit_once(self):
+        with patch.object(self.client, "api", return_value={}) as api, ThreadPoolExecutor(max_workers=4) as executor:
+            results = list(executor.map(self.client.dispatch, [{"forceNew": True}] * 4))
+        self.assertEqual(len({result["id"] for result in results}), 1)
+        self.assertEqual(api.call_count, 1)
 
     def test_gh_transport_uses_stdin_json_and_never_secret_commands(self):
         secret = "local-worldlabs-secret"
@@ -174,6 +254,112 @@ class GitHubWorldTests(unittest.TestCase):
         self.assertTrue((self.data / "comparisons" / "42" / "comparison.json").is_file())
         self.assertEqual(len(worlds.list_worlds(self.data)), 3)
         self.assertEqual(list(self.data.glob("worldlabs-import-*")), [])
+
+    def cacheable_artifact(self):
+        identity = generation_identity()
+        manifest = {"provider": "worldlabs", "worldId": "test-world-1", "model": identity["model"],
+                    "promptSha256": identity["promptSha256"], "cacheKey": identity["key"], "seed": identity["seed"]}
+        payload, pair = self.archive(extra=[("experiment.json", json.dumps(manifest))])
+        return payload, pair, manifest
+
+    def test_imported_result_reuses_verified_local_assets_after_restart_with_zero_github_calls(self):
+        payload, pair, manifest = self.cacheable_artifact()
+        imported = self.import_artifact(payload)
+        self.assertEqual(imported["cacheKey"], manifest["cacheKey"])
+        restarted = github_worlds.GitHubWorlds(self.data, repository=self.client.repository)
+        with patch.object(restarted, "api") as api:
+            cached = restarted.dispatch({"budgetCredits": 5080})
+        api.assert_not_called()
+        self.assertEqual(cached["cacheStatus"], "local-hit")
+        self.assertFalse(cached["needsImport"])
+        self.assertEqual(cached["runId"], "42")
+        self.assertEqual(cached["worldId"], pair["worldId"])
+        self.assertEqual(cached["worlds"], imported["worlds"])
+        self.assertEqual(self.records(), [])
+
+    def test_explicit_new_variation_skips_a_valid_local_result(self):
+        payload, _, _ = self.cacheable_artifact()
+        self.import_artifact(payload)
+        with patch.object(self.client, "api", return_value={}) as api:
+            fresh = self.client.dispatch({"forceNew": True})
+        self.assertEqual(fresh["cacheStatus"], "dispatched")
+        self.assertEqual(api.call_count, 1)
+
+    def test_legacy_artifact_can_bind_to_matching_run_request_without_experiment_manifest(self):
+        with patch.object(self.client, "api", return_value={}):
+            request = self.client.dispatch({})
+        payload, _ = self.archive()
+        self.import_artifact(payload, run={"conclusion": "success", "path": ".github/workflows/worldlabs-pair.yml@main",
+            "display_title": request["id"] + " · World Labs official and Gaussian reconstructed meshes",
+            "html_url": "https://github.com/example/3d-product-suite/actions/runs/42"})
+        self.assertEqual(self.records()[0]["state"], "imported")
+        with patch.object(self.client, "api") as api:
+            result = self.client.dispatch({})
+        api.assert_not_called()
+        self.assertEqual(result["cacheStatus"], "local-hit")
+
+    def test_mismatched_experiment_world_or_fingerprint_rejects_before_library_mutation(self):
+        payload, _, manifest = self.cacheable_artifact()
+        with patch.object(self.client, "api", return_value={}):
+            request = self.client.dispatch({"prompt": "A different room"})
+        run = {"conclusion": "success", "path": ".github/workflows/worldlabs-pair.yml@main",
+               "display_title": request["id"] + " · World Labs"}
+        invalid_manifests = [dict(manifest, worldId="different-world"), dict(manifest, cacheKey="0" * 64)]
+        for invalid in invalid_manifests:
+            altered = self.rewrite_archive(payload, {"experiment.json": json.dumps(invalid).encode()})
+            with self.subTest(manifest=invalid), patch.object(github_worlds, "import_world") as importer:
+                with self.assertRaisesRegex(ValueError, "generation identity"):
+                    self.import_artifact(altered)
+            importer.assert_not_called()
+        with patch.object(github_worlds, "import_world") as importer:
+            with self.assertRaisesRegex(ValueError, "saved generation request"):
+                self.import_artifact(payload, run=run)
+        importer.assert_not_called()
+        self.assertEqual(worlds.list_worlds(self.data), [])
+
+    def test_corrupt_local_assets_block_paid_replacement_with_recovery_instructions(self):
+        payload, pair, manifest = self.cacheable_artifact()
+        self.import_artifact(payload)
+        asset = self.data / pair["mesh"]["environment"]["asset"]["path"]
+        asset.write_bytes(b"corrupt")
+        with patch.object(self.client, "api") as api:
+            with self.assertRaisesRegex(RuntimeError, "re-import the existing successful GitHub run"):
+                self.client.dispatch({})
+        api.assert_not_called()
+        self.assertTrue((self.client.results / f"{manifest['cacheKey']}.json").exists())
+        self.assertEqual(self.records(), [])
+
+    def test_supported_legacy_models_import_using_manifest_fingerprints(self):
+        payload, _, manifest = self.cacheable_artifact()
+        model = "marble-1.0"
+        identity = generation_identity(model=model)
+        legacy_manifest = dict(manifest, model=model, cacheKey=identity["key"])
+        payload = self.rewrite_archive(payload, {"experiment.json": json.dumps(legacy_manifest).encode()})
+        imported = self.import_artifact(payload, run={"conclusion": "success",
+            "path": ".github/workflows/worldlabs-pair.yml@main", "display_title": "5d613c8b-recover-existing-mesh"})
+        self.assertEqual(imported["cacheKey"], identity["key"])
+        self.assertTrue((self.client.results / f"{identity['key']}.json").exists())
+
+    def test_corrupt_local_index_blocks_paid_replacement(self):
+        payload, _, manifest = self.cacheable_artifact()
+        self.import_artifact(payload)
+        index = self.client.results / f"{manifest['cacheKey']}.json"
+        for value in ("{", "[]", json.dumps({"cacheKey": manifest["cacheKey"], "schemaVersion": 1})):
+            index.write_text(value)
+            with self.subTest(value=value), patch.object(self.client, "api") as api:
+                with self.assertRaisesRegex(RuntimeError, "incomplete or corrupt"):
+                    self.client.dispatch({})
+            api.assert_not_called()
+
+    def test_local_hit_can_recover_an_uncertain_submission_without_new_api_calls(self):
+        with patch.object(self.client, "api", side_effect=subprocess.TimeoutExpired("gh", 40)):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                self.client.dispatch({})
+        payload, _, _ = self.cacheable_artifact()
+        self.import_artifact(payload)
+        with patch.object(self.client, "api") as api:
+            self.assertEqual(self.client.dispatch({})["cacheStatus"], "local-hit")
+        api.assert_not_called()
 
     def test_failed_wrong_workflow_and_oversized_artifacts_do_not_import(self):
         for run in ({"conclusion": "failure", "path": ".github/workflows/worldlabs-pair.yml"},

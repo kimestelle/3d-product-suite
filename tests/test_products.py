@@ -63,6 +63,9 @@ class ProductTests(unittest.TestCase):
         for actual, expected in zip(measured["dimensionsM"], [0.06, 0.12, 0.04]):
             self.assertAlmostEqual(actual, expected, places=7)
         scene = self.create(metadata={"sourceDocument": "approved drawing v2", "sourceMedia": ["reference-front.jpg"]})
+        self.assertFalse(scene["environment"]["plinth"]["visible"])
+        # Imports rest on the hidden contact plinth: an invisible floor at its top (D93, D160).
+        self.assertEqual(scene["placement"]["restsOn"], scene["environment"]["plinth"]["id"])
         self.assertEqual(scene, load_scene(self.output / "scene.json"))
         self.assertNotIn("label", scene["product"])
         self.assertEqual(scene["actions"], [])

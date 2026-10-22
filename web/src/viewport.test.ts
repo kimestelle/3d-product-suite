@@ -37,6 +37,7 @@ function viewport() {
     partFocus: false, focusPartIds: [], framedSelection: false, inspectingCamera: false, inspectionEnabled: true,
     controls: null, controlListeners: null, interactionSurface: null, controlSurface: null, sampledCamera: null, loadedProductKey: null,
     environmentObjects: new Map(), environmentBackground: null, productPreview: false, productGround: null,
+    latestSample: null,
     loadFailed: false, awaitingSample: false, pendingSize: null, renderedSize: null, liveRender: null });
   vi.spyOn(view, 'scheduleRender').mockImplementation(() => {});
   return view;
@@ -346,6 +347,113 @@ describe('real product component meshes', () => {
   });
 });
 
+function labelSpecification() {
+  return { asset: { format: 'png', path: `assets/${'a'.repeat(64)}.png`, sha256: 'a'.repeat(64), widthPx: 16, heightPx: 8 },
+    mapping: { mode: 'planar', face: 'front', scale: [.6, .4], offset: [.1, .2], rotationDegrees: 30 },
+    material: { baseColor: [.5, .6, .7, 1], roughness: .3, metallic: .8, ior: 1.6 } };
+}
+
+describe('surface label artwork', () => {
+  it('keeps imported map/roughness/metallicity outside alpha and gives the artwork independent physical properties', () => {
+    const view = viewport(); const texture = new THREE.Texture();
+    const original = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(.2, .3, .4), map: new THREE.Texture(),
+      roughnessMap: new THREE.Texture(), metalnessMap: new THREE.Texture(), roughness: .8, metalness: .1, transmission: .8, ior: 1.45 });
+    const label = labelSpecification(); label.material.baseColor[3] = .4;
+    const material = view.labelMaterial(original, texture, label);
+    expect(material).not.toBe(original);
+    expect(material.map).toBe(original.map); expect(material.roughnessMap).toBe(original.roughnessMap);
+    expect(material.metalnessMap).toBe(original.metalnessMap);
+    expect(material.color.toArray()).toEqual(original.color.toArray());
+    expect(material.roughness).toBe(.8); expect(material.metalness).toBe(.1); expect(material.transmission).toBe(.8);
+    const shader = { vertexShader: THREE.ShaderLib.physical.vertexShader, fragmentShader: THREE.ShaderLib.physical.fragmentShader, uniforms: {} } as any;
+    material.onBeforeCompile(shader, {} as any);
+    expect(shader.uniforms.labelArtwork.value).toBe(texture);
+    expect(shader.uniforms.labelRoughness.value).toBe(.3); expect(shader.uniforms.labelMetalness.value).toBe(.8);
+    expect(shader.uniforms.labelOpacity.value).toBe(.4);
+    expect(shader.fragmentShader).toContain('vLabelCoverage * labelOpacity');
+    expect(shader.fragmentShader).toContain('#include <map_fragment>');
+    expect(shader.fragmentShader).toContain('roughnessFactor = mix(roughnessFactor, labelRoughness, printAlpha)');
+    expect(shader.fragmentShader).toContain('metalnessFactor = mix(metalnessFactor, labelMetalness, printAlpha)');
+    expect(shader.fragmentShader).toContain('material.ior = mix(ior, labelIor, printAlpha)');
+    expect(shader.fragmentShader).toContain('material.transmission = transmission * (1.0 - printAlpha)');
+    expect(shader.fragmentShader).toContain('float compositeAlpha = mix(diffuseColor.a, 1.0, inkAlpha)');
+    expect(shader.fragmentShader).toContain('float printAlpha = inkAlpha / max(compositeAlpha, 0.000001)');
+    expect(shader.fragmentShader).toContain('totalEmissiveRadiance *= (1.0 - printAlpha)');
+    expect(shader.fragmentShader).toContain('material.clearcoat = saturate( material.clearcoat ) * (1.0 - printAlpha)');
+    expect(shader.fragmentShader).toContain('material.sheenColor = sheenColor * (1.0 - printAlpha)');
+    expect(shader.fragmentShader).toContain('specularColorFactor = mix(specularColorFactor, vec3(1.0), printAlpha)');
+    expect(shader.fragmentShader).toContain('step(printUv.x, 1.0)');
+    expect(shader.vertexShader).toContain('vLabelUv = labelUv');
+    expect(material.labelArtwork).toBe(texture);
+    const dispose = vi.spyOn(texture, 'dispose'); const group = new THREE.Group();
+    group.add(new THREE.Mesh(new THREE.PlaneGeometry(), material)); view.disposeObject(group);
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it('promotes standard materials to physical while preserving their texture channels and handles unlit surfaces', () => {
+    const view = viewport(); const original = new THREE.MeshStandardMaterial({ map: new THREE.Texture(), roughness: .12, metalness: .9 });
+    const material = view.labelMaterial(original, new THREE.Texture(), labelSpecification());
+    expect(material).toBeInstanceOf(THREE.MeshPhysicalMaterial);
+    expect(material.map).toBe(original.map); expect(material.roughness).toBe(.12); expect(material.metalness).toBe(.9);
+    expect(material.defines.PHYSICAL).toBe(''); expect(material.ior).toBe(1.5);
+    const unlit = view.labelMaterial(new THREE.MeshBasicMaterial({ map: new THREE.Texture() }), new THREE.Texture(), labelSpecification());
+    const shader = { vertexShader: THREE.ShaderLib.physical.vertexShader, fragmentShader: THREE.ShaderLib.physical.fragmentShader, uniforms: {} } as any;
+    unlit.onBeforeCompile(shader, {} as any);
+    expect(shader.fragmentShader).toContain('totalEmissiveRadiance = diffuseColor.rgb');
+    expect(shader.fragmentShader).toContain('specularIntensityFactor = mix(specularIntensityFactor, 1.0, printAlpha)');
+  });
+
+  it('applies the original glTF alpha cutoff only to the substrate, keeping translucent ink over cutouts', () => {
+    const view = viewport(); const original = new THREE.MeshStandardMaterial({ alphaTest: .5, opacity: 0 });
+    const label = labelSpecification(); label.material.baseColor[3] = .4;
+    const material = view.labelMaterial(original, new THREE.Texture(), label);
+    const shader = { vertexShader: THREE.ShaderLib.physical.vertexShader, fragmentShader: THREE.ShaderLib.physical.fragmentShader, uniforms: {} } as any;
+    material.onBeforeCompile(shader, {} as any);
+    expect(original.transparent).toBe(false); expect(material.transparent).toBe(true);
+    expect(shader.fragmentShader).toContain('if (diffuseColor.a < alphaTest) diffuseColor.a = 0.0');
+    expect(shader.fragmentShader).toContain('diffuseColor.a = compositeAlpha');
+    expect(shader.fragmentShader).not.toContain('#include <alphatest_fragment>');
+  });
+
+  it('applies artwork to exact component-local geometry without requiring a material override and suppresses legacy text', async () => {
+    const fixture = glb(); const view = viewport(); vi.stubGlobal('fetch', async () => new Response(fixture.bytes));
+    vi.spyOn(view, 'loadVerifiedLabel').mockResolvedValue(new THREE.Texture());
+    const legacy = vi.spyOn(view, 'addLabel'); const scene: any = source(fixture.asset);
+    scene.product.components[0].labelTexture = labelSpecification(); scene.product.label = { componentId: 'real-component', text: 'Old label' };
+    await view.makeProduct(scene, 1, new AbortController().signal);
+    expect(legacy).not.toHaveBeenCalled();
+    const root = view.components.get('real-component'); const mesh = root.getObjectByName('Original_mesh') || root.getObjectByName('Original mesh');
+    expect(mesh.geometry.getAttribute('labelUv')).toBeDefined(); expect(mesh.material.name).toBe('Original red material');
+    expect(mesh.material.color.toArray()).toEqual([.8, .1, .05]); expect(mesh.material.labelArtwork).toBeInstanceOf(THREE.Texture);
+    const svg = view.labelTemplate('real-component', labelSpecification().mapping);
+    expect(svg).toContain('real-component label UV layout'); expect(svg).toContain('id="artwork"');
+    expect(() => view.labelTemplate('missing', labelSpecification().mapping)).toThrow('finish loading');
+    expect(() => view.labelTemplate('real-component', { ...labelSpecification().mapping, mode: 'uv' })).toThrow('no UV map');
+  });
+
+  it('verifies immutable image bytes and dimensions before decoding, rejects external assets, and closes cancelled decodes', async () => {
+    const bytes = new Uint8Array(33); bytes.set([137, 80, 78, 71, 13, 10, 26, 10]);
+    const header = new DataView(bytes.buffer); header.setUint32(8, 13); header.setUint32(12, 0x49484452); header.setUint32(16, 16); header.setUint32(20, 8);
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    const asset = { ...labelSpecification().asset, sha256, path: `assets/${sha256}.png` };
+    const view = viewport(); view.renderer = { capabilities: { getMaxAnisotropy: () => 4 } };
+    const fetch = vi.fn(async () => new Response(bytes)); vi.stubGlobal('fetch', fetch);
+    const bitmap = { width: 16, height: 8, close: vi.fn() }; const decode = vi.fn(async () => bitmap); vi.stubGlobal('createImageBitmap', decode);
+    const controller = new AbortController();
+    await expect(view.loadVerifiedLabel({ ...asset, path: 'https://example.com/image.png' }, controller.signal)).rejects.toThrow('content-addressed');
+    expect(fetch).not.toHaveBeenCalled();
+    await expect(view.loadVerifiedLabel({ ...asset, sha256: '0'.repeat(64), path: `assets/${'0'.repeat(64)}.png` }, controller.signal)).rejects.toThrow('SHA-256');
+    expect(decode).not.toHaveBeenCalled();
+    await expect(view.loadVerifiedLabel({ ...asset, widthPx: 20 }, controller.signal)).rejects.toThrow('dimensions');
+    const texture = await view.loadVerifiedLabel(asset, controller.signal);
+    expect(texture.colorSpace).toBe(THREE.SRGBColorSpace); expect(texture.flipY).toBe(false);
+    expect(decode).toHaveBeenCalledWith(expect.any(Blob), { imageOrientation: 'flipY', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+    decode.mockImplementationOnce(async () => { controller.abort(); return bitmap; });
+    await expect(view.loadVerifiedLabel(asset, controller.signal)).rejects.toThrow('superseded');
+    expect(bitmap.close).toHaveBeenCalledOnce();
+  });
+});
+
 function pickingViewport() {
   const view = viewport();
   const world = new THREE.Group();
@@ -361,7 +469,7 @@ function pickingViewport() {
     canvas: { style: {}, clientWidth: 180, clientHeight: 320,
       getBoundingClientRect: () => ({ left: 10, top: 20, width: 180, height: 320 }) },
     renderer: { setSize: vi.fn() },
-    options: { onSelect: vi.fn(), onWorldPoint: vi.fn() },
+    options: { onSelect: vi.fn(), onWorldPoint: vi.fn(), onSurfacePoint: vi.fn() },
   });
   vi.stubGlobal('document', { hidden: false });
   view.setWorldPickEnabled(true);
@@ -1233,5 +1341,230 @@ describe('persistent product part removal', () => {
     expect(body.visible).toBe(true); expect(cap.visible).toBe(true);
     expect(capMesh.visible).toBe(false);
     expect(drawnMeshes(view.content).length).toBeGreaterThan(0);
+  });
+});
+
+function studioSource() {
+  const scene = source(null) as any;
+  scene.product.components = [];
+  scene.product.dimensionsM = [.12, .24, .08];
+  scene.environment = {
+    kind: 'authored', worldColor: [.2, .2, .2],
+    plinth: { id: 'support', visible: false, sizeM: [1, .2, 1], translationM: [0, 1, 0] },
+    props: [],
+  };
+  return scene;
+}
+
+function sceneProp(id = 'table') {
+  return { id, shape: 'box', sizeM: [.5, .1, .4], translationM: [0, .3, 0], rotationXyzw: [0, 0, 0, 1],
+    material: { baseColor: [.2, .2, .2, 1], roughness: .6, metallic: 0 } };
+}
+
+describe('scene objects and solved relationships', () => {
+  it('keeps a hidden plinth out of view, skips hidden props and anchors the authored sweep at floorY', () => {
+    const view = viewport(); const scene = studioSource();
+    scene.environment.floorY = .35;
+    scene.environment.props.push({ ...sceneProp(), visible: false });
+    view.makeStudio(scene);
+    // The hidden contact plinth still exists for placement; it is never shown.
+    expect(view.content.getObjectByName('Explicit contact plinth').visible).toBe(false);
+    expect(view.sceneProps?.size ?? 0).toBe(0);
+    const floor = view.content.getObjectByName('Authored environment sweep');
+    floor.geometry.computeBoundingBox();
+    expect(floor.geometry.boundingBox.min.y).toBeCloseTo(.35);
+  });
+
+  it('keeps legacy visible plinths on a floor at their bottom; a hidden plinth is the floor at its top (D160)', () => {
+    const view = viewport(); const scene = studioSource();
+    delete scene.environment.plinth.visible;
+    scene.environment.floorY = NaN;
+    view.makeStudio(scene);
+    expect(view.content.getObjectByName('Explicit contact plinth').visible).toBe(true);
+    const floor = view.content.getObjectByName('Authored environment sweep');
+    floor.geometry.computeBoundingBox();
+    expect(floor.geometry.boundingBox.min.y).toBeCloseTo(.9);
+    const bare = viewport(); const bareScene = studioSource();
+    bare.makeStudio(bareScene);
+    const bareFloor = bare.content.getObjectByName('Authored environment sweep');
+    bareFloor.geometry.computeBoundingBox();
+    expect(bareFloor.geometry.boundingBox.min.y).toBeCloseTo(1.1);
+  });
+
+  it('puts the sweep and the contact shadow at the product contact when the plinth is hidden', () => {
+    // A teapot on a 10 cm plinth whose top is the world origin (D93 imports).
+    const build = (edit: (scene: any) => void) => {
+      const view = viewport(); view.options = { studioMode: true };
+      const scene = studioSource();
+      scene.placement = { translationM: [0, 0, 0], restsOn: 'support' };
+      Object.assign(scene.environment.plinth, { sizeM: [.3, .1, .3], translationM: [0, -.05, 0], visible: false });
+      edit(scene);
+      view.makeStudio(scene);
+      const floor = view.content.getObjectByName('Authored environment sweep');
+      floor.geometry.computeBoundingBox();
+      return { floor: floor.geometry.boundingBox.min.y, shadow: view.content.getObjectByName('Product contact shadow').position.y };
+    };
+    const hidden = build(() => {});
+    expect(hidden.floor).toBeCloseTo(0, 3); expect(hidden.shadow).toBeCloseTo(0, 3);
+    const visible = build(scene => { scene.environment.plinth.visible = true; });
+    expect(visible.floor).toBeCloseTo(-.1, 3); expect(visible.shadow).toBeCloseTo(0, 3);
+    const floored = build(scene => { scene.placement.restsOn = 'floor'; scene.environment.floorY = .25; });
+    expect(floored.floor).toBeCloseTo(.25, 3); expect(floored.shadow).toBeCloseTo(.25, 3);
+    const onProp = build(scene => {
+      scene.environment.floorY = 0; scene.placement.restsOn = 'table'; scene.environment.props.push(sceneProp());
+    });
+    expect(onProp.floor).toBeCloseTo(0, 3); expect(onProp.shadow).toBeCloseTo(.35, 3);
+  });
+
+  it('applies authoritative prop poses, restores source fallback, and keeps props outside component state', () => {
+    const view = viewport(); const scene = studioSource();
+    scene.environment.props.push(sceneProp());
+    view.makeStudio(scene);
+    const prop = view.sceneProps.get('table').object;
+    expect(prop.userData.objectId).toBe('prop:table');
+    expect(view.components.has('table')).toBe(false);
+    view.applyPropPoses({ table: { translationM: [1, 2, 3], rotationXyzw: [0, 1, 0, 0] } });
+    expect(prop.position.toArray()).toEqual([1, 2, 3]);
+    expect(prop.quaternion.toArray()).toEqual([0, 1, 0, 0]);
+    view.applyPropPoses(undefined);
+    expect(prop.position.toArray()).toEqual([0, .3, 0]);
+    expect(prop.quaternion.toArray()).toEqual([0, 0, 0, 1]);
+  });
+
+  it('renders authored plinth rotation and derives the floor from its complete rotated bounds', () => {
+    const view = viewport(); const scene = studioSource();
+    scene.environment.plinth.visible = true;
+    scene.environment.plinth.rotationXyzw = [0, 0, Math.sin(Math.PI / 8), Math.cos(Math.PI / 8)];
+    view.makeStudio(scene);
+    const plinth = view.content.getObjectByName('Explicit contact plinth');
+    expect(plinth.quaternion.toArray()).toEqual(scene.environment.plinth.rotationXyzw);
+    const floor = view.content.getObjectByName('Authored environment sweep');
+    floor.geometry.computeBoundingBox();
+    const expected = 1 - (1 + .2) * Math.SQRT1_2 / 2;
+    expect(floor.geometry.boundingBox.min.y).toBeCloseTo(expected);
+    expect(new THREE.Box3().setFromObject(plinth).min.y).toBeCloseTo(expected);
+  });
+
+  it.each([
+    ['on-prop', [1.5, .6, -.8]],
+    ['world-surface', [2, .9, .3]],
+  ])('anchors lights and shadow targets to resolved %s placement with yaw and off-center assemblies', (_kind, origin) => {
+    const view = viewport(); const scene = studioSource();
+    scene.placement.restsOn = _kind === 'on-prop' ? 'table' : 'world-surface';
+    const root = new THREE.Vector3().fromArray(origin);
+    const rootRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), .63);
+    const assemblyRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), .3);
+    scene.product.components = [
+      { id: 'cap', assembly: { translationM: [.04, .14, .03], rotationXyzw: [0, 0, 0, 1] } },
+      { id: 'body', assembly: { translationM: [.04, .052, .03], rotationXyzw: assemblyRotation.toArray() } },
+    ];
+    scene.actions = [{ componentId: 'cap' }];
+    const bodyPosition = new THREE.Vector3(.04, .052, .03).applyQuaternion(rootRotation).add(root);
+    const bodyRotation = rootRotation.clone().multiply(assemblyRotation);
+    view.latestSample = { components: {
+      cap: { translationM: [8, 9, 10], rotationXyzw: [0, 1, 0, 0] },
+      body: { translationM: bodyPosition.toArray(), rotationXyzw: bodyRotation.toArray() },
+    } };
+    view.makeStudio(scene);
+    const lights = view.content.children.filter((object: THREE.Object3D) => object instanceof THREE.DirectionalLight);
+    expect(lights).toHaveLength(3);
+    const size = Math.max(...scene.product.dimensionsM);
+    const offsets = [[-.19, .32, .24], [.22, .19, .07], [.06, .30, -.19]];
+    lights.forEach((light: THREE.DirectionalLight, index: number) => {
+      const expected = new THREE.Vector3().fromArray(offsets[index]).multiplyScalar(size / .12).add(root);
+      expect(light.position.distanceTo(expected)).toBeLessThan(1e-10);
+      expect(light.target.position.distanceTo(root.clone().add(new THREE.Vector3(0, size * .52, 0)))).toBeLessThan(1e-10);
+    });
+  });
+
+});
+
+function surfaceViewport() {
+  const view = pickingViewport();
+  view.setSurfacePickEnabled(true);
+  view.camera.up.set(0, 0, -1);
+  view.camera.position.set(0, 5, 0);
+  view.camera.lookAt(0, 0, 0);
+  return view;
+}
+
+function horizontalPlane() {
+  const mesh = plane(); mesh.rotation.x = -Math.PI / 2; return mesh;
+}
+
+describe('product placement surface picking', () => {
+  it('transforms the face normal through embedded and alignment transforms into normalized world space', () => {
+    const view = surfaceViewport();
+    const embedded = new THREE.Group(); embedded.rotation.x = .2; embedded.scale.set(2, 3, 1);
+    embedded.add(plane()); view.worldRoot.add(embedded);
+    view.alignWorld(view.worldRoot, { sourceUp: 'Z', scaleToMeters: 2.5, translationM: [1, 2, 3] });
+    view.worldRoot.updateWorldMatrix(true, true);
+    const expected = new THREE.Vector3(0, 0, 1).applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(embedded.matrixWorld)).normalize();
+    view.camera.position.set(1, 8, 3); view.camera.lookAt(1, 2, 3);
+    pick(view);
+    expect(view.options.onSurfacePoint).toHaveBeenCalledOnce();
+    const result = view.options.onSurfacePoint.mock.calls[0][0];
+    [1, 2, 3].forEach((n, i) => expect(result.worldPoint[i]).toBeCloseTo(n));
+    expected.toArray().forEach((n, i) => expect(result.normal[i]).toBeCloseTo(n));
+    expect(new THREE.Vector3().fromArray(result.normal).length()).toBeCloseTo(1);
+    expect(view.options.onWorldPoint).not.toHaveBeenCalled();
+    expect(view.options.onSelect).not.toHaveBeenCalled();
+  });
+
+  it('ignores props/product/plinth geometry and skips invisible or transparent world surfaces', () => {
+    const view = surfaceViewport();
+    const floor = horizontalPlane();
+    const glass = horizontalPlane(); glass.position.y = 1; glass.material.transparent = true; glass.material.opacity = .5;
+    const invisible = horizontalPlane(); invisible.position.y = 2; invisible.material.visible = false;
+    view.worldRoot.add(floor, glass, invisible);
+    for (const id of ['product', 'prop:table', 'plinth:support']) {
+      const blocker = horizontalPlane(); blocker.position.y = 3; blocker.userData.objectId = id; view.content.add(blocker);
+    }
+    pick(view);
+    expect(view.options.onSurfacePoint).toHaveBeenCalledOnce();
+    const point = view.options.onSurfacePoint.mock.calls[0][0];
+    expect(point.worldPoint[1]).toBeCloseTo(0); expect(point.normal[1]).toBeCloseTo(1);
+  });
+
+  it.each(['wall', 'underside', 'miss'])('rejects a %s without selecting a product or placing through it', kind => {
+    const view = surfaceViewport(); const floor = horizontalPlane(); view.worldRoot.add(floor);
+    if (kind === 'wall') {
+      // A steep opaque surface is hit before the valid horizontal floor.
+      const wall = horizontalPlane(); wall.rotation.x = -.3; wall.position.y = 1; view.worldRoot.add(wall);
+    } else if (kind === 'underside') {
+      floor.rotation.x = Math.PI / 2;
+    } else floor.position.x = 5;
+    pick(view);
+    expect(view.options.onSurfacePoint).not.toHaveBeenCalled();
+    expect(view.options.onSelect).not.toHaveBeenCalled();
+    expect(view.options.onWorldPoint).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['loading', (view: any) => { view.loading = true; }],
+    ['not ready', (view: any) => { view.worldReady = false; }],
+    ['superseded', (view: any) => { view.loadVersion++; }],
+    ['disposed', (view: any) => { view.disposed = true; }],
+    ['offscreen', (view: any) => { view.visible = false; }],
+    ['hidden tab', () => { vi.stubGlobal('document', { hidden: true }); }],
+    ['capture', (view: any) => { view.options.capture = true; }],
+    ['detached', (view: any) => { view.content.remove(view.worldRoot); }],
+    ['hidden world', (view: any) => { view.worldRoot.visible = false; }],
+    ['hidden content', (view: any) => { view.content.visible = false; }],
+    ['singular alignment', (view: any) => { view.worldRoot.scale.setScalar(0); }],
+  ])('rejects %s surface placement without selection fallthrough', (_name, change) => {
+    const view = surfaceViewport(); view.worldRoot.add(horizontalPlane()); change(view); pick(view);
+    expect(view.options.onSurfacePoint).not.toHaveBeenCalled();
+    expect(view.options.onSelect).not.toHaveBeenCalled();
+  });
+
+  it('keeps calibration and placement modes mutually exclusive and clears both cursors', () => {
+    const view = surfaceViewport();
+    expect(view.surfacePickEnabled).toBe(true); expect(view.worldPickEnabled).toBe(false);
+    view.setWorldPickEnabled(true);
+    expect(view.surfacePickEnabled).toBe(false); expect(view.worldPickEnabled).toBe(true);
+    view.setSurfacePickEnabled(true);
+    expect(view.worldPickEnabled).toBe(false); expect(view.canvas.style.cursor).toBe('crosshair');
+    view.setSurfacePickEnabled(false); expect(view.canvas.style.cursor).toBe('');
   });
 });

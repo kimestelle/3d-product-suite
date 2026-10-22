@@ -17,6 +17,7 @@ try {
  const bootstrap=await request('/api/bootstrap');
  await request('/api/projects','POST',{name:'Browser verification',scene:bootstrap.project.scene});
  await page.goto(origin);
+  await page.getByRole('button',{name:'Product',exact:true}).click();
  await page.evaluate(()=>document.fonts.ready);
  await page.getByRole('button',{name:'Request Cycles still'}).waitFor();
  await page.waitForFunction(()=>!document.querySelector('.glass-button')?.disabled);

@@ -77,7 +77,7 @@ class LightingTests(unittest.TestCase):
             return build
         namespace = {'material': lambda *args: None, 'specified_material': lambda *args: None,
                      'primitive': lambda *args: SimpleNamespace(location=None),
-                     'blender_position': lambda p: (p[0], -p[2], p[1]),
+                     'blender_position': lambda p: (p[0], -p[2], p[1]), 'blender_rotation': lambda q: q,
                      'area_light': builder('area'), 'spot_light': builder('spot')}
         exec(compile(ast.Module(body=[fn], type_ignores=[]), '<environment>', 'exec'), namespace)
         return emitted, namespace

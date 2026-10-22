@@ -206,7 +206,7 @@ class ScaleTests(unittest.TestCase):
         frames[1]["camera"]["depthOfField"] = {"enabled": True, "fStop": 1.4, "focusDistanceM": .5}
         frames[1]["components"]["cap"]["scale"] = .25
         frames[2]["components"]["cap"]["scale"] = 6
-        namespace["animate"]({"shots": []}, frames, objects)
+        namespace["animate"]({"shots": [], "environment": {}}, frames, objects)
         self.assertEqual([key for key in objects["cap"].keys if key[1] == "scale"],
                          [(1, "scale", (1, 1, 1)), (25, "scale", (.25, .25, .25)), (49, "scale", (6, 6, 6))])
         self.assertEqual(objects["cap"].children[0].scale, (.12, .12, .12))

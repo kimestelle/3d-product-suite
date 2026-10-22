@@ -13,6 +13,8 @@ from .audio import validate_scene_audio
 from .artwork import validate_product_artwork
 from .part_motion import source_targets, base_pose, validate_source_nodes, evaluate_parts
 from .part_visibility import validate_removed_parts, removed_part_ids
+from .textures import validate_texture_asset_record
+from .scene_objects import resolve_scene_objects
 
 
 PRODUCT_SCALE_MIN = 1e-6
@@ -65,6 +67,23 @@ def _material(value):
         _number(value["ior"], "ior", minimum=1, maximum=3)
 
     validate_material_textures(value)
+
+
+def _label_texture(value):
+    _require(isinstance(value, dict), "labelTexture must be an object")
+    validate_texture_asset_record(value.get("asset"))
+    mapping = value.get("mapping")
+    _require(isinstance(mapping, dict), "Label mapping must be an object")
+    _require(mapping.get("mode") in ("planar", "cylindrical", "uv"), "Label mapping mode must be planar, cylindrical or uv")
+    _require(mapping.get("face") in ("front", "back", "left", "right", "top", "bottom"), "Label mapping face is invalid")
+    for key, minimum, maximum in (("scale", .01, 10), ("offset", -5, 5)):
+        _vector(mapping.get(key), f"label mapping {key}", 2)
+        for number in mapping[key]:
+            _number(number, f"label mapping {key}", minimum=minimum, maximum=maximum)
+    _number(mapping.get("rotationDegrees"), "label mapping rotationDegrees", minimum=-360, maximum=360)
+    _material(value.get("material"))
+    _require(value["material"].get("transmission", 0) == 0,
+             "Label coatings cannot transmit light; use image alpha for transparent areas")
 
 
 def _quaternion(value, name):
@@ -421,6 +440,10 @@ def validate_scene(scene):
                     preset_id = binding["materialPresetId"]
                     _require(isinstance(preset_id, str) and preset_id in presets_by_id,
                              "Material section preset does not exist")
+            if "labelTexture" in c:
+                _label_texture(c["labelTexture"])
+                _require(c["labelTexture"]["mapping"]["mode"] != "uv" or c["shape"] == "mesh",
+                         "Existing UV maps are supported on imported mesh components; use planar or cylindrical mapping for primitives")
             _number(c.get("bevelM", 0), "bevelM", minimum=0, maximum=min(c["sizeM"])/2)
         validate_removed_parts(scene)
         if "label" in p:
@@ -537,9 +560,11 @@ def validate_scene(scene):
                     _number(light["coneDeg"], "spot cone", minimum=1, maximum=170)
                 if "blend" in light:
                     _number(light["blend"], "spot blend", minimum=0, maximum=1)
-        _require(scene["placement"]["restsOn"] == env["plinth"]["id"], "Unknown contact surface")
         _vector(scene["placement"]["translationM"], "product placement")
         _number(scene["placement"].get("scale", 1), "product scale", minimum=PRODUCT_SCALE_MIN, maximum=PRODUCT_SCALE_MAX)
+        # The product's support, any picked world contact and prop relationships
+        # resolve as one acyclic graph (see film/scene_objects.py).
+        resolve_scene_objects(scene)
         _require(isinstance(scene["evidence"], list), "Evidence list is required")
         evidence_ids = [x["id"] for x in scene["evidence"]]
         _require(len(evidence_ids) == len(set(evidence_ids)), "Evidence IDs must be unique")
@@ -725,17 +750,22 @@ def evaluate(scene, frame, *, include_placement=False):
         if track["enabled"]:
             animated.setdefault(track["componentId"], {})[track["property"]] = _track_value(track, frame)
     _film_values(scene, shot, frame, animated)
-    # Product placement is relative to the top-center of its explicit support.
+    # Product placement is relative to the top-center of its resolved support:
+    # the plinth (visible or hidden), the floor, a picked world contact or a prop.
     # The baseline plinth top-center is [0,0,0], preserving original poses.
-    plinth = scene["environment"]["plinth"]
-    contact_origin = list(plinth["translationM"])
-    contact_origin[1] += plinth["sizeM"][1] / 2
+    objects = resolve_scene_objects(scene)
+    contact_origin = objects["supportOriginM"]
     product_values = animated.get("$product", {})
     placement = _add([product_values.get(f"position.{axis}", value)
                       for axis, value in zip("xyz", scene["placement"]["translationM"])], contact_origin)
     product_scale = product_values.get("scale", scene["placement"].get("scale", 1))
     product_rotation = (_quaternion_from_xyz_degrees([product_values.get(f'rotation.{axis}', 0) for axis in 'xyz'])
                         if any(f'rotation.{axis}' in product_values for axis in 'xyz') else None)
+    if scene["placement"].get("rotationYDegrees", 0):
+        # The saved yaw turns the whole assembly about its support origin; an
+        # animated product rotation acts in the product's own (yawed) frame.
+        yaw = objects["product"]["rotationXyzw"]
+        product_rotation = _mul(yaw, product_rotation) if product_rotation else yaw
     for c in scene["product"]["components"]:
         pose = c["assembly"]
         values = animated.get(c["id"], {})
@@ -785,6 +815,10 @@ def evaluate(scene, frame, *, include_placement=False):
     if _has_light_motions(scene):
         # Scenes without light motions keep their byte-identical samples.
         sample["lights"] = _film_lights(scene, shot, frame)
+    if scene["environment"].get("props"):
+        # Resolved prop poses for the browser and Blender; prop-free scenes keep
+        # their byte-identical samples.
+        sample["props"] = objects["props"]
     if include_placement:
         # Product fitting needs the actual animated support pivot and uniform
         # scale, rather than trying to recover them from a moving part.

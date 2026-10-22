@@ -32,7 +32,7 @@ export default function ComparisonPanel(props: Props) {
   const meshes = worlds.filter(world => world.environment.kind === 'mesh');
   return <section className="control-section comparison-controls">
     <div className="comparison-heading"><b>Environment comparison</b><span className={`comparison-status ${reviewed ? 'reviewed' : ''}`}>{reviewed ? 'Placement reviewed' : 'Draft placement'}</span></div>
-    <p className="small-copy">Both views share the product, plinth, lighting, camera and frame. Placement review records your visual check; it does not certify geometry or material accuracy.</p>
+    <p className="small-copy">Both views share the product, editable objects, lighting, camera and frame. Placement review records your visual check; it does not certify geometry or material accuracy.</p>
     <div className="segmented comparison-modes" aria-label="Comparison view">
       {(['a', 'b', 'split'] as const).map(value => <button key={value} aria-pressed={mode === value} onClick={() => props.onMode(value)}>{value === 'split' ? 'Split view' : `View ${value.toUpperCase()}`}</button>)}
     </div>

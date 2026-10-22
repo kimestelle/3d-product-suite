@@ -422,7 +422,7 @@ def verify_scene_assets(scene, source_dir):
         alternative = comparison.get("alternative")
         _require(environment["kind"] == "mesh" and isinstance(alternative, dict) and alternative.get("kind") == "mesh",
                  "Comparison assets must both be visual mesh environments")
-        _require(not any(key in alternative for key in ("plinth", "props", "worldColor")),
+        _require(not any(key in alternative for key in ("plinth", "props", "floorY", "worldColor")),
                  "Comparison alternative must omit shared plinth, props and worldColor")
         references.append((validate_asset_record(alternative.get("asset"), kind="mesh"), None))
     for component in scene.get("product", {}).get("components", []):
@@ -472,6 +472,13 @@ def verify_scene_assets(scene, source_dir):
             validate_artwork_nodes(scene, component, payload)
         records[asset["path"]] = {"path": asset["path"], "sha256": asset["sha256"], "format": asset["format"],
                                    "bytes": len(payload), **metadata}
+    from .textures import verify_texture_asset
+    for component in scene.get("product", {}).get("components", []):
+        if "labelTexture" in component:
+            label = component["labelTexture"]
+            _require(isinstance(label, dict), "labelTexture must be an object")
+            record = verify_texture_asset(label.get("asset"), source_dir)
+            records[record["path"]] = record
     return list(records.values())
 
 
@@ -480,10 +487,18 @@ def bundle_assets(scene, source_dir, destination_dir):
     records = verify_scene_assets(scene, source_dir)
     destination = Path(destination_dir).resolve()
     destination.mkdir(parents=True, exist_ok=True)
+    # Label artwork keeps its 8 MiB texture bound; material maps and film images
+    # are PNGs too, with their own (larger) limits checked during verification.
+    labels = {component["labelTexture"]["asset"]["path"] for component in scene.get("product", {}).get("components", [])
+              if "labelTexture" in component}
     for record in records:
         source = safe_asset_path(source_dir, record["path"])
         target = safe_asset_path(destination, record["path"])
-        payload = _read_asset(source)
+        if record["path"] in labels:
+            from .textures import read_texture_bytes
+            payload = read_texture_bytes(source)
+        else:
+            payload = _read_asset(source)
         _require(hashlib.sha256(payload).hexdigest() == record["sha256"], "World asset changed while bundling")
         _immutable_write(target, payload)
     return records

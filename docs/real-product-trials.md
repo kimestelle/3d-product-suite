@@ -1,10 +1,10 @@
 # Real product trials
 
-The editor and pinned Blender renderer accept static, self-contained product GLBs alongside the original synthetic fixtures. Each component keeps its imported geometry, hierarchy and materials. `sizeM` records measured bounds; it never stretches the model. An explicit `materialOverride: true` replaces imported materials with the scene component material.
+The editor accepts prepared static product GLBs, Blender snapshots, STEP/IGES CAD and direct STL/OBJ/PLY meshes alongside the original synthetic fixtures. Prepared GLBs retain their imported geometry, hierarchy and materials. Other formats are normalized locally to self-contained GLBs. `sizeM` records measured bounds; it never stretches the model. An explicit `materialOverride: true` replaces imported materials with the scene component material.
 
 The editor and `product-import` CLI also accept `.blend` files through a local Blender conversion to that same static GLB contract. This imports the active scene at its saved frame, with packed textures and supported materials; it does not preserve Blender's editable modifiers or animation system. See the [import workflow and limits](../README.md#editor-and-world-workflow). The trial evidence below still describes its original inputs.
 
-Prepared GLBs use right-handed Y-up meters and a bounding-box center at the local origin. The importer measures decoded vertex positions, checks the active node hierarchy and refuses external dependencies, animation, skins, morph targets, compressed geometry and inconsistent dimensions. STEP/STP and IGES/IGS now convert locally in the import flow; STL/OBJ also convert with explicit units. Native CAD formats still require a STEP or GLB export. See [current compatibility and checks](import-compatibility.md). The importer does not infer mechanical movement.
+Prepared GLBs use right-handed Y-up meters and a bounding-box center at the local origin. The importer measures decoded vertex positions, checks the active node hierarchy and refuses external dependencies, animation, skins, morph targets, compressed geometry and inconsistent dimensions. STEP/STP and IGES/IGS now convert locally in the import flow; STL/OBJ/PLY also convert with explicit units. Native CAD formats still require a STEP or GLB export. See [current compatibility and checks](import-compatibility.md). The importer does not infer mechanical movement.
 
 ## Prepare a product
 
@@ -18,7 +18,27 @@ python -m film product-import /path/to/normalized.glb \
   --workspace workspace-data
 ```
 
-This writes `scene.json` and a content-addressed asset, fits three rigid camera shots and optionally creates a project in the local editor. The Product panel also accepts prepared GLBs. Uploaded meshes are kept in the local workspace; no provider upload or paid generation occurs. Jobs bundle and verify product assets with their source scene so a later file replacement cannot change a queued render.
+This writes `scene.json` and a content-addressed asset, fits three rigid camera shots and optionally creates a project in the local editor. The Product panel also accepts these inputs. Uploaded meshes are kept in the local workspace; no provider upload or paid generation occurs. Jobs bundle and verify product assets with their source scene so a later file replacement cannot change a queued render.
+
+## Mesh inputs
+
+In **Product → Import product**, choose a file, its source units (millimeters, centimeters, meters, inches or feet) and its Z/Y up axis. Units are required for STL/OBJ/PLY rather than guessed from the model's size. STL and OBJ convert with the editor's mesh worker (see [import compatibility](import-compatibility.md)); polygon PLY uses the bounded normalizer in `film/mesh_import.py`, which requires the pinned Blender 4.3.2 even when a newer import Blender is configured. That normalizer centers the actual mesh bounds, preserves independent mesh objects and PLY vertex colors, and exports a validated, static Y-up GLB in meters. The product metadata records the source hash, format and normalization transform under `meshImport`.
+
+```sh
+python -m film product-import /path/to/product.ply \
+  --source-units mm --source-up z \
+  --output /path/to/prepared-mesh \
+  --name 'Supplier product' --owner 'Product owner' \
+  --source 'Supplier export revision 3' \
+  --reuse-basis 'Owner supplied model' \
+  --workspace workspace-data
+```
+
+Use `--blender /absolute/path/to/blender` if it is outside `PATH`. Inputs and converted GLBs have a 128 MiB limit, conversion is bounded, and models must have polygon faces and nonzero three-dimensional bounds. Gaussian PLY splats use the separate World import flow; ordinary point clouds need reconstruction before product import. PLY has no standard PBR material or texture representation. FBX, multi-file glTF and native CAD archives are not accepted in this mesh intake.
+
+Imported products are rigid assemblies with three camera shots. Separate mechanisms, part selection for articulation and automatic material reconstruction remain outside this intake.
+
+Verify PLY normalization with `RUN_BLENDER_TESTS=1 python -m unittest tests.test_mesh_import -v`. `web/tests/product-import-smoke.mjs` was written for main's earlier editor and its import form; it needs updating before it can drive the gesso editor.
 
 ## Selected products and verified status
 

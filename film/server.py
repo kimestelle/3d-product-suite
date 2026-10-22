@@ -16,11 +16,13 @@ from urllib.parse import parse_qs, unquote, urlparse
 from . import jobs
 from .export_formats import FORMATS, job_format, primary_artifact, validate_format
 from .scene import evaluate, sample_scene, scene_digest, validate_scene
+from .scene_objects import resolve_scene_objects
 from .stills import create_still_job, run_still_job
 from .store import ConflictError, ProjectStore, ROOT, identifier, now
-from .worlds import MAX_ASSET_BYTES, import_world, list_worlds
+from .worlds import MAX_ASSET_BYTES, import_world, list_worlds, safe_asset_path
+from .textures import MAX_TEXTURE_BYTES, import_texture, inspect_texture, read_texture_bytes
 from .github_worlds import GitHubWorlds
-from .products import PRODUCT_SUFFIXES, create_product_scene
+from .products import PRODUCT_SUFFIX_ERROR, PRODUCT_SUFFIXES, create_product_scene
 from .comparison import calibrate_scene, comparison_payload, review_alignment
 from .comparison_jobs import ComparisonJobs
 from .materials import MaterialLibrary
@@ -30,7 +32,7 @@ from .audio import MAX_AUDIO_BYTES, MIME_TYPES as AUDIO_MIME_TYPES, ffprobe_comm
 from .artwork import import_artwork
 
 ARTIFACTS = {"scene.blend", "contact-sheet.png", "still-01.png", "still-02.png", "still-03.png"} | {item[1] for item in FORMATS.values()}
-ASSET_NAME = re.compile(r"[0-9a-f]{64}\.(?:glb|spz|ply|png|jpeg|webp|hdr|mp3|wav|m4a)\Z")
+ASSET_NAME = re.compile(r"[0-9a-f]{64}\.(?:glb|spz|ply|png|jpg|jpeg|webp|hdr|mp3|wav|m4a)\Z")
 
 
 def export_filename(value):
@@ -278,6 +280,8 @@ class Application:
         return {"worldlabsConfigured": bool(os.environ.get("WORLDLABS_API_KEY")),
                 "githubWorldsAvailable": shutil.which("gh") is not None,
                 "githubWorkflowUrl": self.github.url,
+                "productMeshImportAvailable": shutil.which(self.renders.blender) is not None,
+                "productMeshFormats": [suffix[1:] for suffix in PRODUCT_SUFFIXES],
                 **self._render_tool_capabilities()}
 
 
@@ -297,7 +301,7 @@ def make_handler(app):
                 raise PermissionError("Missing local editor request header")
 
         def _body(self, *, binary=False, limit=None):
-            limit = limit if limit is not None else MAX_ASSET_BYTES if binary else 4 * 1024 * 1024
+            limit = limit if limit is not None else (MAX_ASSET_BYTES if binary else 4 * 1024 * 1024)
             length = int(self.headers.get("Content-Length", "0"))
             if length < 1 or length > limit:
                 raise ValueError(f"Request body must contain 1–{limit} bytes")
@@ -394,9 +398,13 @@ def make_handler(app):
                 if len(parts) == 3 and parts[:2] == ["api", "assets"]:
                     if not ASSET_NAME.fullmatch(parts[2]):
                         raise ValueError("Invalid immutable asset name")
-                    asset = app.store.root / "assets" / parts[2]
+                    asset = safe_asset_path(app.store.root, f"assets/{parts[2]}")
                     if jobs._sha256(asset) != parts[2].split(".")[0]:
                         raise ValueError("World asset was modified")
+                    if asset.suffix == ".jpg":
+                        # Only label artwork uses .jpg. PNGs are shared with material
+                        # maps and film images, whose larger limits were checked on import.
+                        inspect_texture(read_texture_bytes(asset), "jpg")
                     return self._file(asset, immutable=True)
                 if path.startswith("/api/"):
                     return self._json({"error": "Unknown API route"}, 404)
@@ -419,23 +427,29 @@ def make_handler(app):
                 return self._json(import_audio(self._body(binary=True, limit=MAX_AUDIO_BYTES),
                                   self.headers.get("X-Asset-Filename", ""), app.store.root,
                                   ffprobe=ffprobe_command(app.renders.ffmpeg)), 201)
+            if self.command == "POST" and path == "/api/textures/import":
+                payload = self._body(binary=True, limit=MAX_TEXTURE_BYTES)
+                return self._json(import_texture(payload, app.store.root,
+                                                filename=unquote(self.headers.get("X-Asset-Filename", ""))), 201)
             if self.command == "POST" and path == "/api/products/import":
                 payload = self._body(binary=True)
                 query = parse_qs(parsed.query)
                 one = lambda name, default="": query.get(name, [default])[0]
                 suffix = Path(self.headers.get("X-Asset-Filename", "")).suffix.lower()
                 if suffix not in PRODUCT_SUFFIXES:
-                    raise ValueError("Choose GLB, Blender, STEP, IGES, STL or OBJ; export native CAD to STEP first")
+                    raise ValueError(PRODUCT_SUFFIX_ERROR)
                 temporary = app.store.root / f"product-import-{uuid.uuid4().hex}"
                 temporary.mkdir()
                 try:
-                    source = temporary / ("source" + suffix)
+                    source = temporary / f"source{suffix}"
                     source.write_bytes(payload)
                     provenance = {"source": one("source", "Product model supplied through the local editor"),
                                   "owner": one("owner"), "reuseBasis": one("reuseBasis"),
                                   "allowedExternalDestinations": []}
+                    # PLY uses main's mesh normalizer, which is pinned to the renderer's Blender 4.3.2.
                     scene = create_product_scene(source, temporary / "prepared", name=one("name", "Imported product"),
-                                                 provenance=provenance, blender=app.import_blender or app.renders.blender,
+                                                 provenance=provenance,
+                                                 blender=app.renders.blender if suffix == ".ply" else app.import_blender or app.renders.blender,
                                                  source_up=one("sourceUp", "z"), source_units=one("sourceUnits") or None)
                     return self._json(app.store.create(one("name", "Imported product"), scene,
                                                        source_dir=temporary / "prepared"), 201)
@@ -478,11 +492,14 @@ def make_handler(app):
                         return self._json({"scene": scene, "sample": evaluate(
                             scene, body["frame"], include_placement=body.get("includePlacement") is True),
                                            "digest": scene_digest(scene)})
-                    result = {**sample_scene(scene), "digest": scene_digest(scene)}
+                    result = {**sample_scene(scene), "digest": scene_digest(scene), "objects": resolve_scene_objects(scene)}
                     payload = comparison_payload(scene) if "comparison" in scene else None
                     if payload:
                         result["comparison"] = payload
                     return self._json(result)
+                if path == "/api/scene-objects/frame":
+                    from .object_editing import frame_scene_objects
+                    return self._json({"scene": frame_scene_objects(body["scene"])})
                 if path == "/api/comparison/calibrate":
                     return self._json({"scene": calibrate_scene(body["scene"], body["side"], body["calibration"])})
                 if path == "/api/comparison/review":

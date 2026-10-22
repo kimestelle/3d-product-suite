@@ -18,9 +18,17 @@ import {previewResolution} from './previewResolution';
 import {fitProductToWorld} from './productWorldFit';
 import {capPreviewTextures} from './previewTextures';
 import {createCameraTargetPointerGesture, filmGateRect, filmGuideZoom, projectFilmGuide, type CameraTargetGesture, type CameraTargetPointer, type FilmPresentationGuide} from './filmGuides';
+import { labelGeometry, labelImageDimensions, labelTemplateSvg, type LabelMapping } from './labelMapping';
+import { assetUrl as runtimeAssetUrl } from './runtime';
+import { productSupportOrigin, sceneFloorY } from './sceneGraph';
 
 // The lookup textures are shared across both comparison renderers.
 let areaLightUniformsReady = false;
+
+export type SurfacePointPick = {
+  worldPoint: [number, number, number];
+  normal: [number, number, number];
+};
 
 export type WorldPointPick = {
   sourcePoint: [number, number, number];
@@ -51,6 +59,7 @@ export type ViewportOptions = {
   /** Remains busy until the first sampled frame is displayed, including GPU sorting. */
   onLoading?: (loading: boolean) => void;
   onWorldPoint?: (point: WorldPointPick) => void;
+  onSurfacePoint?: (point: SurfacePointPick) => void;
   onInteract?: () => void;
   onFilmGuide?: (guide: FilmPresentationGuide | null) => void;
 };
@@ -133,6 +142,10 @@ export class StudioViewport {
   private interactionSurface: HTMLElement | null = null;
   private controlSurface: { element: HTMLElement; cursor: string; touchAction: string; pointers: Set<number>; down: (event: PointerEvent) => void; end: (event: PointerEvent) => void } | null = null;
   private controlListeners: { start: () => void; change: () => void; end: () => void } | null = null;
+  /** Explicit props by scene ID, posed from the sampled scene-object graph, with
+   * their authored poses as the fallback. Created on first use, like the rig. */
+  private sceneProps: Map<string, {object: THREE.Object3D; source: {translationM: number[]; rotationXyzw: number[]}}> | null = null;
+  private propEntries() { return this.sceneProps ??= new Map(); }
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly resizeObserver: ResizeObserver;
@@ -174,6 +187,8 @@ export class StudioViewport {
   private loadedProductKey: string | null = null;
   private materialPreviewState: MaterialPreviewState | null = null;
   private transformPlacement: { pivot: THREE.Vector3; scale: number } | null = null;
+  private surfacePickEnabled = false;
+  private latestSample: any = null;
 
   constructor(canvas: HTMLCanvasElement, options: ViewportOptions = {}) {
     this.canvas = canvas;
@@ -240,8 +255,8 @@ export class StudioViewport {
   }
 
   private updateControlsEnabled(): void {
-    if (this.controls) this.controls.enabled = this.inspectionEnabled && !(this.filmContent && this.filmClip?.kind !== 'scene') && !this.disposed && !this.loading && !(this.deferredWorld?.loading && !this.productPreview) && !this.loadFailed && !this.awaitingSample && !this.worldPickEnabled && this.parts.size > 0;
-    (this.controlSurface?.element ?? this.canvas).style.cursor = this.worldPickEnabled ? 'crosshair' : this.controls?.enabled ? 'grab' : '';
+    if (this.controls) this.controls.enabled = this.inspectionEnabled && !(this.filmContent && this.filmClip?.kind !== 'scene') && !this.disposed && !this.loading && !(this.deferredWorld?.loading && !this.productPreview) && !this.loadFailed && !this.awaitingSample && !this.worldPickEnabled && !this.surfacePickEnabled && this.parts.size > 0;
+    (this.controlSurface?.element ?? this.canvas).style.cursor = this.worldPickEnabled || this.surfacePickEnabled ? 'crosshair' : this.controls?.enabled ? 'grab' : '';
   }
 
   private onControlsStart(): void {
@@ -320,7 +335,7 @@ export class StudioViewport {
     // Calibration never falls through to product selection, including while a
     // replacement world is loading or when the pointer misses its geometry.
     const world = this.worldRoot;
-    if (this.worldPickEnabled && (!world || this.loading || this.loadFailed || this.awaitingSample || !this.worldReady
+    if ((this.worldPickEnabled || this.surfacePickEnabled) && (!world || this.loading || this.loadFailed || this.awaitingSample || !this.worldReady
         || this.worldLoadVersion !== this.loadVersion || world.parent !== this.content
         || document.hidden || !this.visible || !this.objectVisible(world))) return;
     const bounds = this.canvas.getBoundingClientRect();
@@ -329,7 +344,7 @@ export class StudioViewport {
     this.pointer.set((event.clientX - bounds.left) / bounds.width * 2 - 1, -(event.clientY - bounds.top) / bounds.height * 2 + 1);
     this.camera.updateMatrixWorld(true);
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    if (this.worldPickEnabled) {
+    if (this.worldPickEnabled || this.surfacePickEnabled) {
       // Only the imported world hierarchy participates. Explicit plinth/props,
       // exact product geometry and selection helpers cannot become references.
       world!.updateWorldMatrix(true, true);
@@ -341,6 +356,19 @@ export class StudioViewport {
         const mesh = hit.object as THREE.Mesh;
         const surface = Array.isArray(mesh.material) ? mesh.material[hit.face?.materialIndex ?? 0] : mesh.material;
         if (!surface?.visible || (surface.transparent && surface.opacity <= 0)) continue;
+        if (this.surfacePickEnabled) {
+          // Ignore transparent helpers/glass. The nearest opaque surface must
+          // itself face up; do not place through a wall onto a floor behind it.
+          if ((surface.transparent && surface.opacity < 1)
+              || ((surface as THREE.MeshPhysicalMaterial).transmission ?? 0) > 0) continue;
+          if (!hit.face) return;
+          const normal = hit.face.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld)).normalize();
+          if (![normal.x, normal.y, normal.z, hit.point.x, hit.point.y, hit.point.z].every(Number.isFinite)
+              || normal.y < 0.7) return;
+          this.options.onSurfacePoint?.({ worldPoint: [hit.point.x, hit.point.y, hit.point.z],
+            normal: [normal.x, normal.y, normal.z] });
+          return;
+        }
         // Invert only the alignment root. The GLB scene's internal transforms
         // remain part of the raw source point, rather than returning mesh-local
         // coordinates or dividing world Y by scale without undoing rotation.
@@ -358,9 +386,14 @@ export class StudioViewport {
     const hits = this.raycaster.intersectObjects([...this.components.values()], true);
     for (const hit of hits) {
       let node: THREE.Object3D | null = hit.object;
-      while (node && !node.userData.componentId) node = node.parent;
-      if (node?.userData.componentId) {
-        this.options.onSelect?.(node.userData.componentId);
+      if (!this.objectVisible(hit.object)) continue;
+      const material = (hit.object as THREE.Mesh).material;
+      const surface = Array.isArray(material) ? material[hit.face?.materialIndex ?? 0] : material;
+      if (surface && (!surface.visible || (surface.transparent && surface.opacity <= 0))) continue;
+      while (node && !node.userData.objectId && !node.userData.componentId) node = node.parent;
+      const id = node?.userData.objectId || node?.userData.componentId;
+      if (id) {
+        this.options.onSelect?.(id);
         return;
       }
     }
@@ -373,6 +406,14 @@ export class StudioViewport {
 
   setWorldPickEnabled(enabled: boolean): void {
     this.worldPickEnabled = !!enabled && !this.disposed && !this.options.capture;
+    if (this.worldPickEnabled) this.surfacePickEnabled = false;
+    this.updateControlsEnabled();
+  }
+
+  /** Place the product on an upward-facing surface of a mesh world (scene objects). */
+  setSurfacePickEnabled(enabled: boolean): void {
+    this.surfacePickEnabled = !!enabled && !this.disposed && !this.options.capture;
+    if (this.surfacePickEnabled) this.worldPickEnabled = false;
     this.updateControlsEnabled();
   }
 
@@ -659,9 +700,10 @@ export class StudioViewport {
   private async makeProduct(source: any, version: number, signal: AbortSignal): Promise<void> {
     this.productMaterialsReady = false;
     this.removedPartIds = removedProductPartIds(source);
-    const support = source.environment?.plinth;
-    const pivot = new THREE.Vector3().fromArray(source.placement.translationM);
-    if (support) pivot.add(new THREE.Vector3().fromArray(support.translationM)).add(new THREE.Vector3(0, support.sizeM[1] / 2, 0));
+    // Placement is relative to the resolved support: plinth (shown or hidden),
+    // floor, picked world contact or a prop (film/scene_objects.py).
+    const pivot = new THREE.Vector3().fromArray(source.placement.translationM)
+      .add(new THREE.Vector3().fromArray(productSupportOrigin(source, this.latestSample?.props)));
     this.transformPlacement = { pivot, scale: source.placement.scale ?? 1 };
     for (const specification of source.product.components) {
       if (version !== this.loadVersion || this.disposed) return;
@@ -671,6 +713,8 @@ export class StudioViewport {
       group.userData.gessoPrimitiveShape = specification.shape;
       group.userData.gessoMaterialOverride = specification.materialOverride === true;
       group.userData.gessoAssemblyRotation = [...specification.assembly.rotationXyzw];
+      group.userData.labelSizeM = [...specification.sizeM];
+      group.userData.labelShape = specification.shape;
       if (specification.shape === 'mesh') {
         const imported = await this.loadVerifiedGlb(specification.asset, signal);
         if (version !== this.loadVersion || this.disposed) { this.disposeObject(imported); return; }
@@ -700,12 +744,19 @@ export class StudioViewport {
     // or allowing a sampled frame to publish the replacement product.
     await this.loadSurfaceTextures(signal);
     if (version !== this.loadVersion || this.disposed) return;
+    // Label artwork wraps the final surface materials, so it follows their maps.
+    for (const specification of source.product.components) {
+      const group = this.components.get(specification.id);
+      if (!specification.labelTexture || !group) continue;
+      await this.applyLabelTexture(group, specification, signal);
+      if (version !== this.loadVersion || this.disposed) return;
+    }
     const label = source.product.label;
     if (label && this.components.has(label.componentId)
       && !(source.product.artwork || []).some((item: {partId:string}) => item.partId === label.componentId)
       && !(source.product.decals || []).some((decal: ProductDecal) => decal.componentId === label.componentId)) {
       const component = source.product.components.find((item: any) => item.id === label.componentId);
-      this.addLabel(this.components.get(label.componentId)!, label, component.sizeM);
+      if (!component.labelTexture) this.addLabel(this.components.get(label.componentId)!, label, component.sizeM);
     }
     this.indexProductParts(source);
     await replaceSurfaceArtwork(this.content,this.parts,source.product.artwork || [],asset=>this.assetUrl(asset),signal);
@@ -779,6 +830,157 @@ export class StudioViewport {
       }
     });
     return [...new Map([...materials.values()].map(slot => [slot.id, slot])).values()];
+  }
+
+  private async loadVerifiedLabel(asset: any, signal: AbortSignal): Promise<THREE.Texture> {
+    if (!['png', 'jpg'].includes(asset?.format) || !/^[a-f0-9]{64}$/.test(asset?.sha256 || '')
+        || asset?.path !== `assets/${asset.sha256}.${asset.format}`
+        || !Number.isInteger(asset.widthPx) || !Number.isInteger(asset.heightPx)) {
+      throw new Error('The label must reference a content-addressed PNG or JPEG image.');
+    }
+    const response = await fetch(runtimeAssetUrl(asset.path), { signal, credentials: 'same-origin' });
+    if (!response.ok) throw new Error(`Could not load label image (${response.status}).`);
+    const limit = 8 * 1024 * 1024;
+    const declared = response.headers.get('Content-Length');
+    if (declared && (!/^\d+$/.test(declared) || Number(declared) > limit)) throw new Error('The label image exceeds the 8 MiB limit.');
+    const bytes = await response.arrayBuffer();
+    if (bytes.byteLength > limit) throw new Error('The label image exceeds the 8 MiB limit.');
+    const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), value => value.toString(16).padStart(2, '0')).join('');
+    if (digest !== asset.sha256) throw new Error('The label image SHA-256 does not match its immutable scene revision.');
+    const [width, height] = labelImageDimensions(bytes, asset.format);
+    if (width !== asset.widthPx || height !== asset.heightPx) throw new Error('The label image dimensions do not match its immutable scene revision.');
+    if (signal.aborted) throw new DOMException('Label loading was superseded.', 'AbortError');
+    // ImageBitmap uploads ignore Texture.flipY. Flip exactly once at decode,
+    // so both planar/cylindrical v-up UVs and normalized glTF UVs agree.
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: asset.format === 'png' ? 'image/png' : 'image/jpeg' }),
+      { imageOrientation: 'flipY', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+    if (signal.aborted) { bitmap.close(); throw new DOMException('Label loading was superseded.', 'AbortError'); }
+    if (bitmap.width !== width || bitmap.height !== height) { bitmap.close(); throw new Error('The decoded label image dimensions changed. Export the image without EXIF rotation.'); }
+    const texture = new THREE.Texture(bitmap);
+    texture.flipY = false;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  private async applyLabelTexture(group: THREE.Group, component: any, signal: AbortSignal): Promise<void> {
+    const specification = component.labelTexture;
+    const mapping = specification.mapping as LabelMapping;
+    if (mapping.mode === 'uv' && component.shape !== 'mesh') throw new Error('Existing UV maps require an imported mesh. Choose flat or cylindrical mapping for this component.');
+    group.updateWorldMatrix(true, true);
+    const inverse = group.matrixWorld.clone().invert();
+    const prepared = new Map<THREE.Mesh, THREE.BufferGeometry>();
+    let texture: THREE.Texture | undefined;
+    try {
+      group.traverse(object => {
+        if (!(object instanceof THREE.Mesh)) return;
+        prepared.set(object, labelGeometry(object.geometry, inverse.clone().multiply(object.matrixWorld), component.sizeM, mapping));
+      });
+      texture = await this.loadVerifiedLabel(specification.asset, signal);
+      const originals = new Set<THREE.Material>();
+      const materials = new Map<THREE.Material, THREE.Material>();
+      for (const [mesh, geometry] of prepared) {
+        const oldGeometry = mesh.geometry;
+        mesh.geometry = geometry;
+        // Another mesh can share the original geometry; all mapped clones
+        // have already been prepared before releasing its GPU allocation.
+        oldGeometry.dispose();
+        const replace = (original: THREE.Material): THREE.Material => {
+          if (materials.has(original)) return materials.get(original)!;
+          const result = this.labelMaterial(original, texture!, specification);
+          materials.set(original, result); originals.add(original); return result;
+        };
+        mesh.material = Array.isArray(mesh.material) ? mesh.material.map(replace) : replace(mesh.material);
+      }
+      // Texture maps are shared by the clones, so release only old materials.
+      originals.forEach(material => material.dispose());
+    } catch (error) {
+      prepared.forEach(geometry => geometry.dispose());
+      texture?.dispose();
+      if (texture && typeof ImageBitmap !== 'undefined' && texture.image instanceof ImageBitmap) texture.image.close();
+      throw error;
+    }
+  }
+
+  private labelMaterial(original: THREE.Material, texture: THREE.Texture, specification: any): THREE.Material {
+    let material: THREE.Material;
+    const unlit = original instanceof THREE.MeshBasicMaterial;
+    if (original instanceof THREE.MeshPhysicalMaterial) material = original.clone();
+    else if (original instanceof THREE.MeshStandardMaterial) {
+      const physical = new THREE.MeshPhysicalMaterial();
+      THREE.MeshStandardMaterial.prototype.copy.call(physical, original);
+      (physical as any).defines = { ...(physical as any).defines, STANDARD: '', PHYSICAL: '' };
+      material = physical;
+    } else if (unlit) {
+      // Preserve unlit glTF color outside the print as emitted light while the
+      // printed region uses an ordinary, lit physical material.
+      const source = original as THREE.MeshBasicMaterial;
+      material = new THREE.MeshPhysicalMaterial({ color: source.color, map: source.map, alphaMap: source.alphaMap,
+        opacity: source.opacity, transparent: source.transparent, alphaTest: source.alphaTest, side: source.side,
+        vertexColors: source.vertexColors, depthWrite: source.depthWrite, depthTest: source.depthTest,
+        toneMapped: source.toneMapped, visible: source.visible, name: source.name, specularIntensity: 0 });
+    } else throw new Error('Label printing requires a standard, physical or unlit mesh material.');
+    // A glTF MASK cutoff belongs to the substrate. Ink can still be partially
+    // visible over a cutout, so compositing needs a blended material there.
+    if (original.alphaTest > 0) material.transparent = true;
+    const mapping = specification.mapping;
+    const print = specification.material;
+    const previous = original.onBeforeCompile;
+    material.onBeforeCompile = (shader, renderer) => {
+      previous.call(material, shader, renderer);
+      Object.assign(shader.uniforms, {
+        labelArtwork: { value: texture }, labelTint: { value: this.color(print.baseColor) },
+        labelOpacity: { value: print.baseColor[3] },
+        labelRoughness: { value: print.roughness }, labelMetalness: { value: print.metallic }, labelIor: { value: print.ior ?? 1.5 },
+        labelScale: { value: new THREE.Vector2().fromArray(mapping.scale) },
+        labelOffset: { value: new THREE.Vector2().fromArray(mapping.offset) },
+        labelAngle: { value: -mapping.rotationDegrees * Math.PI / 180 },
+      });
+      shader.vertexShader = shader.vertexShader.replace('#include <common>', `#include <common>\nattribute vec2 labelUv;\nattribute float labelCoverage;\nvarying vec2 vLabelUv;\nvarying float vLabelCoverage;`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>\nvLabelUv = labelUv;\nvLabelCoverage = labelCoverage;`);
+      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>\nuniform sampler2D labelArtwork;\nuniform vec3 labelTint;\nuniform float labelOpacity;\nuniform float labelRoughness;\nuniform float labelMetalness;\nuniform float labelIor;\nuniform vec2 labelScale;\nuniform vec2 labelOffset;\nuniform float labelAngle;\nvarying vec2 vLabelUv;\nvarying float vLabelCoverage;`)
+        .replace('#include <alphatest_fragment>', `vec2 labelDelta = vLabelUv - vec2(0.5) - labelOffset;\n${mapping.mode === 'cylindrical' ? 'labelDelta.x = fract(labelDelta.x + 0.5) - 0.5;' : ''}\nvec2 labelPosition = labelDelta / labelScale;\nfloat labelC = cos(labelAngle);\nfloat labelS = sin(labelAngle);\nvec2 printUv = vec2(labelC * labelPosition.x - labelS * labelPosition.y, labelS * labelPosition.x + labelC * labelPosition.y) + vec2(0.5);\nvec4 labelSample = texture2D(labelArtwork, printUv);\nfloat labelInside = step(0.0, printUv.x) * step(printUv.x, 1.0) * step(0.0, printUv.y) * step(printUv.y, 1.0);\nfloat printAlpha = labelSample.a * labelInside * vLabelCoverage * labelOpacity;\n${unlit ? 'totalEmissiveRadiance = diffuseColor.rgb;\ndiffuseColor.rgb = vec3(0.0);' : ''}\ndiffuseColor.rgb = mix(diffuseColor.rgb, labelSample.rgb * labelTint, printAlpha);\ndiffuseColor.a = mix(diffuseColor.a, 1.0, printAlpha);\n#include <alphatest_fragment>`)
+        .replace('float printAlpha = labelSample.a * labelInside * vLabelCoverage * labelOpacity;', `float inkAlpha = labelSample.a * labelInside * vLabelCoverage * labelOpacity;\n#ifdef USE_ALPHATEST\nif (diffuseColor.a < alphaTest) diffuseColor.a = 0.0;\n#endif\n#ifdef OPAQUE\ndiffuseColor.a = 1.0;\n#endif\nfloat compositeAlpha = mix(diffuseColor.a, 1.0, inkAlpha);\nfloat printAlpha = inkAlpha / max(compositeAlpha, 0.000001);`)
+        .replace('diffuseColor.a = mix(diffuseColor.a, 1.0, printAlpha);\n#include <alphatest_fragment>', 'diffuseColor.a = compositeAlpha;\nif (diffuseColor.a <= 0.0) discard;')
+        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, labelRoughness, printAlpha);')
+        .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = mix(metalnessFactor, labelMetalness, printAlpha);')
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance *= (1.0 - printAlpha);')
+        .replace('#include <lights_physical_fragment>', THREE.ShaderChunk.lights_physical_fragment
+          .replace('material.ior = ior;', 'material.ior = mix(ior, labelIor, printAlpha);')
+          .replace('material.specularF90 = mix( specularIntensityFactor, 1.0, metalnessFactor );', 'specularIntensityFactor = mix(specularIntensityFactor, 1.0, printAlpha);\nspecularColorFactor = mix(specularColorFactor, vec3(1.0), printAlpha);\nmaterial.specularF90 = mix( specularIntensityFactor, 1.0, metalnessFactor );')
+          .replace('material.clearcoat = saturate( material.clearcoat );', 'material.clearcoat = saturate( material.clearcoat ) * (1.0 - printAlpha);')
+          .replace('material.dispersion = dispersion;', 'material.dispersion = dispersion * (1.0 - printAlpha);')
+          .replace('material.iridescence = iridescence;', 'material.iridescence = iridescence * (1.0 - printAlpha);')
+          .replace('material.sheenColor = sheenColor;', 'material.sheenColor = sheenColor * (1.0 - printAlpha);')
+          .replace('material.anisotropy = length( anisotropyV );', 'material.anisotropy = length( anisotropyV ) * (1.0 - printAlpha);'))
+        .replace('#include <transmission_fragment>', THREE.ShaderChunk.transmission_fragment
+          .replace('material.transmission = transmission;', 'material.transmission = transmission * (1.0 - printAlpha);'));
+    };
+    material.customProgramCacheKey = () => `gesso-label-v1-${mapping.mode}-${unlit ? 'unlit' : 'physical'}-${original.customProgramCacheKey()}`;
+    // Custom shader uniforms are not discovered by generic material disposal.
+    // Keep this enumerable texture reference so the existing lifecycle owns it.
+    (material as any).labelArtwork = texture;
+    material.needsUpdate = true;
+    return material;
+  }
+
+  labelTemplate(componentId: string, mapping: LabelMapping): string {
+    const component = this.components.get(componentId);
+    if (!component || this.loading || this.disposed) throw new Error('Wait for the selected product component to finish loading.');
+    if (mapping.mode === 'uv' && component.userData.labelShape !== 'mesh') throw new Error('Existing UV maps require an imported mesh.');
+    component.updateWorldMatrix(true, true);
+    const inverse = component.matrixWorld.clone().invert();
+    const geometries: THREE.BufferGeometry[] = [];
+    try {
+      component.traverse(object => {
+        if (object instanceof THREE.Mesh && object.name !== 'Declared label artwork' && !object.userData.gessoArtwork) {
+          geometries.push(labelGeometry(object.geometry, inverse.clone().multiply(object.matrixWorld), component.userData.labelSizeM, mapping));
+        }
+      });
+      return labelTemplateSvg(geometries, componentId);
+    } finally { geometries.forEach(geometry => geometry.dispose()); }
   }
 
   private prepareImportedMesh(root: THREE.Object3D): void {
@@ -1140,7 +1342,7 @@ export class StudioViewport {
 
   private async loadMeshProps(source: any, version: number, signal: AbortSignal): Promise<void> {
     for (const specification of source.environment.props || []) {
-      if (specification.shape !== 'mesh') continue;
+      if (specification.shape !== 'mesh' || specification.visible === false) continue;
       const imported = await this.loadVerifiedGlb(specification.asset, signal);
       if (version !== this.loadVersion || this.disposed) { this.disposeObject(imported); return; }
       try {
@@ -1162,6 +1364,7 @@ export class StudioViewport {
         prop.quaternion.fromArray(specification.rotationXyzw);
         prop.scale.fromArray(specification.sizeM.map((value: number, axis: number) => value / dimensions[axis]));
         // Normalization happened at import; keep every source node transform and UV.
+        this.trackProp(specification, prop);
         this.addEnvironmentObject(prop);
       } catch (error) { this.disposeObject(imported); throw error; }
     }
@@ -1215,35 +1418,40 @@ export class StudioViewport {
     const plinth = source.environment.plinth;
     // A fixed stage reference is independent of the product’s original units.
     const studioSize = source.environment.studioSizeM ?? Math.max(...source.product.dimensionsM);
-    const rigOrigin = source.environment.studioSizeM === undefined
-      ? new THREE.Vector3().fromArray(source.placement.translationM)
-      : new THREE.Vector3().fromArray(plinth.translationM).add(new THREE.Vector3(0, plinth.sizeM[1] / 2, 0));
+    const rigOrigin = this.studioRigOrigin(source);
     const material = plinth.material ? this.surface(plinth.material) : new THREE.MeshStandardMaterial({ color: this.color([0.56, 0.54, 0.49]), roughness: 0.58 });
     const ledge = new THREE.Mesh(this.geometry('box', plinth.sizeM, Math.min(0.004, ...plinth.sizeM.map((value: number) => value / 2))), material);
     ledge.name = 'Explicit contact plinth';
+    ledge.userData.objectId = `plinth:${plinth.id || 'plinth'}`;
     ledge.position.fromArray(plinth.translationM);
-    // The contact coordinates still place the product when its support is hidden.
+    ledge.quaternion.fromArray(plinth.rotationXyzw || [0, 0, 0, 1]);
+    // A hidden legacy plinth still defines the product's contact height (D93, D160).
     ledge.visible = plinth.visible !== false;
     ledge.castShadow = true;
     ledge.receiveShadow = true;
     this.addEnvironmentObject(ledge);
     for (const specification of source.environment.props || []) {
       if (specification.shape === 'mesh') continue; // Verified GLBs load before the scene is published.
+      if (specification.visible === false) continue;
       const prop = new THREE.Mesh(this.geometry(specification.shape, specification.sizeM, specification.bevelM), this.surface(specification.material));
       prop.name = specification.id;
+      prop.userData.objectId = `prop:${specification.id}`;
       prop.position.fromArray(specification.translationM);
       prop.quaternion.fromArray(specification.rotationXyzw);
       prop.castShadow = true;
       prop.receiveShadow = true;
+      this.trackProp(specification, prop);
       this.addEnvironmentObject(prop);
     }
     if (source.environment.kind === 'authored') {
-      // Hidden support keeps its placement plane: the sweep meets that top
-      // surface instead of leaving the product suspended over the plinth bottom.
-      const floorHeight = plinth.translationM[1] + (plinth.visible === false ? 1 : -1) * plinth.sizeM[1] / 2 - 0.0001;
+      // The declared floor, a visible plinth's bottom, or a hidden plinth's top:
+      // a hidden support keeps its placement plane, so the sweep meets the product
+      // instead of leaving it suspended over the plinth bottom (D93, D160).
+      const floorHeight = sceneFloorY(source) - 0.0001;
       const radius = studioSize * 3;
       const geometry = createStudioSweepGeometry(floorHeight, radius);
       const floor = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: this.color(source.environment.worldColor ?? [0.26, 0.28, 0.26]), roughness: 0.72, side: THREE.DoubleSide }));
+      floor.name = 'Authored environment sweep';
       floor.receiveShadow = true;
       this.addEnvironmentObject(floor);
     }
@@ -1255,6 +1463,9 @@ export class StudioViewport {
       const shadowMaterial = new THREE.ShadowMaterial({ color: 0x000000, opacity: .1, depthWrite: false });
       // Keep only nearby contact cues in this inspection view. Long shadows
       // from the live rig's directional approximation fade into the white.
+      // The receiver sits at the product's contact: the top of its plinth, shown
+      // or hidden, the floor, a picked world surface or a supporting prop.
+      const support = productSupportOrigin(source, this.latestSample?.props);
       const contactCenter = new THREE.Vector2(rigOrigin.x, rigOrigin.z);
       const productScale = source.environment.studioSizeM === undefined ? 1 : (source.placement.scale ?? 1);
       const contactRadius = Math.max(source.product.dimensionsM[0], source.product.dimensionsM[2]) * productScale * .9;
@@ -1270,7 +1481,7 @@ export class StudioViewport {
       const ground = new THREE.Mesh(new THREE.PlaneGeometry(span, span), shadowMaterial);
       ground.name = 'Product contact shadow';
       ground.rotation.x = -Math.PI / 2;
-      ground.position.set(plinth.translationM[0], plinth.translationM[1] + plinth.sizeM[1] / 2 - .0001, plinth.translationM[2]);
+      ground.position.set(support[0], support[1] - .0001, support[2]);
       ground.receiveShadow = true;
       ground.visible = false;
       this.productGround = ground;
@@ -1376,6 +1587,40 @@ export class StudioViewport {
       light.shadow.radius = diameter * 20;
       this.content.add(light, light.target);
     }
+  }
+
+  /** Origin of the implicit rig and contact receiver, as scripts/blender_scene.py
+   * studio_rig_origin: a product on its plinth keeps D127's rule (the plinth top
+   * with a fixed studio, the authored placement otherwise); a product on the
+   * floor, a picked surface or a prop anchors to that support with a fixed
+   * studio and otherwise follows its sampled root. */
+  private studioRigOrigin(source: any): THREE.Vector3 {
+    const plinth = source.environment.plinth;
+    if ((source.placement.restsOn ?? plinth.id) === plinth.id) {
+      return source.environment.studioSizeM === undefined
+        ? new THREE.Vector3().fromArray(source.placement.translationM)
+        : new THREE.Vector3().fromArray(plinth.translationM).add(new THREE.Vector3(0, plinth.sizeM[1] / 2, 0));
+    }
+    if (source.environment.studioSizeM !== undefined) return new THREE.Vector3().fromArray(productSupportOrigin(source, this.latestSample?.props));
+    return this.sampledProductOrigin(source, this.latestSample);
+  }
+
+  private sampledProductOrigin(source: any, sample: any): THREE.Vector3 {
+    // Prefer a rigid component: the first displayed frame can already contain
+    // an animated cap or another articulated part in a different local pose.
+    const moving = new Set((source.actions || []).map((action: any) => action.componentId));
+    const components = [...source.product.components].sort((a: any, b: any) => Number(moving.has(a.id)) - Number(moving.has(b.id)));
+    for (const component of components) {
+      const pose = sample?.components?.[component.id];
+      if (!pose) continue;
+      const rootRotation = new THREE.Quaternion().fromArray(pose.rotationXyzw)
+        .multiply(new THREE.Quaternion().fromArray(component.assembly.rotationXyzw).invert()).normalize();
+      // Uniform product scale multiplies the assembly offset as well.
+      const scale = (pose.scale ?? 1) / (component.assembly.scale ?? 1);
+      const assemblyOffset = new THREE.Vector3().fromArray(component.assembly.translationM).multiplyScalar(scale).applyQuaternion(rootRotation);
+      return new THREE.Vector3().fromArray(pose.translationM).sub(assemblyOffset);
+    }
+    return new THREE.Vector3().fromArray(source.placement.translationM);
   }
 
   private alignWorld(root: THREE.Object3D, asset: any): void {
@@ -1603,7 +1848,7 @@ export class StudioViewport {
     return task;
   }
 
-  async load(source: any, assetUrl?: string): Promise<void> {
+  async load(source: any, assetUrl?: string, initialSample?: any): Promise<void> {
     if (Number.isFinite(source.render?.width) && Number.isFinite(source.render?.height) && source.render.width > 0 && source.render.height > 0) {
       this.filmOutputAspect = source.render.width / source.render.height;
       this.applyFilmProjection(this.camera, this.pendingSize);
@@ -1626,6 +1871,9 @@ export class StudioViewport {
     // establish a new product and return to its authored shot.
     this.clearContent(!!this.options.studioMode && productKey === this.loadedProductKey);
     this.loadedProductKey = productKey;
+    // Resolved prop poses from the scene-object graph (and the support of a
+    // product resting on a prop) are known only from a sample.
+    this.latestSample = initialSample ?? null;
     const environment = source.environment;
     const capture = !!this.options.capture;
     this.environmentBackground = capture ? null : this.color(environment.worldColor);
@@ -1693,6 +1941,7 @@ export class StudioViewport {
 
   async frame(sample: any): Promise<void> {
     if (this.disposed) throw new Error('Viewport has been disposed.');
+    this.latestSample = sample;
     const request = ++this.frameRequest;
     const version = this.loadVersion;
     // Explicit callers can await the exact submitted frame. Serializing Spark
@@ -1713,6 +1962,7 @@ export class StudioViewport {
         component.quaternion.fromArray(pose.rotationXyzw);
         component.scale.setScalar(pose.scale ?? 1);
       }
+      this.applyPropPoses(sample.props);
       this.applyLightPoses(sample.lights ?? []);
       // These matrices come from the same sampler as export. Keep the imported
       // hierarchy and exact affine matrices instead of decomposing source shear.
@@ -1763,6 +2013,22 @@ export class StudioViewport {
     });
     this.frameQueue = result;
     return result;
+  }
+
+  private trackProp(specification: any, object: THREE.Object3D): void {
+    this.propEntries().set(specification.id, {object, source: {
+      translationM: [...specification.translationM], rotationXyzw: [...specification.rotationXyzw],
+    }});
+  }
+
+  /** Related props take their resolved pose from the sample (film/scene_objects.py);
+   * free props, and samples from scenes without props, keep the authored pose. */
+  private applyPropPoses(poses?: Record<string, { translationM: number[]; rotationXyzw: number[] }>): void {
+    for (const [id, {object, source}] of this.sceneProps ?? []) {
+      const pose = poses?.[id] ?? source;
+      object.position.fromArray(pose.translationM);
+      object.quaternion.fromArray(pose.rotationXyzw);
+    }
   }
 
   /** Sampled light poses exist only for scenes that animate a light. A spot
@@ -2147,9 +2413,8 @@ export class StudioViewport {
     const placementScale = posedScene ? posedScene.placement.scale ?? 1 : this.transformPlacement.scale;
     let placementPivot = this.transformPlacement.pivot;
     if (posedScene) {
-      placementPivot = new THREE.Vector3().fromArray(posedScene.placement.translationM);
-      const support = posedScene.environment?.plinth;
-      if (support) placementPivot.add(new THREE.Vector3().fromArray(support.translationM)).add(new THREE.Vector3(0, support.sizeM[1] / 2, 0));
+      placementPivot = new THREE.Vector3().fromArray(posedScene.placement.translationM)
+        .add(new THREE.Vector3().fromArray(productSupportOrigin(posedScene, this.latestSample?.props)));
     }
     // Keep the part's actual rendered origin (including mechanical travel), but use
     // the authored XYZ orientation at this time to determine its Euler control axes.
@@ -2283,6 +2548,8 @@ export class StudioViewport {
     this.environmentMap?.dispose(); this.environmentMap = null;
     this.productGround = null;
     this.studioLights?.clear();
+    this.sceneProps?.clear();
+    this.latestSample = null;
   }
 
   clearScene(): void {
@@ -2323,6 +2590,7 @@ export class StudioViewport {
     this.materialPreviewState?.pending?.resolve();
     if (this.materialPreviewState) { this.materialPreviewState.pending = null; this.materialPreviewState.descriptor = null; }
     this.setWorldPickEnabled(false);
+    this.setSurfacePickEnabled(false);
     this.loadVersion++;
     this.assetAbort?.abort();
     this.cancelRender();
@@ -2386,7 +2654,7 @@ export function createViewport(host: HTMLElement, options: Omit<ViewportOptions,
       latestSample = sample;
       filmAspect = scene.render.width / scene.render.height;
       fitCanvas();
-      await viewport.load(scene);
+      await viewport.load(scene, undefined, latestSample);
       if (request === version && latestSample) await viewport.frame(latestSample);
     },
     setSample(sample: any) {
@@ -2422,6 +2690,8 @@ export function createViewport(host: HTMLElement, options: Omit<ViewportOptions,
     setFilmContent(enabled: boolean) { viewport.setFilmContent(enabled); },
     createCameraTargetGesture(pointer: CameraTargetPointer) { return viewport.createCameraTargetGesture(pointer); },
     setInteractionSurface(element: HTMLElement | null) { viewport.setInteractionSurface(element); },
+    setSurfacePickEnabled(enabled: boolean) { viewport.setSurfacePickEnabled(enabled); },
+    labelTemplate(componentId: string, mapping: LabelMapping) { return viewport.labelTemplate(componentId, mapping); },
     clearScene() {
       version++;
       latestSample = null;

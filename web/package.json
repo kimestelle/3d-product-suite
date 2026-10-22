@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
+    "build:demo": "python3 ../scripts/build_static_demo.py --output public/demo && tsc -b && VITE_STATIC_DEMO=1 vite build",
     "test": "vitest run",
     "preview": "vite preview --host 127.0.0.1"
   },

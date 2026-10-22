@@ -11,12 +11,14 @@ work/
 workspace-data/
 web/node_modules/
 web/dist/
+web/public/demo/
 web/test-results/
 web/playwright-report/
 .env*
 !.env.example
 worldlabs-experiment/
 .cache/
+.worldlabs-cache/
 web/*.tsbuildinfo
 *.egg-info/
 web/public/media/gallery/

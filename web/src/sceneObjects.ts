@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
+import {assetUrl as runtimeAssetUrl} from './runtime';
 
 // Shared by the live viewport and object previews. Asset verification, geometry
 // and ownership must agree before either view presents a scene object.
@@ -67,7 +68,8 @@ export function createComponentGeometry(shape: string, size: number[], bevel = 0
 export function sceneAssetUrl(asset: any): string {
   const filename = String(asset?.path || '').split('/').pop();
   if (!filename || !/^[a-f0-9]{64}\.(glb|ply|spz|png|jpeg|jpg|webp|hdr)$/.test(filename)) throw new Error('The asset path is invalid.');
-  return `/api/assets/${filename}`;
+  // The static demo serves the same content-addressed files from its bundle.
+  return runtimeAssetUrl(`assets/${filename}`);
 }
 
 export async function loadVerifiedGlb(asset: any, signal: AbortSignal, url?: string): Promise<THREE.Group> {
