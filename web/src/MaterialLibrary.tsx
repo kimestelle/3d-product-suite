@@ -23,7 +23,7 @@ const sameSurface = (a:MaterialSpecification,b:MaterialSpecification) => {
 };
 const pending = (job:MaterialJob|null) => !!job && ['queued','running','submitting','downloading','cancelling'].includes(job.state);
 async function request(path:string, method='GET', data?:unknown, signal?:AbortSignal) {
-  if(isStaticDemo)throw new Error('The material service requires the local server. Use the presets in this demo.');
+  if(isStaticDemo)throw new Error('The material service requires the local server. The supplied presets can be inspected in this demo.');
   const response = await fetch(path, {method, signal, headers:method === 'GET' ? {} : {'Content-Type':'application/json','X-Product-Suite':'1'},
     body:method === 'GET' ? undefined : JSON.stringify(data ?? {})});
   const value = await response.json();
@@ -31,8 +31,8 @@ async function request(path:string, method='GET', data?:unknown, signal?:AbortSi
   return value;
 }
 
-export default function MaterialLibrary({scene, componentId, parts, onSelect, onChange, onPreview, onHover, editorHost}:{
-  scene:any;componentId:string;editorHost?:HTMLElement|null;onChange:(edit:(scene:any)=>void)=>void;onPreview?:(preview:MaterialPreview|null)=>void;
+export default function MaterialLibrary({scene, componentId, parts, onSelect, onChange, onPreview, onHover, editorHost, onBeforeEdit}:{
+  scene:any;componentId:string;editorHost?:HTMLElement|null;onChange:(edit:(scene:any)=>void)=>void|boolean;onBeforeEdit?:()=>boolean;onPreview?:(preview:MaterialPreview|null)=>void;
   parts:HierarchyPart[];onSelect:(id:string)=>void;onHover?:(hover:MaterialHover|null)=>void;
 }) {
   const [entries,setEntries] = useState<MaterialEntry[]>([]);
@@ -123,11 +123,13 @@ export default function MaterialLibrary({scene, componentId, parts, onSelect, on
     setDraft(editablePreset(preset));
   };
   const newFromType = (id:string) => {
+    if(onBeforeEdit?.()===false)return;
     const type=materialTypes.find(item=>item.id===id);if(!type)return;
     focusEditor.current=true;draftSource.current=null;
     setDraft({id:crypto.randomUUID(),name:nameFor(type.name),type:type.id,material:structuredClone(type.material),isNew:true});setChoosingType(false);
   };
   const newFromStarter = (id:string) => {
+    if(onBeforeEdit?.()===false)return;
     const starter=materialStarters.find(item=>item.id===id);if(!starter)return;
     focusEditor.current=true;draftSource.current=null;
     setFeedback('');setSelectedId(null);setChoosingType(false);
@@ -140,37 +142,41 @@ export default function MaterialLibrary({scene, componentId, parts, onSelect, on
     selectName.current=true;edit(preset);
   };
   const duplicate = (preset:LibraryMaterialPreset) => {
+    if(onBeforeEdit?.()===false)return;
     const name=nameFor(preset.name.slice(0,128)+' copy');
     const copy:SavedMaterialPreset={id:crypto.randomUUID(),name,type:preset.type,material:{...structuredClone(preset.material),name}};
     try {
       saveMaterialPreset(structuredClone(scene),copy);
-      onChange(next=>saveMaterialPreset(next,copy));
+      if(onChange(next=>saveMaterialPreset(next,copy))===false)return;
       edit(copy);setFeedback('Duplicated. Attach objects to use this copy.','success');
     } catch(reason){setFeedback((reason as Error).message,'error');}
   };
   const remove = (preset:LibraryMaterialPreset) => {
+    if(onBeforeEdit?.()===false)return;
     try {
       deleteMaterialPreset(structuredClone(scene),preset.id);
-      onChange(next=>deleteMaterialPreset(next,preset.id));
+      if(onChange(next=>deleteMaterialPreset(next,preset.id))===false)return;
       if(draft?.id===preset.id)closeEditor();
       setFeedback(`Deleted ${preset.name}. Undo restores it.`,'success');
       libraryRoot.current?.querySelector<HTMLButtonElement>('.gesso-preset-library-actions>button')?.focus({preventScroll:true});
     } catch(reason){setFeedback((reason as Error).message,'error');}
   };
   const saveDraft = () => {
-    if(!draft || !draft.name.trim())return;
+    if(!draft || !draft.name.trim() || onBeforeEdit?.()===false)return;
     const preset:SavedMaterialPreset={id:draft.id,name:draft.name.trim(),type:draft.type,material:{...structuredClone(draft.material),name:draft.name.trim()}};
     try {
       saveMaterialPreset(structuredClone(scene),preset);
-      draftSource.current=preset;
-      onChange(next=>saveMaterialPreset(next,preset));setSelectedId(preset.id);setDraft({...preset,isNew:false});
-      setFeedback(isStaticDemo?'Updated for this session':'Saved','success');
+      if(onChange(next=>saveMaterialPreset(next,preset))===false)return;
+      draftSource.current=preset;setSelectedId(preset.id);setDraft({...preset,isNew:false});
+      setFeedback('Saved','success');
     } catch(reason) {setFeedback((reason as Error).message,'error');}
   };
   const useTexture = (entry:MaterialEntry) => {
+    if(onBeforeEdit?.()===false)return;
     setEntries(current=>[...current.filter(item=>item.id!==entry.id),entry]);
     setDraft(current=>current ? {...current,type:'custom',material:{...structuredClone(entry.material),name:current.name}} : current);
   };
+  const changeDraft = (next:Draft) => {if(onBeforeEdit?.()!==false)setDraft(next);};
   const generate = async () => {
     if (busy || pending(job) || !configured || !prompt.trim()) return;
     setBusy(true); setError('');
@@ -216,20 +222,20 @@ export default function MaterialLibrary({scene, componentId, parts, onSelect, on
     </section>}
     {draft && <>
       <section className="gesso-preset-fields" aria-label="Edit material preset">
-        <label className="gesso-field gesso-material-field"><span>Name</span><input ref={presetName} aria-label="Preset name" value={draft.name} maxLength={140} onChange={event=>setDraft({...draft,name:event.target.value})}/></label>
+        <label className="gesso-field gesso-material-field"><span>Name</span><input ref={presetName} aria-label="Preset name" value={draft.name} maxLength={140} onChange={event=>changeDraft({...draft,name:event.target.value})}/></label>
         <label className="gesso-field gesso-material-field"><span>Type</span><select aria-label="Material type" value={draft.type} onChange={event=>{
           const type=materialTypes.find(item=>item.id===event.target.value)!;
           const maps=draft.material.textures ? Object.fromEntries(['textures','textureRepeat','normalScale','heightScaleM'].filter(key=>draft.material[key as keyof MaterialSpecification] !== undefined).map(key=>[key,draft.material[key as keyof MaterialSpecification]])) : {};
-          setDraft({...draft,type:type.id as MaterialType,material:{...structuredClone(type.material),...maps,name:draft.name}});
+          changeDraft({...draft,type:type.id as MaterialType,material:{...structuredClone(type.material),...maps,name:draft.name}});
         }}>{materialTypes.map(type=><option key={type.id} value={type.id}>{type.name}</option>)}</select></label>
       </section>
-      <MaterialProperties material={draft.material} activeSection={activeSection==='textures' ? null : activeSection} onSectionChange={setActiveSection} onChange={material=>setDraft({...draft,material})}/>
+      <MaterialProperties material={draft.material} activeSection={activeSection==='textures' ? null : activeSection} onSectionChange={setActiveSection} onChange={material=>changeDraft({...draft,material})}/>
     </>}
     <div className="gesso-preset-textures" hidden={!draft} inert={!draft} aria-hidden={!draft}>
       <button className="gesso-section-toggle" type="button" aria-expanded={activeSection==='textures'} aria-controls={textureContentId} onClick={()=>setActiveSection(activeSection==='textures' ? null : 'textures')}><span>Texture library</span><small>Browse</small><UiIcon name={activeSection==='textures' ? 'down' : 'chevron'} size={14}/></button><div className="gesso-preset-texture-content" id={textureContentId} hidden={activeSection!=='textures'} inert={activeSection!=='textures'} aria-hidden={activeSection!=='textures'}>
         {!!draft && activeSection==='textures' && !!entries.length && <MaterialSwatches items={entries} onSelect={id=>{const entry=entries.find(item=>item.id===id);if(entry)useTexture(entry);}}/>}
         {entries.filter(entry=>!!entry.sourceUrl).map(entry=><p className="gesso-meta" key={entry.id}><a href={entry.sourceUrl} target="_blank" rel="noreferrer">{entry.name} · Poly Haven ↗</a> · CC0</p>)}
-        {isStaticDemo?<p className="gesso-meta gesso-note">Texture imports and generation require the local server. The supplied presets are available here.</p>:<PolyHavenLibrary kind="textures" scopeKey={scene.sceneId + ':' + (draft?.id ?? 'library')} disabled={!draft} onImport={({entry})=>useTexture(entry)}/>}
+        {isStaticDemo?<p className="gesso-meta gesso-note">Texture imports and generation require the local server. You can inspect the supplied presets here.</p>:<PolyHavenLibrary kind="textures" scopeKey={scene.sceneId + ':' + (draft?.id ?? 'library')} disabled={!draft} onImport={({entry})=>useTexture(entry)}/>}
         <section className="gesso-section gesso-material-generator" aria-label="Generate material" hidden={isStaticDemo} inert={isStaticDemo}>
           <div className="gesso-section-heading"><span className="gesso-section-label">Generate texture</span><span>fal · Patina</span></div>
           <label className="gesso-field"><span className="gesso-sr-only">Texture description</span><textarea aria-label="Texture description" value={prompt} maxLength={1200} rows={2} placeholder="Brushed aluminium, fine horizontal grain…" onChange={event=>setPrompt(event.target.value)}/></label>
@@ -254,7 +260,7 @@ export default function MaterialLibrary({scene, componentId, parts, onSelect, on
       <MaterialSwatches items={materialStarters} onSelect={newFromStarter}/>
     </section>
     <section className="gesso-section" aria-label="Material library">
-      <div className="gesso-preset-library-actions"><span className="gesso-meta gesso-feedback" data-tone={isStaticDemo?'note':'success'}>{isStaticDemo?'Session material library':'Saved with this campaign'}</span><button type="button" className="gesso-text-button" onClick={()=>{setChoosingType(true);setDraft(null);setSelectedId(null);setFeedback('');}}>Add new</button></div>
+      <div className="gesso-preset-library-actions"><span className="gesso-meta gesso-feedback" data-tone={isStaticDemo?'note':'success'}>{isStaticDemo?'Included with this demo':'Saved with this campaign'}</span><button type="button" className="gesso-text-button" onClick={()=>{if(onBeforeEdit?.()===false)return;setChoosingType(true);setDraft(null);setSelectedId(null);setFeedback('');}}>Add new</button></div>
       <MaterialAssignments scene={scene} parts={parts} presets={presets} selectedId={choosingType?undefined:draft?.id??selectedId??undefined}
         onEdit={edit} onRename={rename} onDuplicate={duplicate} onDelete={remove} onSelect={onSelect} onChange={onChange} onHover={onHover}/>
     </section>

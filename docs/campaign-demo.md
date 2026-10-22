@@ -23,8 +23,9 @@ fixture. The campaign bundle has a manifest listing every published asset and
 its SHA-256. Reuse an output directory only for the identical bundle, or choose
 a new empty directory.
 
-This is a browser preview, not a remote render service. Uploads, generation,
-persistent project saves and final Blender rendering still require the backend.
+This is a view-only browser preview. Scene edits, uploads, generation,
+persistent project saves and final Blender rendering require the backend.
+Rejected edits leave the saved scene and playback unchanged.
 
 To replace the geometric Botanical choice with a saved mesh world, add:
 
@@ -36,12 +37,13 @@ The JSON is a saved world record (`id`, `name`, `environment`). Its referenced
 assets must be in the supplied library. The builder checks hashes, keeps its
 alignment and provenance, and excludes the replaced fixture asset. This changes
 the room library, not the opening campaign or its camera/product motion.
-The sampled browser demo allows switching among these packaged worlds while
-keeping the saved product placement and film; arbitrary realignment still needs
-the backend.
+The bundle retains these world definitions and their covers. The hosted editor
+requires a backend before replacing the scene’s world, including a packaged
+world; the open campaign and its sampled film stay unchanged.
 
 A world record may include a `previewAsset` PNG or JPEG (at most 1024px per
 side and 1 MiB), verified and copied by the same builder. The room library loads
 this small image first. Mesh and splat covers never fetch their full world asset;
-that download begins only when the world is selected. A captured preview of the
+the full asset loads only when a world is applied by a connected editor or is
+the bundle’s opening scene. A captured preview of the
 selected scene can replace its thumbnail. Missing thumbnails say “Open to preview.”

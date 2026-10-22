@@ -7,25 +7,21 @@ World Labs results, private projects or credentials. An explicitly selected
 campaign can instead be published with [the campaign builder](campaign-demo.md);
 that bundle includes only its verified assets and chosen room replacements.
 
-Try label placement, UV guide downloads, material finishes, playback, camera
-framing and cap timing. Undo/redo works during the session. Edits reset when the
-page reloads; the demo does not save projects or upload files.
+The hosted editor is a view-only demo. Explore the parts and material library,
+hover to inspect surfaces, orbit the preview, play or scrub the saved film,
+and capture a local preview still. Navigation and column guides remain usable.
 
-Imports, persistent saves, approvals, scene placement/calibration, A/B comparison,
-World Labs generation and final Blender rendering are disabled with a backend
-explanation. Unsupported API actions fail explicitly rather than appearing to
-succeed. Rendering previews does not spend World Labs credits.
+Scene edits require a connected backend. An attempted edit shows “Editing needs
+a connected backend. The scene is unchanged.” before changing the scene,
+its undo history, or a live material/transform preview. This includes packaged
+world swaps, shot timing, camera settings, random setups and new scenes. The
+saved film remains playable after a refused edit. Opening the bundled campaign
+does not automatically compact its shot timing.
 
-**Status after merging into the gesso editor (D160).** The demo bundle, build
-scripts and deployment configuration are unchanged and `npm run build:demo`
-passes. The gesso editor routes its API calls through the same demo adapter, and
-the browser evaluator now returns the sample fields the gesso viewport reads
-(component scale, optical focus, single-frame requests). The demo banner and the
-per-panel "needs a backend" states were part of the earlier editor and have not
-been rebuilt in the gesso layout; panels that call other routes (Poly Haven,
-material generation, film images, sound) show the adapter's explicit error. The
-demo has not been checked in a browser against the latest editor; check the built
-page before publishing it.
+Uploads, persistent saves, approvals, generation and final Blender rendering
+also require the backend. The static adapter makes no server mutations, and
+preview rendering does not spend World Labs credits. The local build retains
+the full editing workflow.
 
 ## GitHub Pages
 

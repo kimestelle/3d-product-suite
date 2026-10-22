@@ -2,7 +2,7 @@ import {useEffect,useId,useRef,useState,type RefObject} from 'react';
 import {PART_NAME_LIMIT} from './hierarchy';
 
 /** Commit a name as one scene edit, rather than one undo step per character. */
-export default function PartNameField({name,inputRef,onCommit}:{name:string;inputRef:RefObject<HTMLInputElement|null>;onCommit:(name:string)=>void}) {
+export default function PartNameField({name,inputRef,onCommit}:{name:string;inputRef:RefObject<HTMLInputElement|null>;onCommit:(name:string)=>void|boolean}) {
   const id=useId(),[draft,setDraft]=useState(name),[error,setError]=useState('');
   const cancelBlur=useRef(false);
   useEffect(()=>{setDraft(name);setError('');},[name]);
@@ -11,7 +11,7 @@ export default function PartNameField({name,inputRef,onCommit}:{name:string;inpu
     const next=draft.trim();
     if(!next){setDraft(name);setError('Enter an object name.');return;}
     if(next===name){setDraft(name);setError('');return;}
-    try{onCommit(next);setDraft(next);setError('');}
+    try{if(onCommit(next)===false){setDraft(name);setError('');return;}setDraft(next);setError('');}
     catch(reason){setError(reason instanceof Error?reason.message:'Could not rename this object.');}
   };
   return <div className="gesso-part-name-editor">

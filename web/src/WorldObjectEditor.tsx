@@ -17,7 +17,7 @@ function ColorField({label, value, onChange}: {label: string; value: number[]; o
 export interface WorldObjectEditorProps {
   scene: any;
   objectId: string;
-  onChange: (edit: (scene: any) => void) => void;
+  onChange: (edit: (scene: any) => void) => void | boolean;
   onClose: (removed?: boolean) => void;
   onFrameProp?: (id: string) => void;
   /** Resolved poses, so detaching or freeing a related object keeps it in place. */
@@ -109,7 +109,7 @@ export default function WorldObjectEditor({scene, objectId, onChange, onClose, o
     </div>
     {!isPlinth && <footer className="gesso-world-object-footer">
       {!isPlinth && onFrameProp && <button type="button" onClick={() => onFrameProp(prop.id)}>Frame object</button>}
-      {!isPlinth && <button type="button" onClick={() => {onClose(true); onChange(next => removeSceneProp(next, prop.id, resolved));}}>Remove object</button>}
+      {!isPlinth && <button type="button" onClick={() => {if (onChange(next => removeSceneProp(next, prop.id, resolved)) !== false) onClose(true);}}>Remove object</button>}
     </footer>}
   </div>;
 }

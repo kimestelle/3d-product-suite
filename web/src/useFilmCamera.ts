@@ -12,7 +12,8 @@ type Props = {
   scene: any; samples: any[]; frame: number; mode: 'still' | 'video';
   active: boolean; enabled: boolean; guide: FilmGuideProjection | null;
   viewport: RefObject<Viewport | null>;
-  onChange: (edit: (scene: any) => void) => void;
+  onBeforeEdit?: () => boolean;
+  onChange: (edit: (scene: any) => void) => void | boolean;
   onFrame: (frame: number) => void;
   onResetView: () => void;
 };
@@ -60,7 +61,7 @@ export function useFilmCamera(props: Props) {
 
   const updatePose = useCallback((edit: (pose: CameraPose) => void, allowMotionDriven = false) => {
     const current = latest.current;
-    if (!current.enabled || !current.shot) return;
+    if (!current.enabled || !current.shot || current.onBeforeEdit?.() === false) return;
     if (current.cameraMotionDriven && !allowMotionDriven) {setError(motionPoseMessage); return;}
     const shotId = current.shot.id;
     const sourceEnd = cameraSourceEndFrame(current.shot);
@@ -77,22 +78,22 @@ export function useFilmCamera(props: Props) {
         else edit(camera[current.end]);
       });
       const camera = draft.shots.find((item: any) => item.id === shotId).camera;
-      current.onChange(next => {const selected = next.shots.find((item: any) => item.id === shotId); if (selected) selected.camera = camera;});
+      if (current.onChange(next => {const selected = next.shots.find((item: any) => item.id === shotId); if (selected) selected.camera = camera;}) === false) return;
       current.onFrame(current.frame); current.onResetView(); setError('');
     } catch (failure) {setError(failure instanceof Error ? failure.message : 'Camera could not be updated.');}
   }, []);
 
   const onAspectChange = useCallback((width: number, height: number) => {
-    const current = latest.current; if (!current.enabled || !current.scene) return;
+    const current = latest.current; if (!current.enabled || !current.scene || current.onBeforeEdit?.() === false) return;
     try {
       const draft = structuredClone(current.scene); setOutputDimensions(draft, width, height);
-      current.onChange(next => {next.render.width = draft.render.width; next.render.height = draft.render.height;});
+      if (current.onChange(next => {next.render.width = draft.render.width; next.render.height = draft.render.height;}) === false) return;
       setError('');
     } catch (failure) {setError(failure instanceof Error ? failure.message : 'Output dimensions could not be updated.');}
   }, []);
   const onFocalLengthChange = useCallback((value: number) => updatePose(pose => {pose.focalLengthMm = value;}, true), [updatePose]);
   const onDepthOfFieldChange = useCallback((patch: {enabled?: boolean; fStop?: number; focusDistanceM?: number | null}) => {
-    const current = latest.current; if (!current.enabled || !current.shot) return;
+    const current = latest.current; if (!current.enabled || !current.shot || current.onBeforeEdit?.() === false) return;
     const shotId = current.shot.id;
     try {
       const draft = structuredClone(current.scene);
@@ -104,7 +105,7 @@ export function useFilmCamera(props: Props) {
         camera.depthOfField = settings;
       });
       const camera = draft.shots.find((item: any) => item.id === shotId).camera;
-      current.onChange(next => {const selected = next.shots.find((item: any) => item.id === shotId); if (selected) selected.camera = camera;});
+      if (current.onChange(next => {const selected = next.shots.find((item: any) => item.id === shotId); if (selected) selected.camera = camera;}) === false) return;
       setError('');
     } catch (failure) {setError(failure instanceof Error ? failure.message : 'Focus could not be updated.');}
   }, []);
@@ -121,6 +122,7 @@ export function useFilmCamera(props: Props) {
     const current = latest.current;
     if (event.button !== 0 || !current.active || !current.enabled || current.cameraMotionDriven || !current.guide?.target.visible || !current.shot) return;
     if (current.mode === 'video' && (current.frame !== (current.end === 'from' ? current.shot.startFrame : cameraSourceEndFrame(current.shot)) || current.end === 'to' && cameraSourceEndFrame(current.shot) === current.shot.startFrame)) return;
+    if (current.onBeforeEdit?.() === false) {event.preventDefault(); event.stopPropagation(); return;}
     const start = {clientX: event.clientX, clientY: event.clientY};
     const gesture = current.viewport.current?.createCameraTargetGesture(start); if (!gesture) return;
     event.preventDefault(); event.stopPropagation(); gestureCleanup.current?.();

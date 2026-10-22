@@ -69,7 +69,7 @@ function DecalSpecimen({text, subtitle}: {text: string; subtitle: string}) {
 
 export function DecalControls({scene, partId, decal, layout, visualHost, onSelect, onAdd, onChange}: {
   scene: any; partId: string; decal?: ProductDecal; layout: UvLayout | null; visualHost?: HTMLElement | null;
-  onSelect: (id: string) => void; onAdd: () => void; onChange: (edit: (scene: any) => void) => void;
+  onSelect: (id: string) => void; onAdd: () => void; onChange: (edit: (scene: any) => void) => void | boolean;
 }) {
   const decals: ProductDecal[] = (scene.product.decals ?? []).filter((item: ProductDecal) => item.partId === partId);
   const replacement = partArtwork(scene, partId);
@@ -92,7 +92,7 @@ export function DecalControls({scene, partId, decal, layout, visualHost, onSelec
     try {
       const commit = await operation(controller.signal);
       if (controller.signal.aborted || current.current.scene !== source.scene || current.current.partId !== source.partId || current.current.decalId !== source.decalId) return;
-      onChange(commit);
+      if (onChange(commit) === false) return;
       afterCommit?.();
     } catch (failure) {
       if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : 'Could not update the artwork.');

@@ -12,7 +12,7 @@ import './keyframe-editor.css';
 
 export interface KeyframeEditorProps {
   scene:any;componentId:string|null;frame:number;onFrame:(frame:number)=>void;
-  onChange:(edit:(scene:any)=>void)=>void;playing:boolean;onPlay:()=>void;disabled?:boolean;
+  onChange:(edit:(scene:any)=>void)=>void|boolean;playing:boolean;onPlay:()=>void;disabled?:boolean;
   scope?:'local'|'world';onScopeChange?:(scope:'local'|'world')=>void;
   embedded?:boolean;
 }
@@ -20,7 +20,7 @@ type Selection={componentId:string;property:KeyframeProperty;frame?:number};
 type KeyDrag={trackId:string;fromFrame:number;toFrame:number;pointerId:number;left:number;width:number;button:HTMLButtonElement};
 const rounded=(value:number,precision=4)=>Number(value.toFixed(precision));
 
-function ValueField({value,label,step=1,precision=4,min,max,disabled,onCommit}:{value:number;label:string;step?:number;precision?:number;min?:number;max?:number;disabled?:boolean;onCommit:(value:number)=>void}){
+function ValueField({value,label,step=1,precision=4,min,max,disabled,onCommit}:{value:number;label:string;step?:number;precision?:number;min?:number;max?:number;disabled?:boolean;onCommit:(value:number)=>void|boolean}){
   const [text,setText]=useState(String(rounded(value,precision)));
   const editing=useRef(false),skipBlur=useRef(false),dirty=useRef(false);
   useEffect(()=>{if(!editing.current)setText(String(rounded(value,precision)));},[value,precision]);
@@ -31,7 +31,7 @@ function ValueField({value,label,step=1,precision=4,min,max,disabled,onCommit}:{
     dirty.current=false;
     const parsed=Number(text);
     if(text.trim()&&Number.isFinite(parsed)&&(min===undefined||parsed>=min)&&(max===undefined||parsed<=max)){
-      if(Math.abs(parsed-value)>1e-9)onCommit(parsed);
+      if(Math.abs(parsed-value)>1e-9 && onCommit(parsed)===false){setText(String(rounded(value,precision)));return;}
       setText(String(rounded(parsed,precision)));
     }else setText(String(rounded(value,precision)));
   };
@@ -151,9 +151,9 @@ export default function KeyframeEditor({scene,componentId,frame,onFrame,onChange
     return()=>{document.removeEventListener('pointerdown',cancelFocus,true);document.removeEventListener('keydown',cancelOnNavigation,true);document.removeEventListener('focusin',cancelOnFocus,true);window.removeEventListener('blur',cancelFocus);};
   },[]);
   const commit=(edit:(next:any)=>void,id=selected.componentId,property=selected.property)=>{
-    if(disabled)return;
-    const owner=boundedMotionReason(scene,frame,id,property);if(owner){setNotice(owner);return;}
-    try{onChange(edit);setNotice('');}catch(error){setNotice(error instanceof Error?error.message:'Could not change that keyframe.');}
+    if(disabled)return false;
+    const owner=boundedMotionReason(scene,frame,id,property);if(owner){setNotice(owner);return false;}
+    try{if(onChange(edit)===false)return false;setNotice('');return true;}catch(error){setNotice(error instanceof Error?error.message:'Could not change that keyframe.');return false;}
   };
   const percent=(value:number)=>(value-1)/Math.max(1,total-1)*100;
   const selectKey=(track:AnimationTrack,key:AnimationKey)=>{setSelection({componentId:track.componentId,property:track.property,frame:key.frame});onFrame(key.frame);};
@@ -178,8 +178,8 @@ export default function KeyframeEditor({scene,componentId,frame,onFrame,onChange
     const track=animationTracks(scene).find(item=>item.id===active.trackId);if(!track)return;
     if(active.fromFrame!==active.toFrame){
       if(track.keys.some(key=>key.frame===active.toFrame)){setNotice(`Frame ${active.toFrame} already has a key. Choose another frame.`);return;}
+      if(!commit(next=>moveKey(next,track.id,active.fromFrame,active.toFrame),track.componentId,track.property))return;
       pendingKeyFocus.current={trackId:track.id,frame:active.toFrame};
-      commit(next=>moveKey(next,track.id,active.fromFrame,active.toFrame),track.componentId,track.property);
       setSelection({componentId:track.componentId,property:track.property,frame:active.toFrame});
     }
     onFrame(active.toFrame);
@@ -189,21 +189,22 @@ export default function KeyframeEditor({scene,componentId,frame,onFrame,onChange
     const owner=boundedMotionReason(scene,frame,track.componentId,track.property);
     if(owner&&['Delete','Backspace','ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();setNotice(owner);return;}
     if(event.key==='Delete'||event.key==='Backspace'){
-      event.preventDefault();commit(next=>removeKey(next,track.id,key.frame),track.componentId,track.property);setSelection({componentId:track.componentId,property:track.property});
+      event.preventDefault();if(!commit(next=>removeKey(next,track.id,key.frame),track.componentId,track.property))return;setSelection({componentId:track.componentId,property:track.property});
     }else if(event.key==='ArrowLeft'||event.key==='ArrowRight'){
       event.preventDefault();const destination=Math.max(1,Math.min(total,key.frame+(event.key==='ArrowRight'?1:-1)*(event.shiftKey?10:1)));
       if(track.keys.some(item=>item.frame===destination&&item.frame!==key.frame)){setNotice(`Frame ${destination} already has a key.`);return;}
+      if(!commit(next=>moveKey(next,track.id,key.frame,destination),track.componentId,track.property))return;
       if(destination!==key.frame)pendingKeyFocus.current={trackId:track.id,frame:destination};
-      commit(next=>moveKey(next,track.id,key.frame,destination),track.componentId,track.property);setSelection({componentId:track.componentId,property:track.property,frame:destination});onFrame(destination);
+      setSelection({componentId:track.componentId,property:track.property,frame:destination});onFrame(destination);
     }
   };
   const addAtPlayhead=(id:string,property:KeyframeProperty)=>{
     const owner=boundedMotionReason(scene,frame,id,property);if(owner){setNotice(owner);return;}
     const track=getTrack(scene,id,property),value=getPropertyValue(scene,id,property,frame);
-    commit(next=>{
+    if(!commit(next=>{
       if(!track?.enabled)toggleTrack(next,id,property,frame,true);
       upsertKey(next,id,property,frame,value);
-    },id,property);
+    },id,property))return;
     setSelection({componentId:id,property,frame});
   };
   const ticks=useMemo(()=>Array.from({length:6},(_,index)=>Math.round(1+(total-1)*index/5)),[total]);
@@ -253,11 +254,11 @@ export default function KeyframeEditor({scene,componentId,frame,onFrame,onChange
               <div className="kf-property">
                 <button type="button" className="kf-property-name" aria-pressed={isSelected} aria-label={`${targetName(scene,id)} ${name} property`} onClick={()=>setSelection({componentId:id,property})} title={`${targetName(scene,id)} → ${name}`}><span>{presentation.axis&&presentation.axis!=='X'?'':presentation.label}</span><small>{presentation.axis}</small></button>
                 <ValueField label={`${targetName(scene,id)} ${name}`} value={value*presentation.factor} step={presentation.step} precision={presentation.precision} min={presentation.min} max={presentation.max} disabled={disabled||!!owned||(property==='motion'&&!enabled)} onCommit={nextValue=>{
-                  commit(next=>writeProperty(next,id,property,frame,nextValue/presentation.factor),id,property);setSelection({componentId:id,property,...(enabled?{frame}: {})});
+                  if(!commit(next=>writeProperty(next,id,property,frame,nextValue/presentation.factor),id,property))return false;setSelection({componentId:id,property,...(enabled?{frame}: {})});
                 }}/>
                 <span className="kf-unit">{presentation.unit}</span>
                 <button type="button" className="kf-enable" aria-pressed={enabled} aria-label={`${enabled?'Disable':'Enable'} ${targetName(scene,id)} ${name} animation`} title={owned??(enabled?'Disable animation; keep keys':blocked??(property==='motion'?'Edit the existing movement as keyframes':'Animate this property'))} disabled={disabled||!!owned||(!enabled&&!!blocked)}
-                  onClick={()=>{commit(next=>toggleTrack(next,id,property,frame),id,property);setSelection({componentId:id,property});}}><svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="9" r="5"/><path d="M6 1h4M8 1v3M8 6v3l2 1"/></svg></button>
+                  onClick={()=>{if(!commit(next=>toggleTrack(next,id,property,frame),id,property))return;setSelection({componentId:id,property});}}><svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="9" r="5"/><path d="M6 1h4M8 1v3M8 6v3l2 1"/></svg></button>
                 <button type="button" className={`kf-add ${enabled&&currentKey?'at-key':''}`} aria-label={`Add or update ${targetName(scene,id)} ${name} key at frame ${frame}`} title={blocked??(enabled&&currentKey?'Select key at playhead':'Record value at playhead')} disabled={disabled||!!blocked}
                   onClick={()=>currentKey&&enabled?selectKey(track!,currentKey):addAtPlayhead(id,property)}><span aria-hidden="true">◇</span></button>
               </div>
@@ -297,13 +298,13 @@ export default function KeyframeEditor({scene,componentId,frame,onFrame,onChange
       <button type="button" className="kf-next" aria-label="Next keyframe" disabled={disabled||!afterKey} onClick={()=>afterKey&&selectKey(selectedTrack!,afterKey)}>›</button>
       {selectedKey&&selectedTrack?<>
         <label className="kf-exact"><span>Frame</span><ValueField label="Selected key frame" value={selectedKey.frame} min={1} max={total} step={1} disabled={disabled||!!selectedOwner||!selectedTrack.enabled} onCommit={value=>{
-          const to=Math.round(value);if(selectedTrack.keys.some(key=>key.frame===to&&key.frame!==selectedKey.frame)){setNotice(`Frame ${to} already has a key.`);return;}
-          commit(next=>moveKey(next,selectedTrack.id,selectedKey.frame,to));setSelection({...selected,frame:to});onFrame(to);
+          const to=Math.round(value);if(selectedTrack.keys.some(key=>key.frame===to&&key.frame!==selectedKey.frame)){setNotice(`Frame ${to} already has a key.`);return false;}
+          if(!commit(next=>moveKey(next,selectedTrack.id,selectedKey.frame,to)))return false;setSelection({...selected,frame:to});onFrame(to);
         }}/></label>
         <label className="kf-exact"><span>Value</span><ValueField label="Selected key value" value={selectedKey.value*info.factor} min={info.min} max={info.max} step={info.step} precision={info.precision} disabled={disabled||!!selectedOwner||!selectedTrack.enabled} onCommit={value=>commit(next=>upsertKey(next,selected.componentId,selected.property,selectedKey.frame,value/info.factor))}/><small>{info.unit}</small></label>
         <select className="kf-interpolation" aria-label="Following segment interpolation" value={selectedKey.interpolation} disabled={disabled||!!selectedOwner||!selectedTrack.enabled||selectedIndex===selectedTrack.keys.length-1} title={selectedIndex===selectedTrack.keys.length-1?'Add a later key to shape the next segment':'Changes the segment after this key'}
           onChange={event=>{const value=event.target.value as KeyframeInterpolation;commit(next=>setKeyInterpolation(next,selectedTrack.id,selectedKey.frame,value));}}><option value="linear">Linear</option><option value="ease">Ease</option><option value="hold">Hold</option></select>
-        <button type="button" className="kf-delete" aria-label="Delete selected keyframe" title="Delete selected keyframe" disabled={disabled||!!selectedOwner} onClick={()=>{commit(next=>removeKey(next,selectedTrack.id,selectedKey.frame));setSelection({componentId:selected.componentId,property:selected.property});}}>Delete</button>
+        <button type="button" className="kf-delete" aria-label="Delete selected keyframe" title="Delete selected keyframe" disabled={disabled||!!selectedOwner} onClick={()=>{if(!commit(next=>removeKey(next,selectedTrack.id,selectedKey.frame)))return;setSelection({componentId:selected.componentId,property:selected.property});}}>Delete</button>
       </>:<span className="kf-hint">{selectedOwner??(selectedTrack?.enabled?'Change a value to record a key here.':'◷ enables animation. ◇ records a key.')}</span>}
       {notice&&<span className="kf-notice" role="status">{notice}</span>}
       <span className="kf-shortcuts" title="G move · R rotate · S scale in the viewport">G / R / S</span>

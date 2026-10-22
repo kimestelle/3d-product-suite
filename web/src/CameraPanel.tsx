@@ -17,7 +17,7 @@ export interface CameraPanelProps {
   samples?: any[];
   mode?: 'still' | 'video';
   embedded?: boolean;
-  onChange: (edit: (scene: any) => void) => void;
+  onChange: (edit: (scene: any) => void) => void | boolean;
   onFrame: (frame: number) => void;
   onResetView?: () => void;
   cameraEnd?: CameraEnd;
@@ -55,7 +55,7 @@ export default function CameraPanel({scene, frame, samples = [], mode = 'video',
     try {
       const draft = structuredClone(scene);
       editCamera(draft, shot.id, edit);
-      onChange(next => {next.shots.find((item: any) => item.id === shot.id).camera = draft.shots.find((item: any) => item.id === shot.id).camera;});
+      if (onChange(next => {next.shots.find((item: any) => item.id === shot.id).camera = draft.shots.find((item: any) => item.id === shot.id).camera;}) === false) return;
       setError(''); if (seek) {onFrame(endpointFrame); onResetView?.();}
     } catch (failure) {setError(failure instanceof Error ? failure.message : 'Camera could not be updated.');}
   };
@@ -83,7 +83,7 @@ export default function CameraPanel({scene, frame, samples = [], mode = 'video',
   const resize = (width: number, height: number) => {
     try {
       const draft = structuredClone(scene); setOutputDimensions(draft, width, height);
-      onChange(next => {next.render.width = draft.render.width; next.render.height = draft.render.height;});
+      if (onChange(next => {next.render.width = draft.render.width; next.render.height = draft.render.height;}) === false) return;
       setError('');
     } catch (failure) {setError(failure instanceof Error ? failure.message : 'Frame size could not be updated.');}
   };

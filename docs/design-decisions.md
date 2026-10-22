@@ -1377,3 +1377,11 @@ The frontend suite and normal/demo builds pass; focused coverage includes 19
 media lifecycle tests and two binary-media checks. Reduced motion, Save-Data
 and a simulated autoplay rejection retain a working explicit play button in
 both browser engines.
+
+### 2026-10-22 — D172 — Refuse edits before changing a backendless scene
+
+**In code; supersedes D166’s browser-only material, label and backdrop edits.** The hosted demo is view-only. Any scene edit shows “Editing needs a connected backend. The scene is unchanged.” before changing history, creating a shot, generating a random setup, or previewing a material/transform. A refused action cannot report success or select a part, material or shot that was never created. Loading the packaged scene preserves its shot timing exactly.
+
+Reason: the static renderer can replay the saved film, but cannot evaluate the full editor’s changes. Committing an edit and then rejecting evaluation left the current scene invalid and stopped the rest of the workflow. Reject at the edit boundary instead. Keep selection, hover, orbit, temporary visibility, navigation, playback, guides and local preview capture available. Connected local editing keeps its existing behavior; this rule applies to the static build, not temporary network failures in a connected session.
+
+Scope: App scene/draft guards, TransformShortcuts, material/part controls, camera/film/world follow-up handlers, and hosted-demo documentation. Baseline: `work/gesso/backend-guard-baseline` in the task workspace; Git retains the previous behavior. Verification is recorded with the change’s tests and browser checks.

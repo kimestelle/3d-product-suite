@@ -16,7 +16,7 @@ import {objectName, productSupportTargets, relationLabels, sceneFloorY, setProdu
 export type WorldLayer = 'Environment' | 'Props' | 'Lights';
 export interface WorldPanelProps extends CurrentWorldCapture {
   scene: any; layer: WorldLayer; worlds: WorldCoverItem[];
-  onChange: (edit: (scene: any) => void) => void; onWorld: (id: string) => void; onImport: () => void;
+  onChange: (edit: (scene: any) => void) => void | boolean; onWorld: (id: string) => void; onImport: () => void;
   onFitProduct?: () => void;
   fitDisabled?: boolean;
   onFrameProp?: (id: string) => void;
@@ -146,8 +146,8 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
       </>}
       {layer==='Props' && <>
       <div className="gesso-world-object-actions">
-        <div className="gesso-button-row">{(['box', 'cylinder'] as const).map(shape => <button key={shape} type="button" onClick={() => {const id = addProp(structuredClone(scene), shape); onChange(next => {addProp(next, shape);}); onSelectObject?.(id);}}>Add {shape}</button>)}</div>
-        <details className="gesso-disclosure"><summary>Prop library</summary><PolyHavenLibrary kind="models" scopeKey={scene.sceneId} onImport={result => {const id = addPropFromLibrary(structuredClone(scene), result.entry); onChange(next => {addPropFromLibrary(next, result.entry);}); onSelectObject?.(id);}}/></details>
+        <div className="gesso-button-row">{(['box', 'cylinder'] as const).map(shape => <button key={shape} type="button" onClick={() => {const id = addProp(structuredClone(scene), shape); if (onChange(next => {addProp(next, shape);}) === false) return; onSelectObject?.(id);}}>Add {shape}</button>)}</div>
+        <details className="gesso-disclosure"><summary>Prop library</summary><PolyHavenLibrary kind="models" scopeKey={scene.sceneId} onImport={result => {const id = addPropFromLibrary(structuredClone(scene), result.entry); if (onChange(next => {addPropFromLibrary(next, result.entry);}) === false) return; onSelectObject?.(id);}}/></details>
       </div>
       <WorldObjectPreviews items={objects} selectedId={selectedObjectId ?? undefined} onSelect={id => onSelectObject?.(id)}/>
       <ProductPlacement scene={scene} onChange={onChange} pickingSurface={pickingSurface} onPickSurface={onPickSurface} onCancelPick={onCancelPick} onFrameObjects={onFrameObjects} ready={ready}/>
@@ -167,7 +167,7 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
       <section className="gesso-section"><div className="gesso-section-heading gesso-section-toolbar"><span className="gesso-section-label">Studio rig</span>
           <button type="button" aria-haspopup="true" aria-expanded={addLightOpen} onClick={() => setAddLightOpen(open => !open)}>Add light ▾</button></div>
         {addLightOpen && <div className="gesso-button-row" role="group" aria-label="Add light">{(['area', 'spot'] as const).map(type => <button key={type} type="button" disabled={lighting.lights.length >= 8}
-          onClick={() => {const id = addLight(structuredClone(scene), type); onChange(next => {addLight(next, type);}); setSelectedLight(id); setAddLightOpen(false);}}>{type === 'spot' ? 'Spot' : 'Area'}</button>)}</div>}
+          onClick={() => {const id = addLight(structuredClone(scene), type); if (onChange(next => {addLight(next, type);}) === false) return; setSelectedLight(id); setAddLightOpen(false);}}>{type === 'spot' ? 'Spot' : 'Area'}</button>)}</div>}
         <ul className="gesso-part-tree gesso-selection-surface" aria-label="Studio lights">{lighting.lights.map((item: any) => <li key={item.id} className={`gesso-part-row ${light?.id === item.id ? 'selected' : ''}`}>
           <button type="button" className="gesso-part-select" aria-pressed={light?.id === item.id} onClick={() => setSelectedLight(item.id)}><span className="gesso-part-name">{item.name}</span><span className="gesso-status">{lightType(item) === 'spot' ? 'Spot' : 'Area'} · {item.enabled ? 'On' : 'Off'}</span></button>
         </li>)}</ul>
@@ -190,7 +190,7 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
         <section className="gesso-section">
           <VectorField label="Position · m" values={light.positionM} onChange={(axis, value) => editLight(target => {target.positionM[axis] = value; if (target.positionM.every((item: number, index: number) => Math.abs(item - target.targetM[index]) < .00001)) target.positionM[axis] += .001;})}/>
           <VectorField label="Aim at · m" values={light.targetM} onChange={(axis, value) => editLight(target => {target.targetM[axis] = value; if (target.positionM.every((item: number, index: number) => Math.abs(item - target.targetM[index]) < .00001)) target.targetM[axis] += .001;})}/>
-          <button type="button" disabled={lighting.lights.length <= 1 && !lighting.hdri} onClick={() => {const id = light.id; const remaining = lighting.lights.find((item: any) => item.id !== id)?.id ?? 'key'; onChange(next => {removeLight(next, id);}); setSelectedLight(remaining);}}>Remove light</button>
+          <button type="button" disabled={lighting.lights.length <= 1 && !lighting.hdri} onClick={() => {const id = light.id; const remaining = lighting.lights.find((item: any) => item.id !== id)?.id ?? 'key'; if (onChange(next => {removeLight(next, id);}) === false) return; setSelectedLight(remaining);}}>Remove light</button>
         </section>
       </>}
       <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">Ambient</span></div>

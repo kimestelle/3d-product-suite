@@ -15,7 +15,7 @@ export default function MaterialAssignments({scene, parts, presets, selectedId, 
   onRename?:(preset:LibraryMaterialPreset)=>void;
   onDuplicate?:(preset:LibraryMaterialPreset)=>void;
   onDelete?:(preset:LibraryMaterialPreset)=>void;
-  onChange:(edit:(scene:any)=>void)=>void;
+  onChange:(edit:(scene:any)=>void)=>void|boolean;
   onHover?:(hover:MaterialHover|null)=>void;
 }) {
   const [attaching,setAttaching] = useState<string|null>(null);
@@ -48,7 +48,7 @@ export default function MaterialAssignments({scene, parts, presets, selectedId, 
   const attach = (presetId:string, ids:string[]) => {
     try {
       attachMaterialParts(structuredClone(scene),presetId,ids,parts);
-      onChange(next=>attachMaterialParts(next,presetId,ids,parts));
+      if(onChange(next=>attachMaterialParts(next,presetId,ids,parts))===false){setDragged(null);setOver(null);return;}
       setStatus({message:`${ids.length===1?label(ids[0]):ids.length+' objects / sections'} → ${presets.find(preset=>preset.id===presetId)?.name}`,tone:'success'});
       closeAttach();setChosen([]);setDragged(null);setOver(null);
     } catch(error) {setStatus({message:(error as Error).message,tone:'error'});}

@@ -23,7 +23,7 @@ export interface FilmPanelProps {
   mode?: 'still' | 'video';
   frame: number;
   samples?: any[];
-  onChange: (edit: (scene: any) => void) => void;
+  onChange: (edit: (scene: any) => void) => void | boolean;
   onFrame: (frame: number) => void;
   onResetView?: () => void;
   cameraEnd?: CameraEnd;
@@ -75,7 +75,7 @@ export default function FilmPanel({scene, layer, onLayerChange, mode = 'video', 
       const selectedId = mutate(draft) || shot.id;
       const nextShot = draft.shots.find((item: any) => item.id === selectedId) ?? draft.shots[0];
       const offset = selectedId === shot.id ? Math.round((frame - shot.startFrame) * draft.render.fps / fps) : 0;
-      onChange(next => commitFilmDraft(next, draft));
+      if (onChange(next => commitFilmDraft(next, draft)) === false) return;
       onFrame(nextShot.startFrame + Math.min(Math.max(0, offset), shotFrames(nextShot) - 1));
       setError('');
     } catch (failure) {setError(failure instanceof Error ? failure.message : 'Film could not be updated.');}

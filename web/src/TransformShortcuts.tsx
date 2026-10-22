@@ -19,7 +19,7 @@ export interface TransformShortcutsProps {
   enabled:boolean;
   viewport:HTMLElement|null;
   createGesture?:(target:TransformTarget,pointer:Pointer)=>TransformGesture|null;
-  onStart?:(mode:TransformMode)=>void;
+  onStart?:(mode:TransformMode)=>void|boolean;
   onPreview?:(scene:any|null)=>void;
   onCommit:(edit:(scene:any)=>void)=>void;
   onMode?:(mode:TransformMode|null)=>void;
@@ -88,10 +88,11 @@ export default function TransformShortcuts(props:TransformShortcutsProps) {
     if (!supportsTransform(scene,target,mode)) {
       setFeedback(mode === 'rotate' && target.kind === 'product' ? 'Select a part to rotate. Whole-product rotation is not available.' : 'Select a component to transform.'); return;
     }
+    // Refuse before opening a gesture or sending its first renderer preview.
+    if (current.current.onStart?.(mode) === false) return;
     if (!transaction.current) previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const next:Transaction = {source:scene,frame:current.current.frame??1,target,mode,axis:mode === 'rotate' ? 'z' : 'x',amount:mode === 'scale' ? 1 : 0,text:''};
     transaction.current = next; setActive(next); setFeedback('');
-    current.current.onStart?.(mode);
     current.current.onMode?.(mode);
     current.current.onPreview?.(scene);
     if (fromButton) pointerAnchor.current = null; else anchorPointer(next);

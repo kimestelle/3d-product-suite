@@ -34,7 +34,8 @@ export interface ProductPanelProps {
   onPreview?: (preview: MaterialPreview | null) => void;
   onMaterialHover?: (hover: MaterialHover | null) => void;
   onSelect: (id: string) => void;
-  onChange: (edit: (scene: any) => void) => void;
+  onChange: (edit: (scene: any) => void) => void|boolean;
+  onBeforeEdit?: () => boolean;
   onLayer: (layer: ProductLayer) => void;
   focused: boolean;
   onToggleFocus: () => void;
@@ -142,8 +143,8 @@ export default function ProductPanel(props: ProductPanelProps) {
           removalCount={()=>partRemovalPlan(scene,allSourceParts,item.id).ids.length}
           onRename={()=>beginRename(item.id)} onRemove={()=>{
             const plan=partRemovalPlan(scene,allSourceParts,item.id);
+            if(onChange(next=>removeProductPart(next,allSourceParts,item.id))===false)return;
             focusAfterRemoval.current=plan.nextId;
-            onChange(next=>removeProductPart(next,allSourceParts,item.id));
             if(plan.nextId)onSelect(plan.nextId);
             props.onRemoved?.(item.name);
           }}/>}
@@ -166,7 +167,7 @@ export default function ProductPanel(props: ProductPanelProps) {
         const parentId = event.target.value || null;
         if (parentId === parent) return;
         try {
-          onChange(next => changeParent(next, parts, part.id, parentId));
+          if(onChange(next => changeParent(next, parts, part.id, parentId))===false)return;
           // Keep the selected row visible when its new parent is collapsed.
           const ancestors = new Set<string>();
           let current = parentId;
@@ -179,12 +180,12 @@ export default function ProductPanel(props: ProductPanelProps) {
     {(hierarchy.status[part.id] === 'suggested' || hierarchy.recovered > 0) && <div ref={inspectorScroll} className="gesso-part-inspector-scroll">
       {hierarchy.status[part.id] === 'suggested' && <section className="gesso-section">
         <p className="gesso-meta gesso-note">{fixtureGrouping && part.id === 'label' ? 'Label lies on the body’s front surface.' : 'Review this proposed grouping.'}</p>
-        <button type="button" className="gesso-text-button" onClick={() => {onChange(next => keepGrouping(next, parts, part.id)); setFeedback({message:'Grouping kept',tone:'success'});}}>Keep grouping</button>
+        <button type="button" className="gesso-text-button" onClick={() => {if(onChange(next => keepGrouping(next, parts, part.id))===false)return; setFeedback({message:'Grouping kept',tone:'success'});}}>Keep grouping</button>
       </section>}
       {hierarchy.recovered > 0 && <p className="gesso-meta gesso-note">{hierarchy.recovered} unavailable or invalid grouping {hierarchy.recovered === 1 ? 'entry was' : 'entries were'} omitted.</p>}
     </div>}
   </>;
-  const materialContent = <MaterialLibrary onPreview={props.onPreview} onHover={props.onMaterialHover} editorHost={props.editorHost}
+  const materialContent = <MaterialLibrary onBeforeEdit={props.onBeforeEdit} onPreview={props.onPreview} onHover={props.onMaterialHover} editorHost={props.editorHost}
     scene={scene} componentId={part.id} parts={parts} onSelect={onSelect} onChange={onChange}/>;
   const decalContent = <>
       <DecalControls visualHost={decalVisualHost} scene={scene} partId={part.id} decal={props.decal} layout={props.uvLayout ?? null}

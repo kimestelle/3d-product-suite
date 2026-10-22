@@ -55,14 +55,14 @@ export function legacyMotions(scene: any) {
 }
 
 /** Validate on a draft before notifying the app, so a rejected edit never changes selection. */
-export function useFilmEdits({scene, onChange, disabled}: {scene: any; onChange: (edit: (scene: any) => void) => void; disabled?: boolean}) {
+export function useFilmEdits({scene, onChange, disabled}: {scene: any; onChange: (edit: (scene: any) => void) => void | boolean; disabled?: boolean}) {
   const [error, setError] = useState('');
   useEffect(() => setError(''), [scene]);
   const edit = <T,>(mutate: (draft: any) => T): {value: T; draft: any} | undefined => {
     if (disabled) return;
     try {
       const draft = structuredClone(scene), value = mutate(draft);
-      onChange(next => {
+      const accepted = onChange(next => {
         next.shots = draft.shots;
         next.render = draft.render;
         if (draft.actions !== undefined) next.actions = draft.actions;
@@ -70,6 +70,7 @@ export function useFilmEdits({scene, onChange, disabled}: {scene: any; onChange:
         if (draft.animation !== undefined) next.animation = draft.animation;
         if (draft.lighting !== undefined && next.lighting === undefined) next.lighting = draft.lighting;
       });
+      if (accepted === false) return;
       setError('');
       return {value, draft};
     } catch (failure) {setError(failure instanceof Error ? failure.message : 'This edit could not be applied.');}
