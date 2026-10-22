@@ -81,7 +81,12 @@ type PairJob = {id:string;kind:'still'|'reel';state:string;sourceDigest:string;s
 async function api(path:string, method='GET', data?:unknown, signal?:AbortSignal) {
   if(isStaticDemo)return demoApi(path,method,data);
   const result=await fetch(path,{method,signal,headers:method==='GET'?{}:{'Content-Type':'application/json','X-Product-Suite':'1'},body:method==='GET'?undefined:JSON.stringify(data??{})});
-  const value=await result.json(); if(!result.ok) throw new Error(value.error||`Request failed (${result.status})`); return value;
+  const value=await result.json();
+  if(result.status===401&&value.loginUrl==='/api/login'&&window.location.pathname==='/'){
+    window.location.assign(`/api/login?return=${encodeURIComponent(window.location.pathname+window.location.search+window.location.hash)}`);
+    throw new Error('Sign in to this workspace');
+  }
+  if(!result.ok) throw new Error(value.error||`Request failed (${result.status})`); return value;
 }
 function Field({label,children}:{label:string;children:React.ReactNode}) {return <label className="field"><span>{label}</span>{children}</label>}
 function NumberField({label,value,onChange,min,max,step=.01}:{label:string;value:number;onChange:(n:number)=>void;min?:number;max?:number;step?:number}) {return <Field label={label}><input type="number" value={Number(value.toFixed(5))} min={min} max={max} step={step} onChange={e=>{const n=Number(e.target.value);if(e.target.value!==''&&Number.isFinite(n))onChange(n)}}/></Field>}

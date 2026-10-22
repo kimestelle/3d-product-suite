@@ -1,0 +1,27 @@
+# Review Render's current service/disk pricing before creating this blueprint.
+# One instance owns one persistent workspace and one serial CPU render queue.
+services:
+  - type: web
+    name: gesso-api
+    runtime: docker
+    plan: standard
+    region: oregon
+    branch: main
+    numInstances: 1
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: PORT
+        value: "8787"
+      - key: GESSO_DATA_DIR
+        value: /data/workspace
+      - key: GESSO_PUBLIC_URL
+        value: https://gesso-studio-gold.vercel.app
+      - key: GESSO_ACCESS_KEY
+        generateValue: true
+    disk:
+      name: gesso-data
+      mountPath: /data
+      sizeGB: 10

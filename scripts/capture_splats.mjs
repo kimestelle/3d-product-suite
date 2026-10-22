@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** Capture real Spark-rendered Gaussian worlds from the shared sampled cameras. */
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { createReadStream } from 'node:fs';
 import * as fs from 'node:fs/promises';
@@ -17,6 +17,14 @@ const manifestName = 'capture-manifest.json';
 const shaPattern = /^[a-f0-9]{64}$/;
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const execFileAsync = promisify(execFile);
+
+/** Authenticate the internal worker without putting credentials in command logs. */
+export function captureAuthHeaders(key = process.env.GESSO_ACCESS_KEY, now = Date.now()) {
+  if (!key) return {};
+  const unsigned = `${Math.floor(now / 1000) + 12 * 60 * 60}.${randomBytes(16).toString('hex')}`;
+  const signature = createHmac('sha256', key).update(unsigned).digest('hex');
+  return { Cookie: `gesso_session=${unsigned}.${signature}` };
+}
 
 export const usage = `Capture Gaussian world plates with the exact sampled camera poses.
 
@@ -286,8 +294,8 @@ export async function openManifest(output, identity) {
   return { manifest, verified };
 }
 
-async function verifyServedAsset(url, expected, timeout) {
-  const response = await fetch(url, { signal: AbortSignal.timeout(timeout), redirect: 'error' });
+export async function verifyServedAsset(url, expected, timeout, headers = {}) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(timeout), redirect: 'error', headers });
   if (!response.ok) throw new Error(`Asset server returned HTTP ${response.status} for the Gaussian world`);
   const hash = createHash('sha256');
   let size = 0;
@@ -316,7 +324,8 @@ export async function capture(options) {
     process.stdout.write(`Verified ${verified.size} existing Gaussian plates; capture complete.\n`);
     return manifest;
   }
-  await verifyServedAsset(options.assetUrl, identity.assetSha256, options.timeout);
+  const authHeaders = captureAuthHeaders();
+  await verifyServedAsset(options.assetUrl, identity.assetSha256, options.timeout, authHeaders);
   let chromium;
   try { ({ chromium } = createRequire(path.join(projectRoot, 'web', 'package.json'))('playwright')); }
   catch { throw new Error('Playwright is missing. Run: cd web && npm ci && npx playwright install chromium'); }
@@ -343,7 +352,10 @@ export async function capture(options) {
     page.setDefaultTimeout(options.timeout);
     await page.route('**/*', (route) => {
       const url = new URL(route.request().url());
-      return url.origin === options.origin || ['data:', 'blob:'].includes(url.protocol) ? route.continue() : route.abort('blockedbyclient');
+      if (url.origin === options.origin) {
+        return route.continue({ headers: { ...route.request().headers(), ...authHeaders } });
+      }
+      return ['data:', 'blob:'].includes(url.protocol) ? route.continue() : route.abort('blockedbyclient');
     });
     const browserErrors = [];
     page.on('pageerror', (error) => browserErrors.push(error.message));

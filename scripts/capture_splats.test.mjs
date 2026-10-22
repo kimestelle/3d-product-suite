@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
+import { createServer } from 'node:http';
 import * as fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { deflateSync } from 'node:zlib';
-import { atomicWrite, openManifest, parseArgs, requestedFrames, sampleDigests, validatePng } from './capture_splats.mjs';
+import { atomicWrite, captureAuthHeaders, openManifest, parseArgs, requestedFrames, sampleDigests, validatePng, verifyServedAsset } from './capture_splats.mjs';
 
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const camera = { positionM: [1, 2, 3], targetM: [0, 1, 0], focalLengthMm: 50 };
@@ -66,6 +67,39 @@ test('CLI rejects cross-origin assets and accepts only immutable local asset URL
   const remote = [...args];
   remote[1] = 'https://example.com';
   assert.throws(() => parseArgs(remote), /loopback/);
+});
+
+test('internal capture signs expiring sessions and leaves local captures unauthenticated', () => {
+  assert.deepEqual(captureAuthHeaders(''), {});
+  const key = 'capture-only-test-key-'.repeat(3);
+  const headers = captureAuthHeaders(key, 1700000000000);
+  const cookie = headers.Cookie;
+  assert.match(cookie, /^gesso_session=\d+\.[a-f0-9]{32}\.[a-f0-9]{64}$/);
+  const [expiry, nonce, signature] = cookie.slice('gesso_session='.length).split('.');
+  assert.equal(Number(expiry), 1700000000 + 12 * 60 * 60);
+  assert.equal(signature, createHmac('sha256', key).update(`${expiry}.${nonce}`).digest('hex'));
+  assert.notEqual(captureAuthHeaders(key, 1700000000000).Cookie, cookie);
+  assert.equal(cookie.includes(key), false);
+});
+
+test('asset verification sends the internal session and refuses unauthenticated assets', async t => {
+  const bytes = Buffer.from('private Gaussian asset');
+  const headers = captureAuthHeaders('private-worker-test-key-'.repeat(2));
+  const server = createServer((request, response) => {
+    if (request.headers.cookie !== headers.Cookie) {
+      response.writeHead(401).end();
+      return;
+    }
+    response.writeHead(200).end(bytes);
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve, reject) => {
+    server.close(error => error ? reject(error) : resolve());
+    server.closeAllConnections();
+  }));
+  const url = `http://127.0.0.1:${server.address().port}/api/assets/${hash(bytes)}.ply`;
+  await assert.rejects(verifyServedAsset(url, hash(bytes), 5000), /HTTP 401/);
+  await verifyServedAsset(url, hash(bytes), 5000, headers);
 });
 
 test('requested frames stay tied to exact sampled cameras', () => {

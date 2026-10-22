@@ -8,6 +8,8 @@ World comparisons support an official World Labs visual mesh and a mesh reconstr
 
 `npm run build:demo --prefix web` builds a browser-only bundle of the original MORA fixture for GitHub Pages or Vercel. Uploads, persistent saves, generation and final rendering need the backend and are disabled there. The demo's in-browser evaluator was written for main's earlier editor; it builds with the gesso editor, but not every gesso panel has a demo fallback yet. See [static hosting and deployment setup](docs/static-demo.md).
 
+To connect that Vercel editor to the full Python backend, use the [Render deployment setup](docs/backend-deployment.md). It includes persistent storage, workspace access, Blender/FFmpeg and an API rewrite; deployment still requires your Render account.
+
 ## Run locally
 
 Use **Python 3.12** (CI: 3.12.14) and **Node.js 24.19.0** with npm. The Python server installs Pillow for image decoding. Editing needs no API keys, Blender, or FFmpeg. The server uses POSIX file locking; use macOS or Linux. Native Windows is not supported.

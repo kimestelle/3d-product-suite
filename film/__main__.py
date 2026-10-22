@@ -36,6 +36,7 @@ def main(argv=None):
     p = sub.add_parser("serve", help="Run the local browser editor and render queue")
     p.add_argument("--data-dir", type=Path, default=Path("workspace-data"))
     p.add_argument("--port", type=int, default=8787)
+    p.add_argument("--host", default="127.0.0.1", help="Public binding requires hosted access configuration")
     p.add_argument("--import-blender", help="Optional newer Blender executable for imports; export stays pinned")
     p.add_argument("--blender", default="blender")
     p.add_argument("--ffmpeg", default="ffmpeg")
@@ -71,7 +72,7 @@ def main(argv=None):
     try:
         if args.command == "serve":
             from .server import serve
-            serve(args.data_dir, port=args.port, blender=args.blender, ffmpeg=args.ffmpeg, import_blender=args.import_blender)
+            serve(args.data_dir, host=args.host, port=args.port, blender=args.blender, ffmpeg=args.ffmpeg, import_blender=args.import_blender)
         elif args.command == "world-import":
             from .worlds import import_world
             provenance = {"source": str(args.asset.name), "owner": args.owner, "reuseBasis": args.reuse_basis,

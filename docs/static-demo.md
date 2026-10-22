@@ -71,3 +71,7 @@ A hosted full application needs a persistent authenticated Python backend,
 durable asset/project storage and a Blender/FFmpeg render worker. Vercel can host
 the frontend once that backend is connected. The static demo includes no live
 backend or paid generation endpoint.
+
+The [backend deployment guide](backend-deployment.md) now provides a Render
+blueprint and a script to connect its URL to Vercel. Until that connection is
+configured, the checked-in Vercel build remains the static demo.

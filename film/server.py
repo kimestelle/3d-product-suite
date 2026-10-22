@@ -1,6 +1,7 @@
-"""Single-user loopback editor server and a serial local render queue."""
+"""Single-workspace editor server and a serial persistent render queue."""
 
 import argparse
+from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import mimetypes
@@ -30,6 +31,7 @@ from .polyhaven import PolyHavenLibrary
 from .film_images import import_film_image, MAX_IMAGE_BYTES
 from .audio import MAX_AUDIO_BYTES, MIME_TYPES as AUDIO_MIME_TYPES, ffprobe_command, import_audio
 from .artwork import import_artwork
+from .hosting import HostedAccess, LoginRequired, return_path
 
 ARTIFACTS = {"scene.blend", "contact-sheet.png", "still-01.png", "still-02.png", "still-03.png"} | {item[1] for item in FORMATS.values()}
 ASSET_NAME = re.compile(r"[0-9a-f]{64}\.(?:glb|spz|ply|png|jpg|jpeg|webp|hdr|mp3|wav|m4a)\Z")
@@ -234,7 +236,8 @@ class RenderQueue:
 
 
 class Application:
-    def __init__(self, data_dir, *, port=8787, blender="blender", ffmpeg="ffmpeg", import_blender=None):
+    def __init__(self, data_dir, *, port=8787, blender="blender", ffmpeg="ffmpeg", import_blender=None, access=None):
+        self.access = access if access is not None else HostedAccess.from_environment()
         self.store = ProjectStore(data_dir)
         self.store.seed_worlds()
         self.port = port
@@ -278,7 +281,7 @@ class Application:
     def capabilities(self):
         import os
         return {"worldlabsConfigured": bool(os.environ.get("WORLDLABS_API_KEY")),
-                "githubWorldsAvailable": shutil.which("gh") is not None,
+                "githubWorldsAvailable": shutil.which("gh") is not None and (not self.access.enabled or bool(os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))),
                 "githubWorkflowUrl": self.github.url,
                 "productMeshImportAvailable": shutil.which(self.renders.blender) is not None,
                 "productMeshFormats": [suffix[1:] for suffix in PRODUCT_SUFFIXES],
@@ -290,11 +293,14 @@ def make_handler(app):
         server_version = "ProductSuite/0.2"
 
         def _security(self, mutate=False):
-            hosts = {f"127.0.0.1:{app.port}", f"localhost:{app.port}"}
+            local_hosts = {f"127.0.0.1:{app.port}", f"localhost:{app.port}"}
+            hosts = local_hosts | app.access.hosts
             if self.headers.get("Host") not in hosts:
-                raise PermissionError("Use the local editor address")
+                raise PermissionError("Use a configured editor address")
             origin = self.headers.get("Origin")
-            allowed = {f"http://{host}" for host in hosts} | {"http://localhost:5173", "http://127.0.0.1:5173"}
+            allowed = {f"http://{host}" for host in local_hosts} | app.access.origins
+            if not app.access.enabled:
+                allowed |= {"http://localhost:5173", "http://127.0.0.1:5173"}
             if origin and origin not in allowed:
                 raise PermissionError("Cross-origin requests are not allowed")
             if mutate and self.headers.get("X-Product-Suite") != "1":
@@ -318,7 +324,7 @@ def make_handler(app):
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))
-            self.send_header("Cache-Control", "no-store")
+            self.send_header("Cache-Control", "private,no-store" if app.access.enabled else "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(payload)
@@ -333,7 +339,8 @@ def make_handler(app):
                     }.get(path.suffix, mimetypes.guess_type(str(path))[0] or "application/octet-stream")
             self.send_header("Content-Type", mime)
             self.send_header("Content-Length", str(path.stat().st_size))
-            self.send_header("Cache-Control", "public,max-age=31536000,immutable" if immutable else "no-store")
+            self.send_header("Cache-Control", "private,no-store" if app.access.enabled else
+                             ("public,max-age=31536000,immutable" if immutable else "no-store"))
             self.send_header("X-Content-Type-Options", "nosniff")
             if download_name or path.suffix == ".blend":
                 self.send_header("Content-Disposition", f'attachment; filename="{download_name or "scene.blend"}"')
@@ -341,12 +348,62 @@ def make_handler(app):
             with path.open("rb") as handle:
                 shutil.copyfileobj(handle, self.wfile)
 
+        def _login(self, parsed):
+            target = return_path(parse_qs(parsed.query).get("return", ["/"])[0])
+            error = ""
+            if self.command == "POST":
+                if self.headers.get("Origin") not in app.access.origins:
+                    raise PermissionError("Open the sign-in page from the configured editor")
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 1 <= length <= 4096 or self.headers.get("Content-Type", "").split(";")[0] != "application/x-www-form-urlencoded":
+                    raise ValueError("Expected a small sign-in form")
+                fields = parse_qs(self.rfile.read(length).decode("utf-8"))
+                target = return_path(fields.get("return", ["/"])[0])
+                if app.access.matches_key(fields.get("key", [""])[0]):
+                    self.send_response(303)
+                    self.send_header("Location", target)
+                    self.send_header("Set-Cookie", app.access.cookie())
+                    self.send_header("Cache-Control", "private,no-store")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                error = "That access key did not match."
+            elif self.command != "GET":
+                raise ValueError("Unsupported sign-in method")
+            payload = ("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+                       "<title>gesso — Studio access</title><style>body{font:16px system-ui,sans-serif;max-width:24rem;margin:15vh auto;padding:1.5rem}"
+                       "input,button{font:inherit;padding:.65rem;box-sizing:border-box;width:100%;margin:.6rem 0}p{line-height:1.5}</style>"
+                       "<h1>Studio access</h1><p>Enter the workspace access key to open saved projects.</p>"
+                       f"<p role=alert>{error}</p><form method=post action=/api/login>"
+                       f"<input type=hidden name=return value='{escape(target, quote=True)}'>"
+                       "<label>Access key<input type=password name=key required autocomplete=current-password autofocus></label>"
+                       "<button>Continue</button></form></html>").encode("utf-8")
+            self.send_response(401 if error else 200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Cache-Control", "private,no-store")
+            self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            # Chromium sends Origin:null for a form POST under no-referrer.
+            # Keep the same-origin form verifiable without disclosing cross-origin referrers.
+            self.send_header("Referrer-Policy", "same-origin")
+            self.end_headers()
+            self.wfile.write(payload)
+
         def _dispatch(self):
             parsed = urlparse(self.path)
             path = unquote(parsed.path)
             parts = path.strip("/").split("/")
+            # Health probes reveal no workspace, provider or tool information.
+            if self.command == "GET" and path == "/api/health":
+                return self._json({"status": "ok"})
             mutate = self.command in ("POST", "PUT")
-            self._security(mutate)
+            login = app.access.enabled and path == "/api/login"
+            self._security(mutate and not login)
+            if login:
+                return self._login(parsed)
+            if path.startswith("/api/") and not app.access.authorized(self.headers.get("Cookie")):
+                raise LoginRequired()
             if self.command == "GET":
                 if path == "/api/bootstrap":
                     return self._json({"project": app.store.bootstrap(), "projects": app.store.list(),
@@ -532,6 +589,8 @@ def make_handler(app):
                 self._dispatch()
             except ConflictError as error:
                 self._json({"error": str(error)}, 409)
+            except LoginRequired:
+                self._json({"error": "Sign in to this workspace", "loginUrl": "/api/login"}, 401)
             except FileNotFoundError:
                 self._json({"error": "Record or asset not found"}, 404)
             except PermissionError as error:
@@ -550,12 +609,14 @@ def make_handler(app):
     return Handler
 
 
-def serve(data_dir="workspace-data", *, port=8787, blender="blender", ffmpeg="ffmpeg", import_blender=None):
+def serve(data_dir="workspace-data", *, host="127.0.0.1", port=8787, blender="blender", ffmpeg="ffmpeg", import_blender=None):
     app = Application(data_dir, port=port, blender=blender, ffmpeg=ffmpeg, import_blender=import_blender)
-    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(app))
+    if host not in ("127.0.0.1", "localhost") and not app.access.enabled:
+        raise ValueError("Public binding requires GESSO_PUBLIC_URL and GESSO_ACCESS_KEY")
+    server = ThreadingHTTPServer((host, port), make_handler(app))
     app.port = server.server_port
     app.renders.base_url = f"http://127.0.0.1:{app.port}"
-    print(f"Product Suite editor: http://127.0.0.1:{app.port}", flush=True)
+    print(f"gesso editor: {app.access.public_url or f'http://127.0.0.1:{app.port}'}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -568,5 +629,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", default="workspace-data")
     parser.add_argument("--port", type=int, default=8787)
+    parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args()
-    serve(args.data_dir, port=args.port)
+    serve(args.data_dir, host=args.host, port=args.port)
