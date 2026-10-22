@@ -159,7 +159,7 @@ export default function LandingPage({active}: {active:boolean}) {
     <div className="landing-topline gesso-site-header" data-frame-outside><a className="landing-mobile-home gesso-site-wordmark" href="/landing" aria-label="gesso home">gesso</a><nav className="gesso-site-nav" aria-label="Main navigation"><a className="landing-about-link site-about-link" href="/about">about</a><a className="landing-study-link site-study-link" href="/aperture">form + light</a><a className="landing-studio-link site-studio-link" data-studio-resume href="/?step=product&layer=model">enter studio <img src={navArrow} alt="" width="14" height="20"/></a></nav></div>
 
     <section className="landing-composition" aria-label="Your product, your world">
-      <h1 className="landing-mobile-logo" data-frame-outside aria-label="gesso"><span aria-hidden="true"/></h1>
+      <h1 className="landing-mobile-logo" data-frame-outside aria-label="gesso"><span aria-hidden="true">gesso</span></h1>
       <a className="landing-side landing-product" data-frame-outside href="/?step=product&layer=model"><span>your product</span></a>
 
       <div ref={aperture.windowRef} className={`landing-window ${ready || reel.frameReady ? 'is-ready' : ''} ${aperture.open ? 'is-open' : ''}`}
@@ -181,6 +181,7 @@ export default function LandingPage({active}: {active:boolean}) {
           <a className="landing-enter" data-studio-resume href="/?step=product&layer=model">enter studio <svg width="14.25" height="20" viewBox="0 0 14.25 20" fill="none" aria-hidden="true"><path d="M13.5 17V7H3.5M13.5 7L3.5 17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg></a>
           <p className="landing-repeatability">{repeatability}</p>
         </div>
+        {(!reel.wanted || reel.failed) && !reel.playing && <button className="landing-mobile-play" data-frame-outside type="button" onClick={reel.toggle}>play product videos</button>}
         {failed && !reel.frameReady && <p className="landing-image-error" role="status">The scene image couldn’t load. <button onClick={()=>location.reload()}>Reload</button></p>}
       </div>
 

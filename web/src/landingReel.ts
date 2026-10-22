@@ -23,6 +23,9 @@ export class LandingReel {
   private failed = false;
 
   constructor(private video: HTMLVideoElement, private changed: (state: LandingReelState) => void, entering = false) {
+    // Set both the reflected muted attribute and the live property before src
+    // or play(). Inline autoplay on Safari must not depend on React's order.
+    video.defaultMuted = true; video.muted = true; video.playsInline = true;
     this.entering = entering;
     this.reduced.addEventListener('change', this.sync);
     this.connection?.addEventListener('change', this.sync);

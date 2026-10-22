@@ -1314,3 +1314,23 @@ Reason: the hosted room should match the local demonstration without downloading
 The sampled static runtime permits material/part-label edits and packaged backdrops, including the neutral authored studio. It rejects pose, timing or unknown-asset changes rather than replaying stale frames. Generation, uploads, persistent saving and final rendering still require the local backend.
 
 Scope: campaign builder and packaging tests, static runtime, asset URL consumers and world covers. Verification: package hash/format tests and canonical Python sample parity pass; Chrome confirms the thumbnail loads with no Botanical mesh request, selection loads the mesh, and the saved film plays in that room without page errors. The original campaign and deployment remain recoverable in the task workspace.
+
+### 2026-10-22 — D167 — One wordmark and a playable mobile cover
+
+**In code; corrects D165's wordmark choice.** Both landing layouts use live Halyard Display 500 with the same −.05em tracking. Mobile keeps the white wordmark above the static X. Its older outlined Figma asset had different letterforms; using it to avoid font fallback introduced a second identity. The supplied Adobe web font makes the desktop type available on phones. Keep the historical SVG for existing studies, not the mobile cover.
+
+The cover continues to autoplay the real reel inside its fixed X. Set both the muted attribute and live muted/inline properties before attaching its source. If a phone blocks autoplay, offer “play product videos” inside the X; reduced-motion and data-saving users can also choose playback explicitly. A browser restriction must not leave them with an unexplained, permanent poster. Desktop controls and existing playback lifecycle stay intact.
+
+Verification: focused media lifecycle tests cover autoplay rejection/retry and muted setup. Production mobile browser inspection checks the real downloaded font, matching desktop weight/tracking, advancing video, a fixed contour, and recovery after a simulated autoplay block.
+
+### 2026-10-22 — D168 — About follows the three editor tabs
+
+**In code.** The process row now names Product, Stage and Film. Product includes materials and artwork; Stage includes settings, props and lighting. The fourth grid column holds the user's exact promise: “Start anywhere. A polished still or film is always one step away; everything stays editable.” It no longer repeats below the row. Smaller screens preserve reading order in two or one columns.
+
+Reason: the explanation should describe the current editor, not the earlier four-tab structure. The existing About grid, typography and other copy stay intact.
+
+### 2026-10-22 — D169 — Explain what the world model does
+
+**In code.** Replace the two repeated About paragraphs with the mechanism: generate the 3D setting, keep the product as an editable model, and change camera/motion without regenerating every frame or modeling the room from scratch. Name shape, finishes and artwork as the product details that remain consistent. The audience paragraph stays.
+
+Reason: explain the source of speed and control rather than calling the workflow intuitive or guaranteeing marketability. The product model, not generated video, carries those details.

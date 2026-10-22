@@ -2,19 +2,17 @@ export const PRODUCT_DESCRIPTION = {
   title: 'An image-making studio for people who know their product.',
   paragraphs: [
     'For people who design and build physical products. You know the parts, materials, and details. Gesso helps you make stills and films—whether you’re launching without the time or budget for a studio production, or making new content every week.',
-    'Bring the product, setting, camera, and motion into one editable scene. Start with a composed image, then adjust the material, placement, framing, and timing. Keep control of the decisions that change how your product appears.',
-    'Return to the same product, parts, and finishes for another angle, setting, or sequence. Each image starts from work you’ve already done.',
+    'World models generate a 3D setting around your product, so you don’t have to model a whole room or regenerate a video for every change. Your product stays a separate, editable model: its shape, finishes, and artwork stay consistent while you adjust the setting, camera, and motion.',
   ],
 };
 
 export const PRODUCT_LAYERS = [
-  {name: 'Product', text: 'Bring in a model. Find its parts, define its joints, and keep its dimensions intact.'},
-  {name: 'Material', text: 'Assign finishes to parts. Adjust maps, place artwork, and save material presets.'},
-  {name: 'World', text: 'Choose the setting, place props, and shape the light around the product.'},
+  {name: 'Product', text: 'Bring in a model. Organize its parts, assign materials, and place artwork.'},
+  {name: 'Stage', text: 'Choose the setting, place props, and shape the light around the product.'},
   {name: 'Film', text: 'Frame a still or build a sequence. Set focus, animate the scene, and export.'},
 ];
 
-export const PRODUCT_PROCESS_NOTE = 'Start anywhere. A polished still or film is always one step away; the decisions behind it stay editable.';
+export const PRODUCT_PROCESS_NOTE = 'Start anywhere. A polished still or film is always one step away; everything stays editable.';
 
 export const PRODUCT_ENDNOTE = 'Set up the product once. Keep making with it.';
 

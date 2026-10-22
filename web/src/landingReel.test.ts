@@ -21,7 +21,7 @@ function setup({reduced = false, saveData = false, hidden = false, entering = fa
   const frames = new Map<number, () => void>();
   let nextFrame = 0;
   const video = Object.assign(new EventTarget(), {
-    src: '', preload: 'none', readyState: 0, error: null as MediaError | null,
+    src: '', preload: 'none', readyState: 0, error: null as MediaError | null, muted: false, defaultMuted: false, playsInline: false,
     play: vi.fn(() => {const attempt = deferred(); attempts.push(attempt); return attempt.promise;}),
     pause: vi.fn(),
     load: vi.fn(),
@@ -61,6 +61,7 @@ describe('landing reel playback', () => {
   it('keeps the poster through metadata, loadeddata, and playing until a presented frame', async () => {
     const {video, attempts, state, present} = setup();
     expect(video.src).toBe(LANDING_REEL_SRC);
+    expect(video).toMatchObject({muted: true, defaultMuted: true, playsInline: true});
     video.readyState = 2;
     video.dispatchEvent(new Event('loadeddata'));
     video.dispatchEvent(new Event('playing'));

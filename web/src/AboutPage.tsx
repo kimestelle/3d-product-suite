@@ -76,13 +76,13 @@ export default function AboutPage({active = true}: {active?:boolean}) {
           <div className="about-description-body">{PRODUCT_DESCRIPTION.paragraphs.map(text => <p key={text}>{text}</p>)}</div>
         </section>
         <section className="about-description-row" aria-labelledby="about-process-title">
-          <h2 id="about-process-title">Product to film<br/>in four steps</h2>
+          <h2 id="about-process-title">Product to film<br/>in three steps</h2>
           <div className="about-description-body">
-            <dl className="about-layers">{PRODUCT_LAYERS.map((layer, index) => <div key={layer.name}>
+            <div className="about-process-grid"><dl className="about-layers">{PRODUCT_LAYERS.map((layer, index) => <div key={layer.name}>
               <dt><span>{String(index + 1).padStart(2, '0')}</span>{layer.name}</dt>
               <dd>{layer.text}</dd>
             </div>)}</dl>
-            <p className="about-process-note">{PRODUCT_PROCESS_NOTE}</p>
+            <p className="about-process-promise">{PRODUCT_PROCESS_NOTE}</p></div>
           </div>
         </section>
         <section className="about-description-row about-gallery-row" aria-labelledby="about-gallery-title">

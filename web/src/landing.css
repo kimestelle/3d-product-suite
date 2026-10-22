@@ -60,7 +60,7 @@
 .landing-image-error { position: absolute; left: 15%; right: 15%; bottom: 20%; margin: 0; text-align: center; color: var(--gesso-brand-ink); background: var(--landing-type); padding: var(--gesso-space-8); font-size: 12px; }
 .landing-image-error button { border: 0; color: inherit; background: transparent; font: inherit; text-decoration: underline; padding: 0 var(--gesso-space-4); }
 /* Compact cover: one stable specimen and one always-visible desktop handoff. */
-.landing-mobile-logo, .landing-mobile-action { display: none; }
+.landing-mobile-logo, .landing-mobile-action, .landing-mobile-play { display: none; }
 @media (max-width: 760px) {
   .gesso-landing {
     --aperture-width: min(calc((100vw - 2 * var(--site-margin)) / .58), max(360px, calc((100dvh - 300px) / .6)), 560px);
@@ -70,8 +70,9 @@
   }
   .gesso-landing .landing-topline { flex: none; min-height: 24px; }
   .landing-composition { position: relative; inset: auto; display: flex; flex: 1 0 auto; flex-direction: column; justify-content: center; gap: 16px; padding: 32px 0 24px; min-width: 0; overflow: clip; }
-  .landing-mobile-logo { display: block; flex: none; margin: 0; width: 160px; height: 60px; color: #fff; }
-  .landing-mobile-logo > span { display: block; width: 100%; height: 100%; background: currentColor; mask: url('./assets/gesso/landing-wordmark.svg') center / contain no-repeat; -webkit-mask: url('./assets/gesso/landing-wordmark.svg') center / contain no-repeat; }
+  .landing-mobile-logo { display: block; flex: none; margin: 0; height: 60px; font: 500 76px/1 var(--gesso-font-display); letter-spacing: -.05em; white-space: nowrap; color: #fff; }
+  .landing-mobile-logo > span { display: block; transform: translateY(-.14em); }
+  .landing-mobile-play { display: block; position: absolute; z-index: 3; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 8px 12px; border: 0; border-radius: 16px; background: #131313b8; color: #fff; font: 400 14px/20px var(--gesso-font-text); white-space: nowrap; }
   .landing-window { flex: none; width: var(--aperture-width); height: calc(var(--aperture-width) * .6); }
   .landing-side, .landing-logo, .landing-entrance, .landing-footer, .landing-video-overlay { display: none; }
   .landing-mobile-action { display: flex; flex: none; flex-direction: column; align-items: center; gap: 20px; color: #fff; }
