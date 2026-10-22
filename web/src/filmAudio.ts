@@ -1,3 +1,4 @@
+import {assetUrl, isStaticDemo} from './runtime';
 /** The scene soundtrack record and the edits the Sound section commits through the shared scene history. */
 export type FilmAudioFormat = 'mp3' | 'wav' | 'm4a';
 export interface FilmAudioAsset {path: string; sha256: string; format: FilmAudioFormat}
@@ -8,7 +9,7 @@ export const AUDIO_ACCEPT = 'audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-
 export const AUDIO_LIMITS = {offsetS: {min: -600, max: 600}, gain: {min: 0, max: 4}, bpm: {min: 30, max: 300}} as const;
 
 /** The immutable asset route the server streams with an audio content type. */
-export const filmAudioUrl = (asset: FilmAudioAsset) => `/api/assets/${asset.path.replace(/^assets\//, '')}`;
+export const filmAudioUrl = (asset: FilmAudioAsset) => assetUrl(asset.path);
 
 function bounded(value: unknown, name: string, min: number, max: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`${name} must be a number.`);
@@ -42,6 +43,7 @@ export function removeFilmAudio(scene: any) {
 
 /** Upload the file unchanged; the server hashes it and measures its duration with ffprobe. */
 export async function importFilmAudio(file: File): Promise<{asset: FilmAudioAsset; durationS: number}> {
+  if(isStaticDemo)throw new Error('Importing sound requires the local server.');
   const result = await fetch('/api/audio/import', {method: 'POST', body: file,
     headers: {'X-Product-Suite': '1', 'Content-Type': 'application/octet-stream', 'X-Asset-Filename': file.name}});
   const value = await result.json();

@@ -15,7 +15,7 @@ import {objectName, productSupportTargets, relationLabels, sceneFloorY, setProdu
 
 export type WorldLayer = 'Environment' | 'Props' | 'Lights';
 export interface WorldPanelProps extends CurrentWorldCapture {
-  scene: any; layer: WorldLayer; worlds: {id: string; name: string; environment: any}[];
+  scene: any; layer: WorldLayer; worlds: WorldCoverItem[];
   onChange: (edit: (scene: any) => void) => void; onWorld: (id: string) => void; onImport: () => void;
   onFitProduct?: () => void;
   fitDisabled?: boolean;
@@ -75,6 +75,7 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
     id: environment.kind === 'authored' ? 'authored' : matchedWorld?.id ?? 'current',
     name: environment.kind === 'authored' ? 'Authored studio' : matchedWorld?.name ?? environment.displayName ?? 'Saved custom world',
     environment, productDimensionsM: scene.product.dimensionsM,
+    previewAsset: worlds.find(world => world.id === matchedWorld?.id)?.previewAsset,
   };
   const worldItems: WorldCoverItem[] = [
     {id: 'authored', name: 'Authored studio', environment: {kind: 'authored', worldColor: environment.worldColor, plinth: environment.plinth, props: environment.props}},

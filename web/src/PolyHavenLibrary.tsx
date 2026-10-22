@@ -1,3 +1,4 @@
+import {isStaticDemo} from './runtime';
 import {UiIcon} from './UiIcon';
 import {useEffect, useRef, useState, type FormEvent} from 'react';
 import './polyhaven-library.css';
@@ -6,6 +7,7 @@ type Asset = {id:string;name:string;thumbnailUrl?:string;sourceUrl?:string};
 type Result = {kind:'textures'|'models'|'hdris';entry:any};
 export interface PolyHavenLibraryProps {kind:Result['kind'];onImport:(result:Result)=>void;disabled?:boolean;scopeKey?:string}
 async function api(path:string, data?:unknown, signal?:AbortSignal) {
+  if(isStaticDemo)throw new Error('Browsing and importing Poly Haven assets requires the local server.');
   const response=await fetch(path,{method:data?'POST':'GET',signal,headers:data?{'Content-Type':'application/json','X-Product-Suite':'1'}:{},body:data?JSON.stringify(data):undefined});
   const value=await response.json();
   if(!response.ok) throw new Error(value.error||`Request failed (${response.status})`);
@@ -34,7 +36,7 @@ export default function PolyHavenLibrary({kind,onImport,disabled=false,scopeKey=
     return()=>{session.current++;importController.current?.abort();};
   },[kind,scopeKey]);
   useEffect(()=>{
-    if(!open)return;
+    if(!open||isStaticDemo)return;
     const abort=new AbortController();setLoading(true);setError('');
     api(`/api/polyhaven/assets?kind=${kind}&q=${encodeURIComponent(search)}&offset=${offset}`,undefined,abort.signal).then(data=>{
       if(abort.signal.aborted)return;
@@ -56,6 +58,7 @@ export default function PolyHavenLibrary({kind,onImport,disabled=false,scopeKey=
     finally{if(session.current===ownSession)setDownloading(null);}
   };
   const label=kind==='textures'?'materials':kind==='models'?'props':'HDRIs';
+  if(isStaticDemo)return <p className="gesso-meta gesso-note">Importing Poly Haven {label} requires the local server.</p>;
   return <section className="gesso-section gesso-polyhaven" aria-label={`Poly Haven ${label}`}>
     <div className="gesso-polyhaven-heading"><button type="button" className="gesso-text-button" aria-expanded={open} onClick={()=>setOpen(value=>!value)}><UiIcon name={open ? "down" : "chevron"} size={14}/> Browse Poly Haven</button><a href="https://polyhaven.com" target="_blank" rel="noreferrer" className="gesso-meta">CC0 ↗</a></div>
     {open&&<>

@@ -1304,3 +1304,13 @@ Reason: the retained DOM exists to preserve the shared transition and editor sta
 Reason: the phone cover should show the work and make the desktop handoff visible without requiring an expansion gesture. The supplied Adobe Fonts project `uff2cgn` now provides Halyard Text, Display and Micro variable families, so phones receive the real weights rather than a substituted font. Wait for the used weights before layout measurement; film text cards use the same family. Keep installed fonts and the packaged fallback for unavailable web fonts. No font binaries are copied into the repository.
 
 Scope: LandingPage, landing/site-grid styles, index.html, shared typography, font readiness and film text cards. Verification: production Chrome checks at 390px, 430px and 667×375 confirm no horizontal overflow, native short-screen scrolling, unchanged X on tap, advancing video, desktop handoff, reduced motion and desktop hover/resize behavior. Chrome reports downloaded HalyardTextVF for rendered text; no page errors. Five film text tests and the production build pass.
+
+### 2026-10-22 — D166 — Publish the real Botanical room on selection
+
+**In code.** The selected-campaign builder can replace an offline room with a verified saved world. The published perfume campaign keeps its original camera, product and light samples; its Botanical choice now uses the local “Botanical product studio · Visual mesh.” Its browser derivative retains all 599,362 triangles, UVs and alignment while reducing the opaque room texture from 8192px PNG to 4096px JPEG. The original stays intact.
+
+Reason: the hosted room should match the local demonstration without downloading every room when the library opens. Cards use small verified images; full mesh and splat assets load only after selection. The Botanical asset is 68.5 MB instead of 109.9 MB, with a 64 MiB decoded texture instead of 256 MiB. Native contact geometry and the saved film are preserved.
+
+The sampled static runtime permits material/part-label edits and packaged backdrops, including the neutral authored studio. It rejects pose, timing or unknown-asset changes rather than replaying stale frames. Generation, uploads, persistent saving and final rendering still require the local backend.
+
+Scope: campaign builder and packaging tests, static runtime, asset URL consumers and world covers. Verification: package hash/format tests and canonical Python sample parity pass; Chrome confirms the thumbnail loads with no Botanical mesh request, selection loads the mesh, and the saved film plays in that room without page errors. The original campaign and deployment remain recoverable in the task workspace.

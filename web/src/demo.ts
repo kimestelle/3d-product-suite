@@ -1,4 +1,6 @@
 import { demoDataUrl } from './runtime';
+import { campaignMaterialPresets } from './materialPresets';
+import { removedPartIds } from './partTargets';
 
 /** The public fixture is an interactive preview. No backend calls are emulated. */
 export type DemoBundle = { bootstrap: any; samples: any };
@@ -30,6 +32,154 @@ function material(value: any, label = false): void {
   if (value.transmission !== undefined) requireDemo(finite(value.transmission) && value.transmission >= 0 && value.transmission <= 1
     && (!label || value.transmission === 0), 'This material transmission is unsupported.');
   if (value.ior !== undefined) requireDemo(finite(value.ior) && value.ior >= 1 && value.ior <= 3, 'Index of refraction must be between 1 and 3.');
+}
+
+const omitBoth = (current: any, baseline: any, keys: string[]): void => {
+  for (const key of keys) { delete current[key]; delete baseline[key]; }
+};
+
+/** Published worlds may change the backdrop, never the sampled support geometry.
+ * Match the whole bundled definition so a known hash cannot smuggle in a new
+ * alignment, collider, revision or unbundled asset. */
+function validateSampledWorld(environment: any, baseline: any, bundle: DemoBundle): void {
+  requireDemo(vector(environment?.worldColor) && environment.worldColor.every((value: number) => value >= 0 && value <= 1),
+    'World color must be in range.');
+  const shared = ['plinth', 'props', 'floorY', 'studioSizeM'];
+  for (const key of shared) requireDemo(Object.hasOwn(environment, key) === Object.hasOwn(baseline, key)
+    && (!Object.hasOwn(environment, key) || equal(environment[key], baseline[key])),
+    'Editing objects, floor contact or studio size needs the connected backend.');
+  const backdrop = (value: any): any => {
+    const result = copy(value);
+    for (const key of [...shared, 'worldColor']) delete result[key];
+    return result;
+  };
+  const packaged = [baseline, ...(bundle.bootstrap.worlds ?? []).map((world: any) => world.environment)];
+  // The neutral studio is the same supported backdrop-only action as App's
+  // Authored studio choice. Derive it from each packaged world so retained
+  // metadata cannot authorize a different transform or an external asset.
+  const authored = packaged.map((world: any) => {
+    const result = copy(world);
+    delete result.asset; delete result.fixture; delete result.collider;
+    result.kind = 'authored'; result.revisionId = 'neutral-studio-v1'; result.displayName = 'Authored studio';
+    result.provenance = {source:'Original authored studio', owner:'3d-product-suite', reuseBasis:'Original project geometry', allowedExternalDestinations:[]};
+    return result;
+  });
+  const candidates = [...packaged, ...authored];
+  requireDemo(candidates.some((candidate: any) => equal(backdrop(environment), backdrop(candidate))),
+    'Choose one of the included environments. New world assets or alignment changes need the connected backend.');
+}
+
+/** A published campaign replays Python's actual poses, including Film motions,
+ * imported part transforms and light motion. Only edits independent of those
+ * poses can reuse them; an unsupported edit must never silently play old motion. */
+function validateSampledScene(scene: any, bundle: DemoBundle): void {
+  requireDemo(scene && typeof scene === 'object', 'Choose the supplied demonstration scene.');
+  const current = copy(scene), baseline = copy(bundle.bootstrap.project.scene);
+  requireDemo(Array.isArray(current.product?.components) && current.product.components.length === baseline.product.components.length,
+    'Changing product geometry needs the connected backend.');
+  const allowedAssets = new Set<string>();
+  const visitAssets = (value: any): void => {
+    if (!value || typeof value !== 'object') return;
+    if (typeof value.path === 'string' && typeof value.sha256 === 'string') allowedAssets.add(canonical(value));
+    for (const child of Object.values(value)) visitAssets(child);
+  };
+  visitAssets(bundle.bootstrap.project.scene);
+  const validateSurface = (value: any): void => {
+    material(value);
+    for (const asset of Object.values(value.textures ?? {})) requireDemo(allowedAssets.has(canonical(asset)),
+      'New texture files need the connected backend. The included material colors and response remain editable.');
+  };
+  // This existing validator checks material ranges, map shapes and preset IDs.
+  try { campaignMaterialPresets(scene); } catch (error) {
+    requireDemo(false, error instanceof Error ? error.message : 'Choose a valid material preset.');
+  }
+  const presets = scene.product.materialPresets ?? [];
+  for (const preset of presets) validateSurface(preset.material);
+  const presetIds = new Set(presets.map((preset: any) => preset.id));
+  const partIds = new Set<string>(bundle.bootstrap.demo.allowedPartIds ?? []);
+  for (const component of baseline.product.components) {
+    partIds.add(component.id);
+    for (const node of component.sourceNodes ?? []) partIds.add(`${component.id}::node:${node.nodeIndex}`);
+  }
+  for (let index = 0; index < current.product.components.length; index++) {
+    const component = current.product.components[index], original = baseline.product.components[index];
+    validateSurface(component.material);
+    if (component.materialOverride !== undefined) requireDemo(typeof component.materialOverride === 'boolean', 'Material override must be on or off.');
+    if (component.materialPresetId !== undefined) requireDemo(presetIds.has(component.materialPresetId), 'Choose a saved material.');
+    requireDemo(component.materialBindings === undefined || Array.isArray(component.materialBindings), 'Material assignments must be a list.');
+    const bound = new Set<number>();
+    for (const binding of component.materialBindings ?? []) {
+      requireDemo(binding && Number.isSafeInteger(binding.nodeIndex) && partIds.has(`${component.id}::node:${binding.nodeIndex}`)
+        && presetIds.has(binding.materialPresetId) && !bound.has(binding.nodeIndex), 'Choose an existing product part and material.');
+      bound.add(binding.nodeIndex);
+    }
+    omitBoth(component, original, ['material', 'materialOverride', 'materialPresetId', 'materialBindings']);
+  }
+  requireDemo(current.product.removedPartIds === undefined || Array.isArray(current.product.removedPartIds)
+    && current.product.removedPartIds.every((id: unknown) => typeof id === 'string' && partIds.has(id)), 'Choose an existing product part.');
+  omitBoth(current.product, baseline.product, ['materialPresets', 'removedPartIds']);
+  if (current.editorPartNames !== undefined) {
+    requireDemo(current.editorPartNames && typeof current.editorPartNames === 'object' && !Array.isArray(current.editorPartNames), 'Part names must identify existing parts.');
+    for (const [id, name] of Object.entries(current.editorPartNames)) requireDemo(partIds.has(id)
+      && typeof name === 'string' && !!name.trim() && name.length <= 120, 'Use a part name of 1–120 characters.');
+  }
+  if (current.editorHierarchy !== undefined) {
+    const hierarchy = current.editorHierarchy;
+    requireDemo(hierarchy?.version === 1 && hierarchy.overrides && typeof hierarchy.overrides === 'object' && !Array.isArray(hierarchy.overrides), 'Use a valid product grouping.');
+    for (const [id, entry] of Object.entries(hierarchy.overrides)) {
+      const item = entry as any;
+      requireDemo(partIds.has(id) && item && ['suggested', 'confirmed', 'edited'].includes(item.status)
+        && (item.parentId === null || partIds.has(item.parentId)) && item.parentId !== id, 'Choose an existing parent part.');
+    }
+  }
+  omitBoth(current, baseline, ['editorPartNames', 'editorHierarchy']);
+  validateSampledWorld(current.environment, baseline.environment, bundle);
+  current.environment = baseline.environment;
+  requireDemo(Array.isArray(current.shots) && current.shots.length === baseline.shots.length, 'Changing the scene sequence needs the connected backend.');
+  for (let index = 0; index < current.shots.length; index++) {
+    const shot = current.shots[index], original = baseline.shots[index];
+    requireDemo(typeof shot.name === 'string' && shot.name.length <= 140 && shot.camera, 'Choose a valid named scene.');
+    shot.name = original.name;
+    const optics = shot.camera.depthOfField;
+    if (optics !== undefined) requireDemo(optics && typeof optics === 'object'
+      && Object.keys(optics).every(key => ['enabled', 'fStop', 'focusDistanceM'].includes(key))
+      && (optics.enabled === undefined || typeof optics.enabled === 'boolean')
+      && (optics.fStop === undefined || finite(optics.fStop) && optics.fStop >= .7 && optics.fStop <= 64)
+      && (optics.focusDistanceM === undefined || finite(optics.focusDistanceM) && optics.focusDistanceM > 0), 'Choose valid optical focus settings.');
+    omitBoth(shot.camera, original.camera, ['depthOfField']);
+  }
+  for (const key of ['width', 'height', 'samples']) {
+    requireDemo(Number.isSafeInteger(current.render?.[key]) && current.render[key] > 0 && current.render[key] <= 8192, 'Choose a valid preview size and sample count.');
+    current.render[key] = baseline.render[key];
+  }
+  requireDemo(equal(current, baseline),
+    'Changing placement, camera movement, animation, scene timing or geometry needs the connected backend. Undo this edit to return to the supplied film.');
+}
+
+async function sampledScene(scene: any, bundle: DemoBundle): Promise<any> {
+  validateSampledScene(scene, bundle);
+  const frames = copy(bundle.samples.frames);
+  const removedChanged = !equal(scene.product.removedPartIds ?? [], bundle.bootstrap.project.scene.product.removedPartIds ?? []);
+  const removed = removedChanged ? [...removedPartIds(scene)] : [];
+  for (const sample of frames) {
+    if (removedChanged) {
+      if (removed.length) sample.removedPartIds = removed;
+      else delete sample.removedPartIds;
+    }
+    const shot = scene.shots.find((entry: any) => entry.id === sample.shotId);
+    const original = bundle.bootstrap.project.scene.shots.find((entry: any) => entry.id === sample.shotId);
+    if (shot && !equal(shot.camera.depthOfField ?? {}, original.camera.depthOfField ?? {})) {
+      const optics = shot.camera.depthOfField ?? {};
+      sample.camera.depthOfField = {
+        enabled: optics.enabled ?? false,
+        fStop: optics.fStop ?? 2.8,
+        focusDistanceM: optics.focusDistanceM ?? Math.hypot(...sample.camera.positionM.map((value: number, index: number) => value - sample.camera.targetM[index])),
+      };
+    }
+  }
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical(scene)));
+  const digest = 'demo-' + Array.from(new Uint8Array(bytes), n => n.toString(16).padStart(2, '0')).join('');
+  return { scene: copy(scene), frames, objects: copy(bundle.samples.objects), digest };
 }
 
 /** Validate the explicitly supported edits before reusing the fixed geometry. */
@@ -113,6 +263,7 @@ function validatedScene(scene: any, bundle: DemoBundle): any {
 
 /** Evaluate supported cameras/cap timing from absolute time, matching film.scene. */
 export async function evaluateDemoScene(scene: any, bundle: DemoBundle): Promise<any> {
+  if (bundle.bootstrap.demo?.playbackMode === 'sampled') return sampledScene(scene, bundle);
   validatedScene(scene, bundle);
   const root = bundle.samples.objects.product;
   const frames = bundle.samples.frames.map((sample: any) => {
@@ -179,7 +330,7 @@ export async function demoApi(path: string, method = 'GET', data?: any): Promise
   }
   if (method === 'GET' && path === '/api/bootstrap') return copy(bundle.bootstrap);
   if (method === 'GET' && path === '/api/projects') return copy(bundle.bootstrap.projects);
-  if (method === 'GET' && path === '/api/projects/demo') return copy(bundle.bootstrap.project);
+  if (method === 'GET' && path === `/api/projects/${encodeURIComponent(bundle.bootstrap.project.id)}`) return copy(bundle.bootstrap.project);
   if (method === 'GET' && path === '/api/worlds') return copy(bundle.bootstrap.worlds);
   throw new Error('Browser demo: this action needs the connected backend. No server request was made.');
 }

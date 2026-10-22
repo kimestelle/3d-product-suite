@@ -1,9 +1,11 @@
 # Hosted browser demo
 
-The public demo runs entirely in the browser. It packages the original fictional
-MORA product, sample label artwork and original Gallery/Botanical environments.
-Manufacturer files, generated World Labs results, private projects and credentials
-are not included.
+The public demo runs entirely in the browser. The default `build:demo` command
+packages the original fictional MORA product, sample label artwork and original
+Gallery/Botanical environments. It includes no manufacturer files, generated
+World Labs results, private projects or credentials. An explicitly selected
+campaign can instead be published with [the campaign builder](campaign-demo.md);
+that bundle includes only its verified assets and chosen room replacements.
 
 Try label placement, UV guide downloads, material finishes, playback, camera
 framing and cap timing. Undo/redo works during the session. Edits reset when the

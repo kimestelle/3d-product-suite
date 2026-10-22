@@ -10,6 +10,7 @@ import PolyHavenLibrary from './PolyHavenLibrary';
 import {campaignMaterialPresets, deleteMaterialPreset, materialStarters, materialTypes, presetPartIds, saveMaterialPreset, type LibraryMaterialPreset, type MaterialType, type SavedMaterialPreset} from './materialPresets';
 import type {MaterialHover, MaterialPreview, MaterialSpecification} from './materials';
 import './material-library.css';
+import {isStaticDemo} from './runtime';
 
 type MaterialEntry = {id:string; name:string; material:MaterialSpecification; prompt?:string;provider?:string;sourceUrl?:string};
 type MaterialJob = {id:string; state:string; material?:MaterialEntry; error?:string;notice?:string};
@@ -22,6 +23,7 @@ const sameSurface = (a:MaterialSpecification,b:MaterialSpecification) => {
 };
 const pending = (job:MaterialJob|null) => !!job && ['queued','running','submitting','downloading','cancelling'].includes(job.state);
 async function request(path:string, method='GET', data?:unknown, signal?:AbortSignal) {
+  if(isStaticDemo)throw new Error('The material service requires the local server. Use the presets in this demo.');
   const response = await fetch(path, {method, signal, headers:method === 'GET' ? {} : {'Content-Type':'application/json','X-Product-Suite':'1'},
     body:method === 'GET' ? undefined : JSON.stringify(data ?? {})});
   const value = await response.json();
@@ -83,6 +85,7 @@ export default function MaterialLibrary({scene, componentId, parts, onSelect, on
     if (next.state === 'succeeded' && next.material) setEntries(current => [...current.filter(entry => entry.id !== next.material!.id),next.material!]);
   };
   useEffect(() => {
+    if(isStaticDemo){setEntries([]);setConfigured(false);setError('');return;}
     const abort = new AbortController();
     request('/api/materials','GET',undefined,abort.signal).then(data => {
       setEntries(data.materials ?? []); setConfigured(data.configured === true); setError('');
@@ -161,7 +164,7 @@ export default function MaterialLibrary({scene, componentId, parts, onSelect, on
       saveMaterialPreset(structuredClone(scene),preset);
       draftSource.current=preset;
       onChange(next=>saveMaterialPreset(next,preset));setSelectedId(preset.id);setDraft({...preset,isNew:false});
-      setFeedback('Saved','success');
+      setFeedback(isStaticDemo?'Updated for this session':'Saved','success');
     } catch(reason) {setFeedback((reason as Error).message,'error');}
   };
   const useTexture = (entry:MaterialEntry) => {
@@ -226,8 +229,8 @@ export default function MaterialLibrary({scene, componentId, parts, onSelect, on
       <button className="gesso-section-toggle" type="button" aria-expanded={activeSection==='textures'} aria-controls={textureContentId} onClick={()=>setActiveSection(activeSection==='textures' ? null : 'textures')}><span>Texture library</span><small>Browse</small><UiIcon name={activeSection==='textures' ? 'down' : 'chevron'} size={14}/></button><div className="gesso-preset-texture-content" id={textureContentId} hidden={activeSection!=='textures'} inert={activeSection!=='textures'} aria-hidden={activeSection!=='textures'}>
         {!!draft && activeSection==='textures' && !!entries.length && <MaterialSwatches items={entries} onSelect={id=>{const entry=entries.find(item=>item.id===id);if(entry)useTexture(entry);}}/>}
         {entries.filter(entry=>!!entry.sourceUrl).map(entry=><p className="gesso-meta" key={entry.id}><a href={entry.sourceUrl} target="_blank" rel="noreferrer">{entry.name} · Poly Haven ↗</a> · CC0</p>)}
-        <PolyHavenLibrary kind="textures" scopeKey={scene.sceneId + ':' + (draft?.id ?? 'library')} disabled={!draft} onImport={({entry})=>useTexture(entry)}/>
-        <section className="gesso-section gesso-material-generator" aria-label="Generate material">
+        {isStaticDemo?<p className="gesso-meta gesso-note">Texture imports and generation require the local server. The supplied presets are available here.</p>:<PolyHavenLibrary kind="textures" scopeKey={scene.sceneId + ':' + (draft?.id ?? 'library')} disabled={!draft} onImport={({entry})=>useTexture(entry)}/>}
+        <section className="gesso-section gesso-material-generator" aria-label="Generate material" hidden={isStaticDemo} inert={isStaticDemo}>
           <div className="gesso-section-heading"><span className="gesso-section-label">Generate texture</span><span>fal · Patina</span></div>
           <label className="gesso-field"><span className="gesso-sr-only">Texture description</span><textarea aria-label="Texture description" value={prompt} maxLength={1200} rows={2} placeholder="Brushed aluminium, fine horizontal grain…" onChange={event=>setPrompt(event.target.value)}/></label>
           <div className="gesso-material-generate-row"><button type="button" disabled={!draft||!configured||!prompt.trim()||busy||pending(job)} onClick={generate}>{busy&&!job ? 'Submitting…' : 'Generate'}</button><span className="gesso-meta">1K · 5 maps · ≈ $0.08</span></div>
@@ -251,7 +254,7 @@ export default function MaterialLibrary({scene, componentId, parts, onSelect, on
       <MaterialSwatches items={materialStarters} onSelect={newFromStarter}/>
     </section>
     <section className="gesso-section" aria-label="Material library">
-      <div className="gesso-preset-library-actions"><span className="gesso-meta gesso-feedback" data-tone="success">Saved with this campaign</span><button type="button" className="gesso-text-button" onClick={()=>{setChoosingType(true);setDraft(null);setSelectedId(null);setFeedback('');}}>Add new</button></div>
+      <div className="gesso-preset-library-actions"><span className="gesso-meta gesso-feedback" data-tone={isStaticDemo?'note':'success'}>{isStaticDemo?'Session material library':'Saved with this campaign'}</span><button type="button" className="gesso-text-button" onClick={()=>{setChoosingType(true);setDraft(null);setSelectedId(null);setFeedback('');}}>Add new</button></div>
       <MaterialAssignments scene={scene} parts={parts} presets={presets} selectedId={choosingType?undefined:draft?.id??selectedId??undefined}
         onEdit={edit} onRename={rename} onDuplicate={duplicate} onDelete={remove} onSelect={onSelect} onChange={onChange} onHover={onHover}/>
     </section>

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {isStaticDemo} from './runtime';
 import {disposeSceneObject,loadVerifiedGlb,prepareImportedMesh} from './sceneObjects';
 
 export type CurveProduct={root:THREE.Group;name:string;partCount:number;triangleCount:number};
@@ -15,6 +16,7 @@ const finiteVector=(value:unknown,length:number)=>Array.isArray(value)&&value.le
 
 /** Read the existing local lamp, never the campaign's world or a public copy of its CAD. */
 export async function loadCurveProduct(signal:AbortSignal):Promise<CurveProduct>{
+  if(isStaticDemo)throw new Error('The lamp study needs the local workspace. The perfume demo is available in the studio.');
   const projects=await json('/api/projects',signal);
   if(!Array.isArray(projects))throw new Error('The local project list is invalid.');
   // The list gives campaign names; confirm the actual product before loading bytes.

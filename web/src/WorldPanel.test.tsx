@@ -27,6 +27,17 @@ describe('World panel', () => {
     expect(html).toContain('Proportions and source dimensions stay unchanged.');
     expect(render('Environment')).not.toContain('Fit product to scene');
   });
+  it('preserves the current world’s catalog image and renders lazy covers without loading world files', () => {
+    const sha256 = 'b'.repeat(64);
+    const previewAsset = {sha256, path: `assets/${sha256}.png`, format: 'png' as const};
+    const environment = {...fixture.environment, kind: 'mesh', revisionId: 'botanical'};
+    const scene = {...fixture, environment};
+    const worlds = [{id: 'botanical', name: 'Botanical', environment, previewAsset}];
+    const html = renderToStaticMarkup(<WorldPanel scene={scene} layer="Environment" worlds={worlds} onChange={() => {}} onWorld={() => {}} onImport={() => {}}/>);
+    expect(html.match(new RegExp(`src="/api/assets/${sha256}.png"`, 'g'))).toHaveLength(2);
+    expect(html.match(/loading="lazy" decoding="async"/g)).toHaveLength(2);
+    expect(html).not.toContain('rel="preload"');
+  });
   it('adds and removes lights, selects a type and exposes spot, ambient and preset controls', () => {
     const scene: any = structuredClone(fixture);
     expect(addLight(scene, 'spot')).toBe('spot-1');

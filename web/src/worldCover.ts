@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import {createStudioSweepGeometry, disposeSceneObject, loadVerifiedGlb, prepareImportedMesh, sceneAssetUrl} from './sceneObjects';
-import {capPreviewTextures} from './previewTextures';
+import {createStudioSweepGeometry, disposeSceneObject} from './sceneObjects';
 import {createWorldObjectPreview} from './worldObjectPreview';
+import {assetUrl} from './runtime';
 
-export interface WorldCoverItem {id: string; name: string; environment: any; productDimensionsM?: number[]}
+export interface WorldPreviewAsset {path: string; sha256: string; format: 'png' | 'jpg' | 'jpeg' | 'webp'}
+export interface WorldCoverItem {id: string; name: string; environment: any; productDimensionsM?: number[]; previewAsset?: WorldPreviewAsset}
 export interface WorldCover {state: 'ready' | 'loading' | 'open' | 'failed'; url?: string}
-export const WORLD_COVER_BYTES = 6 * 1024 * 1024;
 const TRANSIENT_CAPTURE_ERRORS = new Set([
   'A still is already rendering.',
   'Wait for the current preview to finish loading.',
@@ -51,59 +51,30 @@ export function worldCoverKey(environment: any, productDimensionsM?: number[]): 
     environment?.kind === 'authored' ? environment.studioSizeM ?? (productDimensionsM ? Math.max(...productDimensionsM) : null) : null]);
 }
 
-/** Match viewport.alignWorld, including the source-axis correction order. */
-export function alignWorldCover(root: THREE.Object3D, asset: any): void {
-  const sourceUp = new THREE.Quaternion();
-  if (asset.sourceUp === 'Z') sourceUp.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
-  root.quaternion.fromArray(asset.rotationXyzw || [0, 0, 0, 1]).multiply(sourceUp);
-  root.scale.setScalar(asset.scaleToMeters ?? 1);
-  root.position.fromArray(asset.translationM || [0, 0, 0]);
+/** Resolve only declared image covers. The native image loads lazily; no mesh
+ * request, HEAD request, or size probe is needed to display a library card. */
+export function worldPreviewAssetUrl(preview?: WorldPreviewAsset): string | undefined {
+  if (!preview || !/^[a-f0-9]{64}$/.test(preview.sha256)) return;
+  const extensions = preview.format === 'jpeg' || preview.format === 'jpg' ? ['jpeg', 'jpg']
+    : preview.format === 'png' || preview.format === 'webp' ? [preview.format] : [];
+  if (!extensions.some(extension => preview.path === `assets/${preview.sha256}.${extension}`)) return;
+  return assetUrl(preview.path);
 }
 
-/** Bound download and decode work before touching a generated world's textures.
- * Larger assets get their cover from the already-loaded main viewport. */
-export async function boundedWorldCoverBytes(asset: any, signal: AbortSignal): Promise<Blob | null> {
-  const response = await fetch(sceneAssetUrl(asset), {signal, credentials: 'same-origin'});
-  if (!response.ok) throw new Error('World preview unavailable.');
-  const length = response.headers.get('Content-Length');
-  if (length && (!/^\d+$/.test(length) || Number(length) > WORLD_COVER_BYTES)) {
-    await response.body?.cancel(); return null;
-  }
-  if (!response.body) return null;
-  const reader = response.body.getReader();
-  const chunks: Uint8Array<ArrayBuffer>[] = [];
-  let size = 0;
-  try {
-    while (true) {
-      const {done, value} = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > WORLD_COVER_BYTES) {await reader.cancel(); return null;}
-      chunks.push(new Uint8Array(value));
-    }
-  } finally {reader.releaseLock();}
-  return new Blob(chunks, {type: 'model/gltf-binary'});
+/** A captured current scene wins over its catalog image. Thumbnail revisions
+ * do not invalidate the scene cache or cause another world load. */
+export function worldCoverForItem(item: WorldCoverItem, cached?: WorldCover): WorldCover {
+  if (cached?.state === 'ready') return cached;
+  const url = worldPreviewAssetUrl(item.previewAsset);
+  if (url) return {state: 'ready', url};
+  return cached ?? {state: item.environment?.kind === 'authored' ? 'loading' : 'open'};
 }
 
-/** Real geometry/materials, with the same source alignment as the viewport. */
+/** Only local authored geometry gets a separate cover renderer. Imported mesh
+ * and splat covers come from a small image or the already-loaded main viewport. */
 export async function createWorldCoverObject(environment: any, signal: AbortSignal, productDimensionsM?: number[]): Promise<THREE.Object3D | null> {
   if (environment.kind === 'authored') return createAuthoredWorldCover(environment, signal, productDimensionsM);
-  if (environment.kind !== 'mesh' || environment.asset?.format !== 'glb') return null;
-  const blob = await boundedWorldCoverBytes(environment.asset, signal);
-  if (!blob) return null;
-  const url = URL.createObjectURL(blob);
-  let imported: THREE.Group | undefined;
-  try {
-    imported = await loadVerifiedGlb(environment.asset, signal, url);
-    if (signal.aborted) throw new DOMException('Preview superseded.', 'AbortError');
-    prepareImportedMesh(imported);
-    await capPreviewTextures(imported, {signal});
-    const root = new THREE.Group();
-    root.add(imported);
-    alignWorldCover(root, environment.asset);
-    return root;
-  } catch (error) {if (imported) disposeSceneObject(imported); throw error;}
-  finally {URL.revokeObjectURL(url);}
+  return null;
 }
 
 async function createAuthoredWorldCover(environment: any, signal: AbortSignal, productDimensionsM?: number[]): Promise<THREE.Object3D | null> {

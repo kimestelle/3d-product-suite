@@ -1,7 +1,7 @@
 import {useEffect, useRef, useState} from 'react';
 import * as THREE from 'three';
 import {disposeSceneObject} from './sceneObjects';
-import {captureWorldCoverWithRetry, createWorldCoverObject, fitWorldCover, worldCoverKey, type WorldCover, type WorldCoverItem} from './worldCover';
+import {captureWorldCoverWithRetry, createWorldCoverObject, fitWorldCover, worldCoverForItem, worldCoverKey, type WorldCover, type WorldCoverItem} from './worldCover';
 import './world-covers.css';
 
 export interface CurrentWorldCapture {
@@ -28,8 +28,8 @@ function pngUrl(blob: Blob): Promise<string> {
   });
 }
 
-/** A single demand renderer services only visible small worlds. The current
- * scene supplies large mesh/splat covers without loading their assets twice. */
+/** A single demand renderer services visible authored geometry. Mesh/splat
+ * cards only use small images or a capture from the already-loaded scene. */
 export function useWorldCovers(items: WorldCoverItem[], current: WorldCoverItem, options: CurrentWorldCapture) {
   const entries = useRef(new Map<string, HTMLElement>());
   const itemsRef = useRef(items); itemsRef.current = items;
@@ -37,7 +37,7 @@ export function useWorldCovers(items: WorldCoverItem[], current: WorldCoverItem,
   const syncRef = useRef<(() => void) | null>(null);
   const syncQueued = useRef(false);
   const [covers, setCovers] = useState<Record<string, WorldCover>>(() => Object.fromEntries(cache));
-  const key = JSON.stringify(items.map(item => [item.id, worldCoverKey(item.environment, item.productDimensionsM)]));
+  const key = JSON.stringify(items.map(item => [item.id, worldCoverKey(item.environment, item.productDimensionsM), item.previewAsset]));
   const selectedKey = worldCoverKey(current.environment, current.productDimensionsM);
   const publish = () => setCovers(Object.fromEntries(cache));
 
@@ -58,8 +58,9 @@ export function useWorldCovers(items: WorldCoverItem[], current: WorldCoverItem,
       if (disposed || busy || unavailable || document.hidden) return;
       const candidate = [currentRef.current, ...itemsRef.current].find(item => {
         const candidateKey = worldCoverKey(item.environment, item.productDimensionsM);
-        const cached = cache.get(candidateKey);
-        return (item.id === currentRef.current.id || visible.has(item.id)) && (!cached || cached.state === 'loading') && !attempted.has(candidateKey);
+        const cover = worldCoverForItem(item, cache.get(candidateKey));
+        return item.environment.kind === 'authored' && (item.id === currentRef.current.id || visible.has(item.id))
+          && cover.state === 'loading' && !attempted.has(candidateKey);
       });
       if (!candidate) {clearTimeout(idle); idle = setTimeout(releaseRenderer, 400); return;}
       clearTimeout(idle);
@@ -129,7 +130,11 @@ export function useWorldCovers(items: WorldCoverItem[], current: WorldCoverItem,
     return () => {clearTimeout(timer); controller.abort();};
   }, [selectedKey, options.captureCurrentWorld, options.worldPreviewReady, options.worldPreviewRevision]);
 
-  return {covers, observe: (id: string, element: HTMLElement | null) => {
+  const displayedCovers = Object.fromEntries([...items, current].map(item => {
+    const itemKey = worldCoverKey(item.environment, item.productDimensionsM);
+    return [itemKey, worldCoverForItem(item, covers[itemKey])];
+  }));
+  return {covers: displayedCovers, observe: (id: string, element: HTMLElement | null) => {
     if (element) entries.current.set(id, element); else entries.current.delete(id);
     if (!syncQueued.current) {
       syncQueued.current = true;
@@ -139,7 +144,9 @@ export function useWorldCovers(items: WorldCoverItem[], current: WorldCoverItem,
 }
 
 export function WorldCoverImage({name, cover, selected = false}: {name: string; cover?: WorldCover; selected?: boolean}) {
+  const [failedUrl, setFailedUrl] = useState<string>();
+  const url = cover?.url !== failedUrl ? cover?.url : undefined;
   return <span className="gesso-world-cover-image">
-    {cover?.url ? <img src={cover.url} alt={`${name} preview`} width="320" height="180"/> : <span className="gesso-world-cover-empty">{cover?.state === 'failed' ? 'Preview unavailable' : cover?.state === 'open' ? selected ? 'Waiting for scene' : 'Open to preview' : 'Loading preview…'}</span>}
+    {url ? <img src={url} alt={`${name} preview`} width="320" height="180" loading="lazy" decoding="async" onError={() => setFailedUrl(url)}/> : <span className="gesso-world-cover-empty">{cover?.state === 'failed' ? 'Preview unavailable' : cover?.state === 'open' || !!failedUrl ? selected ? 'Waiting for scene' : 'Open to preview' : 'Loading preview…'}</span>}
   </span>;
 }

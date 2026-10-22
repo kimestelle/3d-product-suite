@@ -1,3 +1,4 @@
+import {assetUrl, isStaticDemo} from './runtime';
 import type {ProductDecal} from './decals';
 
 export type ArtworkAsset = {path: string; sha256: string; format: 'png'; width: number; height: number};
@@ -7,10 +8,11 @@ export const ARTWORK_LIMIT_BYTES = 32 * 1024 * 1024;
 export function artworkAssetUrl(asset: ArtworkAsset): string {
   if (!/^[0-9a-f]{64}$/.test(asset.sha256) || asset.path !== `assets/${asset.sha256}.png` || asset.format !== 'png')
     throw new Error('The artwork asset is invalid.');
-  return `/api/assets/${asset.sha256}.png`;
+  return assetUrl(asset.path);
 }
 
 export async function uploadArtwork(blob: Blob, filename: string, signal?: AbortSignal): Promise<ArtworkAsset> {
+  if(isStaticDemo)throw new Error('Uploading artwork requires the local server. The supplied artwork remains unchanged.');
   if (!blob.size || blob.size > ARTWORK_LIMIT_BYTES) throw new Error('Use an image smaller than 32 MB.');
   if (!/\.(?:png|jpe?g|webp)$/i.test(filename)) throw new Error('Choose a PNG, JPEG or WebP image.');
   const response = await fetch('/api/artwork/import', {method: 'POST', signal,
@@ -25,6 +27,7 @@ export async function uploadArtwork(blob: Blob, filename: string, signal?: Abort
 
 /** Commit the letterforms once; preview and export consume this same image. */
 export async function canonicalizeDecalArtwork(decal: ProductDecal, signal?: AbortSignal): Promise<ProductDecal> {
+  if(isStaticDemo)throw new Error('Creating label artwork requires the local server.');
   signal?.throwIfAborted();
   const faces = await document.fonts.load('500 32px "Studio Sans"');
   if (!faces.length || faces.some(face => face.status !== 'loaded'))
