@@ -71,3 +71,20 @@ backend or paid generation endpoint.
 The [backend deployment guide](backend-deployment.md) now provides a Render
 blueprint and a script to connect its URL to Vercel. Until that connection is
 configured, the checked-in Vercel build remains the static demo.
+
+
+## Check the view-only editor
+
+Build a small fixture in a separate directory, serve a static frontend build (or
+start Vite with `VITE_STATIC_DEMO=1`), then run:
+
+```sh
+python scripts/build_static_demo.py --output /tmp/gesso-readonly-fixture
+PRODUCT_SUITE_URL=http://127.0.0.1:5182 \
+GESSO_DEMO_FIXTURE_DIR=/tmp/gesso-readonly-fixture \
+node web/tests/readonly-demo-smoke.mjs
+```
+
+The Chrome test routes demo files to that isolated fixture only in its own
+browser. It checks rejected edits, unchanged history/values, inspection and
+advancing playback without rewriting the published campaign.
