@@ -702,8 +702,9 @@ def environment(source, samples_root=None):
         obj.location = blender_position(plinth["translationM"])
     if source["environment"]["kind"] == "splat" and source["environment"].get("collider") and samples_root is not None:
         # The provider's collider mesh stands in for the world's geometry: it catches
-        # the product's shadow and, as a holdout, lets world geometry in front of the
-        # product cut it out so the composited plate shows through.
+        # the product's shadow, and world geometry in front of the product cuts it out
+        # so the composited plate shows through. A catcher already occludes; marking it
+        # a holdout as well would erase the shadow it catches.
         collider = source["environment"]["collider"]["asset"]
         collider_path = verified_asset_record(collider, samples_root.resolve(), "world collider")
         imported, _ = imported_hierarchy(collider_path, "World collider / ")
@@ -712,14 +713,11 @@ def environment(source, samples_root=None):
         anchor.rotation_mode = "QUATERNION"
         anchor.rotation_quaternion = blender_rotation(collider["rotationXyzw"])
         anchor.scale = (collider["scaleToMeters"],) * 3
+        surface = material("World / contact shadow catcher surface", (0.8, 0.8, 0.8, 1), 0.9)
         for obj in imported:
             if obj.type == "MESH":
-                obj.is_shadow_catcher = True
-                obj.is_holdout = True
-                obj.visible_glossy = False
-                obj.visible_transmission = False
-                obj.visible_diffuse = False
-                obj["role"] = "Invisible world collider: shadow catcher and holdout for the Gaussian plate"
+                contact_catcher(obj, surface)
+                obj["role"] = "Invisible world collider: shadow catcher and occluder for the Gaussian plate"
     elif source["environment"]["kind"] == "splat":
         # The Gaussian world is a colour plate with no geometry, so the product's
         # contact shadow would otherwise vanish. An invisible Cycles shadow catcher
@@ -940,7 +938,89 @@ def import_visual_mesh(source, asset_path):
     anchor.scale = (asset["scaleToMeters"],) * 3
     anchor["asset_sha256"] = asset["sha256"]
     anchor["source_up"] = "Y; converted once by Blender glTF importer"
-    return {"importedObjects": len(imported), "excludedEmbeddedCamerasAndLights": excluded}
+    contact = mesh_world_contact(bpy.context.scene, imported | {anchor}, source["environment"].get("worldColor", [0.18, 0.2, 0.18]))
+    return {"importedObjects": len(imported), "excludedEmbeddedCamerasAndLights": excluded, "contact": contact}
+
+
+def contact_catcher(obj, surface):
+    """Turn world geometry into an invisible Cycles shadow catcher that still occludes the product.
+
+    Provider meshes arrive unlit (emission to the camera, transparent to every other ray), which a
+    catcher cannot shade, so the object gets a plain diffuse surface of its own. It must not shadow
+    the product's light itself: the unlit original never did.
+    """
+    for slot in obj.material_slots:
+        slot.link = "OBJECT"
+        slot.material = surface
+    if not obj.material_slots:
+        obj.data = obj.data.copy()
+        obj.data.materials.append(surface)
+    obj.is_shadow_catcher = True
+    obj.visible_glossy = False
+    obj.visible_transmission = False
+    obj.visible_diffuse = False
+    obj.visible_shadow = False
+
+
+def mesh_world_contact(scene, room, world_color):
+    """Let an unlit visual mesh receive the product's shadow.
+
+    Provider meshes are baked and unlit, so light never lands on them. The room renders
+    as its own plate layer; an invisible copy of its surfaces catches the product's shadow
+    and occludes it in the product layer, which is laid over the plate (as for Gaussian
+    plates, D101).
+    """
+    bpy.context.view_layer.update()
+    plate = bpy.data.collections.new("World / visual mesh plate")
+    studio = bpy.data.collections.new("Studio / product, lights and world contact")
+    scene.collection.children.link(plate)
+    scene.collection.children.link(studio)
+    catcher_surface = material("World / contact shadow catcher surface", (0.8, 0.8, 0.8, 1), 0.9)
+    catchers = []
+    for obj in room:
+        if obj.type != "MESH":
+            continue
+        catcher = obj.copy()
+        catcher.name = "World contact / " + obj.name.removeprefix("World / ")
+        catcher.parent = None
+        catcher.matrix_world = obj.matrix_world.copy()
+        contact_catcher(catcher, catcher_surface)
+        catcher["role"] = "Invisible copy of the visual mesh: catches the product's shadow and occludes it"
+        studio.objects.link(catcher)
+        catchers.append(catcher)
+    for obj in list(scene.collection.objects):
+        if obj.type == "CAMERA":
+            continue
+        (plate if obj in room else studio).objects.link(obj)
+        scene.collection.objects.unlink(obj)
+    product_layer = scene.view_layers[0]
+    product_layer.layer_collection.children[plate.name].exclude = True
+    room_layer = scene.view_layers.new("World plate")
+    for child in room_layer.layer_collection.children:
+        child.exclude = child.collection != plate
+    scene.render.film_transparent = True
+    scene.cycles.film_transparent_glass = False
+    scene.use_nodes = True
+    tree = scene.node_tree
+    tree.nodes.clear()
+    backdrop = tree.nodes.new("CompositorNodeRGB")
+    backdrop.label = "World colour behind any gap in the mesh"
+    backdrop.outputs[0].default_value = (*world_color, 1)
+    room_pass = tree.nodes.new("CompositorNodeRLayers")
+    room_pass.layer = room_layer.name
+    room_pass.label = "Baked visual mesh plate"
+    product_pass = tree.nodes.new("CompositorNodeRLayers")
+    product_pass.layer = product_layer.name
+    product_pass.label = "Product, near-field geometry and caught shadow"
+    under = tree.nodes.new("CompositorNodeAlphaOver")
+    tree.links.new(backdrop.outputs[0], under.inputs[1])
+    tree.links.new(room_pass.outputs["Image"], under.inputs[2])
+    over = tree.nodes.new("CompositorNodeAlphaOver")
+    tree.links.new(under.outputs["Image"], over.inputs[1])
+    tree.links.new(product_pass.outputs["Image"], over.inputs[2])
+    output = tree.nodes.new("CompositorNodeComposite")
+    tree.links.new(over.outputs["Image"], output.inputs["Image"])
+    return {"plateLayer": room_layer.name, "shadowCatchers": len(catchers)}
 
 
 def material_binding_nodes(component, document, material_presets):

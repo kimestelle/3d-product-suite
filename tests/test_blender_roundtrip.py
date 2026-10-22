@@ -113,6 +113,9 @@ expected=[]
 for box in geometry["boxes"]:
     for signs in itertools.product((-1,1),repeat=3):
         expected.append(alignment @ Vector([center+sign*size/2 for center,sign,size in zip(box["centerM"],signs,box["sizeM"])]))
+# The baked room renders on its own plate layer (contact shadows); evaluate it in this layer to read it.
+bpy.context.view_layer.layer_collection.children["World / visual mesh plate"].exclude=False
+bpy.context.view_layer.update()
 actual=[obj.matrix_world @ vertex.co for obj in bpy.context.scene.objects if obj.type=="MESH" and obj.name.startswith("World / ") for vertex in obj.data.vertices]
 assert len(actual)==192
 for axis in range(3):
@@ -131,6 +134,36 @@ shader=bpy.data.objects["bottle-body"].data.materials[0].node_tree.nodes.get("Pr
 assert shader.inputs["Transmission Weight"].default_value==1
 assert abs(shader.inputs["IOR"].default_value-1.47)<1e-6
 ''', ROOT / "examples/worlds/manifest.json")
+
+    def test_visual_glb_room_catches_the_product_shadow_on_its_own_layer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            payload = self.world_payload(temporary, "glb")
+            samples = self.write_samples(temporary, payload)
+            self.run_blender("--python", ROOT / "scripts/blender_scene.py", "--", "--samples", samples,
+                             "--output", temporary, "--frames", "1", "--width", 72, "--height", 128, "--samples-per-pixel", 2)
+            self.assertTrue((temporary / "frames/000001.png").is_file())
+            self.verify_native(temporary, samples, r'''
+scene=bpy.context.scene
+assert [layer.name for layer in scene.view_layers][1:] == ["World plate"], scene.view_layers.keys()
+plate=bpy.data.collections["World / visual mesh plate"]
+studio=bpy.data.collections["Studio / product, lights and world contact"]
+assert scene.view_layers[0].layer_collection.children[plate.name].exclude
+room_layer=scene.view_layers["World plate"]
+assert not room_layer.layer_collection.children[plate.name].exclude and room_layer.layer_collection.children[studio.name].exclude
+room=[obj for obj in plate.all_objects if obj.type == "MESH"]
+catchers=[obj for obj in studio.objects if obj.name.startswith("World contact / ")]
+assert room and len(catchers) == len(room), (len(room), len(catchers))
+for obj in room:
+    assert not obj.is_shadow_catcher and all(slot.link == "DATA" for slot in obj.material_slots), obj.name
+for obj in catchers:
+    assert obj.is_shadow_catcher and not obj.is_holdout and not obj.visible_shadow and not obj.visible_diffuse, obj.name
+    assert all(slot.link == "OBJECT" and slot.material.name.startswith("World / contact shadow catcher surface") for slot in obj.material_slots), obj.name
+assert all(obj.type == "CAMERA" for obj in scene.collection.objects)
+assert scene.render.film_transparent and scene.use_nodes
+layers={node.layer for node in scene.node_tree.nodes if node.bl_idname == "CompositorNodeRLayers"}
+assert layers == {scene.view_layers[0].name, "World plate"}, layers
+''')
 
     def test_gaussian_plates_are_verified_and_frame_matched_after_reopen(self):
         with tempfile.TemporaryDirectory() as directory:
