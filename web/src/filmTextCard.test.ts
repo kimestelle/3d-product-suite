@@ -53,7 +53,7 @@ describe('Film text card layout', () => {
     const canvas = {width: 0, height: 0, getContext: () => context, toBlob: vi.fn((callback: (blob: Blob) => void) => callback(blob))};
     fonts.load.mockResolvedValue([{}]); fonts.check.mockReturnValue(true); createElement.mockReturnValue(canvas);
     await expect(renderFilmTextCard(card, 1920, 1080)).resolves.toBe(blob);
-    expect(fonts.load).toHaveBeenCalledWith('400 16px "Halyard Text"');
+    expect(fonts.load).toHaveBeenCalledWith('400 16px "halyard-text-variable", "Halyard Text"');
     expect(canvas.toBlob).toHaveBeenCalledWith(expect.any(Function), 'image/png');
     expect(canvas.width).toBe(1920); expect(canvas.height).toBe(1080);
   });

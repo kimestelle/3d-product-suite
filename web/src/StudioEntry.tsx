@@ -4,6 +4,7 @@ import AboutPage from './AboutPage';
 import ShapeLightPage from './ShapeLightPage';
 import {FrameDriver, FrameProvider, FrameRenderer, frameContrastColor, type FrameRoute} from './DynamicFrame';
 import {ensureFrameHistory,frameHistoryIndex,pushFrameHistory,restoreFrameHistory,type FrameHistoryPosition} from './frameHistory';
+import {resetPageScroll} from './pageScroll';
 
 export type StudioEditorProps = {active:boolean; onReady?:()=>void; onLoadError?:(message:string)=>void};
 export const FRAME_LOCATION_EVENT='gesso:locationchange';
@@ -58,6 +59,9 @@ export default function StudioEntry({renderEditor}:{renderEditor:(props:StudioEd
     // The preserved studio ingests explicit destination parameters without a reload.
     window.dispatchEvent(new Event(FRAME_LOCATION_EVENT));
     if(next===prior.route&&!prior.busy)return;
+    // Reset before the shared frame samples the destination. In particular,
+    // Form + Light must morph to its cover, not its previously visited chapter.
+    resetPageScroll(driver.hosts.get(next));
     const focused=document.activeElement;
     if(focused instanceof HTMLElement&&focused.closest(`[data-frame-page="${prior.active}"]`))returnFocus.current.set(prior.active,focused);
     if(next!=='studio')setVisited(previous=>previous.has(next)?previous:new Set([...previous,next]));
@@ -68,10 +72,12 @@ export default function StudioEntry({renderEditor}:{renderEditor:(props:StudioEd
 
   useLayoutEffect(()=>{
     mounted.current=true;
+    const previousScrollRestoration=history.scrollRestoration;
+    history.scrollRestoration='manual';
     driver.onSettled=route=>{cancelling.current=false;if(mounted.current)setView({route,active:route,busy:false,waiting:false});};
     driver.onWaiting=waiting=>{if(mounted.current)setView(previous=>({...previous,waiting}));};
     if(initial==='studio')driver.navigate('studio');
-    return()=>{mounted.current=false;driver.onSettled=()=>{};driver.onWaiting=()=>{};};
+    return()=>{mounted.current=false;history.scrollRestoration=previousScrollRestoration;driver.onSettled=()=>{};driver.onWaiting=()=>{};};
   },[driver,initial]);
   useEffect(()=>{
     if(view.route!=='studio'||!view.waiting||visited.has('studio'))return;
@@ -117,8 +123,12 @@ export default function StudioEntry({renderEditor}:{renderEditor:(props:StudioEd
     if(view.busy||!pendingFocus.current)return;
     pendingFocus.current=false;
     const host=driver.hosts.get(view.route);
-    const restored=returnFocus.current.get(view.route);
-    const preferred=restored?.isConnected?restored:host?.querySelector<HTMLElement>(view.route==='landing'?'.landing-aperture-trigger':view.route==='about'?'#about-title':view.route==='philosophy'?'#shape-light-title':'.viewport');
+    // A remembered footer link would leave keyboard focus below the fresh page.
+    // The editor keeps its focused control and working state.
+    const restored=view.route==='studio'?returnFocus.current.get(view.route):undefined;
+    const entrySelector=view.route==='landing'?'.landing-aperture-trigger, .landing-mobile-enter':view.route==='about'?'#about-title':view.route==='philosophy'?'#shape-light-title':'.viewport';
+    const entry=Array.from(host?.querySelectorAll<HTMLElement>(entrySelector)??[]).find(element=>element.getClientRects().length>0);
+    const preferred=restored?.isConnected?restored:entry;
     preferred?.focus({preventScroll:true});
   },[view.busy,view.route,view.waiting,driver]);
   const ready=useCallback(()=>{if(attempt===attemptRef.current){loadError.current='';setError('');driver.markReady('studio');}},[driver,attempt]);

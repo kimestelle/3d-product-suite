@@ -108,7 +108,7 @@ On macOS, a standard Blender app executable is `/Applications/Blender.app/Conten
 | Connection refused | Keep `python -m film serve` running and use its printed URL. |
 | Address already in use | Reuse the existing server or stop it before starting another. `--port` changes the backend port; the Vite proxy remains configured for 8787. |
 | Missing lamp campaign or imported world | Reopen the correct `--data-dir`; these private workspace assets are not cloned with the source. |
-| Different typography | Activate licensed Halyard Text / Display locally; see the browser console for fallback status. |
+| Different typography | The interface loads Halyard through the configured Adobe Fonts web project. Check that `use.typekit.net` is reachable; installed Halyard and the packaged fallback work offline. The browser console reports fallback status. |
 | Export unavailable | Check the exact Blender/FFmpeg versions and restart the server after changing them. |
 
 ## Editor and world workflow

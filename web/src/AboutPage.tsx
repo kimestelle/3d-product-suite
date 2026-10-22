@@ -69,7 +69,7 @@ export default function AboutPage({active = true}: {active?:boolean}) {
       </nav>
     </header>
     <FrameWindow className="about-window" role="main" aria-label="About gesso">
-      <div className="about-scroll" role="region" aria-label="Product description" tabIndex={0}>
+      <div className="about-scroll" data-frame-scroll role="region" aria-label="Product description" tabIndex={0}>
       <div className="about-description">
         <section className="about-description-row" aria-labelledby="about-title">
           <h1 id="about-title" tabIndex={-1}>{PRODUCT_DESCRIPTION.title}</h1>

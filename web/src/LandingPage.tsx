@@ -8,6 +8,7 @@ import {LandingReel, LANDING_REEL_STILL} from './landingReel';
 import LandingVideoOverlay from './LandingVideoOverlay';
 import type {EntranceOrigin} from './studioEntrance';
 import {STATIC_MOTION_QUERY} from './motionPolicy';
+import {PAGE_SCROLL_RESET_EVENT} from './pageScroll';
 import './landing.css';
 import './site-grid.css';
 
@@ -21,7 +22,7 @@ function useAperture(rootRef: RefObject<HTMLElement | null>, invalidate: () => v
   const [semantic, setSemantic] = useState({open: false, expanded: false});
   const semanticRef = useRef(semantic);
   const blocked = useRef(!active);
-  const motion = useRef({hover: false, focus: false, pinned: false, reduced: false, progress: 0, target: 0, frame: 0, last: 0});
+  const motion = useRef({hover: false, focus: false, pinned: false, reduced: false, compact: false, progress: 0, target: 0, frame: 0, last: 0});
   const paint = useCallback((progress: number) => {
     const reveal = clamp((progress - .68) / .26);
     const style = rootRef.current?.style;
@@ -38,9 +39,9 @@ function useAperture(rootRef: RefObject<HTMLElement | null>, invalidate: () => v
   }, [rootRef, invalidate]);
   const drive = useCallback(() => {
     const m = motion.current;
-    m.target = m.hover || m.focus || m.pinned ? 1 : 0;
+    m.target = !m.compact && (m.hover || m.focus || m.pinned) ? 1 : 0;
     if (document.hidden || blocked.current) return;
-    if (m.reduced) {
+    if (m.reduced || m.compact) {
       cancelAnimationFrame(m.frame); m.frame = 0;
       m.progress = m.target; paint(m.progress); return;
     }
@@ -67,21 +68,28 @@ function useAperture(rootRef: RefObject<HTMLElement | null>, invalidate: () => v
   }, [active, paint, drive]);
   useEffect(() => {
     const preference = matchMedia(STATIC_MOTION_QUERY);
-    const changePreference = () => {motion.current.reduced = preference.matches; drive();};
+    const compact = matchMedia('(max-width: 760px)');
+    const changePreference = () => {
+      motion.current.reduced = preference.matches; motion.current.compact = compact.matches;
+      if (compact.matches) Object.assign(motion.current, {hover: false, focus: false, pinned: false});
+      drive();
+    };
     const visibility = () => {
       cancelAnimationFrame(motion.current.frame); motion.current.frame = 0;
       if (!document.hidden) drive();
     };
     changePreference();
     preference.addEventListener('change', changePreference);
+    compact.addEventListener('change', changePreference);
     document.addEventListener('visibilitychange', visibility);
     return () => {
       cancelAnimationFrame(motion.current.frame); motion.current.frame = 0;
       preference.removeEventListener('change', changePreference);
+      compact.removeEventListener('change', changePreference);
       document.removeEventListener('visibilitychange', visibility);
     };
   }, [drive]);
-  const readProgress = useCallback(() => motion.current.progress, []);
+  const readProgress = useCallback(() => motion.current.compact ? 0 : motion.current.progress, []);
   return {windowRef, ...semantic, readProgress,
     hover: () => {motion.current.hover = true; drive();},
     leave: () => {motion.current.hover = false; motion.current.pinned = false; drive();},
@@ -140,15 +148,18 @@ export default function LandingPage({active}: {active:boolean}) {
     };
     const observer = new ResizeObserver(measure); observer.observe(window);
     globalThis.addEventListener('resize', measure);
+    root.addEventListener('scroll', measure, {passive:true});
+    root.addEventListener(PAGE_SCROLL_RESET_EVENT, measure);
     measure();
-    return () => {observer.disconnect();globalThis.removeEventListener('resize', measure);};
+    return () => {observer.disconnect();globalThis.removeEventListener('resize', measure);root.removeEventListener('scroll', measure);root.removeEventListener(PAGE_SCROLL_RESET_EVENT, measure);};
   }, [active, aperture.windowRef, aperture.readProgress, invalidateLanding]);
 
-  return <main ref={rootRef} inert={!active} aria-hidden={!active} className="gesso-landing" aria-label="gesso — your product, your world"
+  return <main ref={rootRef} data-frame-scroll inert={!active} aria-hidden={!active} className="gesso-landing" aria-label="gesso — your product, your world"
     onPointerDown={event=>{pointerKind.current=event.pointerType;if(event.pointerType==='touch'&&!aperture.windowRef.current?.contains(event.target as Node)) aperture.dismiss();}}>
     <div className="landing-topline gesso-site-header" data-frame-outside><a className="landing-mobile-home gesso-site-wordmark" href="/landing" aria-label="gesso home">gesso</a><nav className="gesso-site-nav" aria-label="Main navigation"><a className="landing-about-link site-about-link" href="/about">about</a><a className="landing-study-link site-study-link" href="/aperture">form + light</a><a className="landing-studio-link site-studio-link" data-studio-resume href="/?step=product&layer=model">enter studio <img src={navArrow} alt="" width="14" height="20"/></a></nav></div>
 
     <section className="landing-composition" aria-label="Your product, your world">
+      <h1 className="landing-mobile-logo" data-frame-outside aria-label="gesso"><span aria-hidden="true"/></h1>
       <a className="landing-side landing-product" data-frame-outside href="/?step=product&layer=model"><span>your product</span></a>
 
       <div ref={aperture.windowRef} className={`landing-window ${ready || reel.frameReady ? 'is-ready' : ''} ${aperture.open ? 'is-open' : ''}`}
@@ -173,6 +184,10 @@ export default function LandingPage({active}: {active:boolean}) {
         {failed && !reel.frameReady && <p className="landing-image-error" role="status">The scene image couldn’t load. <button onClick={()=>location.reload()}>Reload</button></p>}
       </div>
 
+      <div className="landing-mobile-action" data-frame-outside>
+        <p>your product <span aria-label="by">×</span> your world</p>
+        <a className="landing-mobile-enter" data-studio-resume href="/?step=product&layer=model">use on desktop!</a>
+      </div>
       <a className="landing-side landing-world" data-frame-outside href="/?step=world&layer=environment"><span>your world</span></a>
     </section>
 

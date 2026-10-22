@@ -5,10 +5,12 @@
 @font-face{font-family:'Halyard Display';src:local('Halyard Display Regular'),local('HalyardDisplay-Regular');font-weight:400;font-style:normal;font-display:swap}
 @font-face{font-family:'Halyard Display';src:local('Halyard Display Medium'),local('HalyardDisplayMedium');font-weight:500;font-style:normal;font-display:swap}
 @font-face{font-family:'Halyard Micro';src:local('Halyard Micro Regular'),local('HalyardMicro-Regular');font-weight:400;font-style:normal;font-display:swap}
+/* The licensed Adobe kit is loaded by index.html before app measurements.
+   Variable families preserve the system's Regular / Medium / Semibold weights. */
 :root{
-  --gesso-font-text:'Halyard Text','Studio Sans',sans-serif;
+  --gesso-font-text:'halyard-text-variable','Halyard Text','Studio Sans',sans-serif;
   --gesso-font-measure:var(--gesso-font-text);
-  --gesso-font-display:'Halyard Display','Halyard Text','Studio Sans',sans-serif;
+  --gesso-font-display:'halyard-display-variable','Halyard Display',var(--gesso-font-text);
   /* Brand sheet 25:323 + landing 40:1124; interface roles remain below. */
   --gesso-brand-ground:#980101;--gesso-brand-light:#ff5724;--gesso-brand-ink:#08080a;
   --gesso-type-display:500 64px/72px var(--gesso-font-display);
@@ -58,7 +60,7 @@ h2,h3{font-family:var(--gesso-font-text);font-size:14px;line-height:20px;font-we
 
 /* The frame stays quiet; the native renderer retains the whole center. */
 .gesso-studio{--rail-width:340px;--gesso-font-section:var(--gesso-font-text)}
-.gesso-studio[data-section-type=micro]{--gesso-font-section:'Halyard Micro',var(--gesso-font-text)}
+.gesso-studio[data-section-type=micro]{--gesso-font-section:'halyard-micro-variable','Halyard Micro',var(--gesso-font-text)}
 .gesso-studio[data-section-type=display]{--gesso-font-section:var(--gesso-font-display)}
 .gesso-workspace.with-material-editor{--workspace-rail-width:340px}
 .gesso-wordmark{font-family:var(--gesso-font-display)}

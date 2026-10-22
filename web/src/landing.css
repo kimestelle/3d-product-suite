@@ -59,22 +59,26 @@
 .landing-enter:hover svg, .landing-topline a:hover img { transform: translate(2px, -2px); }
 .landing-image-error { position: absolute; left: 15%; right: 15%; bottom: 20%; margin: 0; text-align: center; color: var(--gesso-brand-ink); background: var(--landing-type); padding: var(--gesso-space-8); font-size: 12px; }
 .landing-image-error button { border: 0; color: inherit; background: transparent; font: inherit; text-decoration: underline; padding: 0 var(--gesso-space-4); }
+/* Compact cover: one stable specimen and one always-visible desktop handoff. */
+.landing-mobile-logo, .landing-mobile-action { display: none; }
 @media (max-width: 760px) {
-  .gesso-landing { --aperture-width: calc((100vw - 32px) / .936); display: grid; grid-template-rows: auto 1fr auto; height: auto; min-height: max(560px, 100dvh); padding: var(--gesso-space-24) var(--landing-margin); }
-  .landing-composition { position: relative; inset: auto; min-height: calc(var(--aperture-width) * .6 + 96px); grid-template-columns: minmax(0, 1fr); }
-  .landing-side { width: auto; top: calc(50% + var(--aperture-width) * .3 + var(--gesso-space-24)); font-size: 16px; line-height: 24px; transform: none; }
-  .landing-product { left: var(--gesso-space-8); }
-  .landing-world { left: auto; right: var(--gesso-space-8); }
-  .landing-logo { font-size: calc(var(--aperture-width) * .16); }
-  .landing-entrance { top: calc(50% + var(--aperture-width) * .078); }
-  .gesso-landing .landing-enter { font-size: 16px; min-width: 196px; height: 44px; }
-  .landing-repeatability { font-size: 12px; line-height: 16px; }
-  .landing-entrance > .landing-repeatability { display: none; }
-  .landing-repeatability-compact { display: block; grid-column: 1 / -1; text-align: left; text-wrap: pretty; opacity: var(--entrance-reveal); }
-  .landing-footer { position: relative; inset: auto; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gesso-space-16) var(--gesso-space-12); }
-  .landing-footer > .landing-caption { grid-column: 1 / 3; }
-  .landing-caption { font-size: 11px; line-height: 16px; }
-  .landing-footer > .landing-credit { grid-column: 3; }
+  .gesso-landing {
+    --aperture-width: min(calc((100vw - 2 * var(--site-margin)) / .58), max(360px, calc((100dvh - 300px) / .6)), 560px);
+    display: flex; flex-direction: column; height: 100dvh; min-height: 0;
+    overflow-x: clip; overflow-y: auto; padding: 24px var(--landing-margin) 32px;
+    -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+  }
+  .gesso-landing .landing-topline { flex: none; min-height: 24px; }
+  .landing-composition { position: relative; inset: auto; display: flex; flex: 1 0 auto; flex-direction: column; justify-content: center; gap: 16px; padding: 32px 0 24px; min-width: 0; overflow: clip; }
+  .landing-mobile-logo { display: block; flex: none; margin: 0; width: 160px; height: 60px; color: #fff; }
+  .landing-mobile-logo > span { display: block; width: 100%; height: 100%; background: currentColor; mask: url('./assets/gesso/landing-wordmark.svg') center / contain no-repeat; -webkit-mask: url('./assets/gesso/landing-wordmark.svg') center / contain no-repeat; }
+  .landing-window { flex: none; width: var(--aperture-width); height: calc(var(--aperture-width) * .6); }
+  .landing-side, .landing-logo, .landing-entrance, .landing-footer, .landing-video-overlay { display: none; }
+  .landing-mobile-action { display: flex; flex: none; flex-direction: column; align-items: center; gap: 20px; color: #fff; }
+  .landing-mobile-action p { margin: 0; font: 400 20px/28px var(--gesso-font-text); text-align: center; -webkit-font-smoothing: antialiased; }
+  .landing-mobile-action p span { margin-inline: 4px; }
+  .gesso-landing .landing-mobile-enter { display: inline-flex; justify-content: center; align-items: center; min-height: 48px; min-width: 220px; padding: 3px 24px 5px; border-radius: 100px; background: #fff; color: var(--landing-light); font: 400 18px/24px var(--gesso-font-text); }
+  .landing-mobile-enter:hover { opacity: .88; }
 }
 @media (prefers-reduced-motion: reduce), (max-width: 760px), (hover: none) and (pointer: coarse) {
   .gesso-landing, .gesso-landing * { transition: none !important; scroll-behavior: auto !important; }
@@ -102,9 +106,3 @@
   .landing-video-overlay button { line-height: 14px; }
 }
 @media (prefers-reduced-motion: reduce) { .landing-video-overlay .landing-recording-dot { animation: none !important; } }
-
-@media (max-width: 400px) {
-  .landing-logo { top: 46%; }
-  .landing-entrance { top: calc(50% + var(--gesso-space-8)); }
-  .gesso-landing .landing-enter { min-width: 180px; height: 36px; font-size: 14px; }
-}

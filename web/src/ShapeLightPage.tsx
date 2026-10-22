@@ -7,6 +7,7 @@ import {STATIC_MOTION_QUERY} from './motionPolicy';
 import {createContourQuery} from './philosophyContour';
 import {PHILOSOPHY_SCREENSHOTS} from './philosophyScreenshots';
 import {philosophyScrollProgress} from './philosophyMotion';
+import {PAGE_SCROLL_RESET_EVENT} from './pageScroll';
 import {mountContourText,paintContourText,contourTextMoving,unmountContourText,resetContourText,type ContourTextBlock,type ContourTextCache} from './philosophyTextDom';
 import navArrow from './assets/gesso/about-arrow-up-right.svg';
 import './shape-light.css';
@@ -164,6 +165,12 @@ function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|
       if(active&&layout.blocks.some(block=>block.text&&contourTextMoving(block.text)))schedule();
     };
     const schedule = () => {if(alive&&!document.hidden&&!frame)frame=requestAnimationFrame(paint);};
+    const resetScroll = () => {
+      // Hidden pages do not listen for normal scrolling. Publish the cover
+      // synchronously so route travel never targets the previous chapter.
+      cancelAnimationFrame(frame);frame=0;needsLayout=true;paint();
+    };
+    root.addEventListener(PAGE_SCROLL_RESET_EVENT,resetScroll);
     refreshGeometry.current=schedule;
     const visibility=()=>{if(document.hidden){cancelAnimationFrame(frame);frame=0;}else if(active)schedule();};
     const resize = () => {
@@ -199,6 +206,7 @@ function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|
     return () => {
       alive = false; refreshGeometry.current=null; cancelAnimationFrame(frame); observer.disconnect();
       root.removeEventListener('scroll',schedule);
+      root.removeEventListener(PAGE_SCROLL_RESET_EVENT,resetScroll);
       document.removeEventListener('visibilitychange',visibility);
       preference.removeEventListener('change', schedule);
       window.removeEventListener('hashchange', followHash);
@@ -216,7 +224,7 @@ export default function ShapeLightPage({active=true}:{active?:boolean}) {
   const study=useRef<GlassineStudyHandle|null>(null);
   const [shrink]=useFrameTransitionShrink();
   const {page, intro} = usePhilosophyFrames(active,study,shrink);
-  return <div ref={page} className="gesso-shape-light" data-frame="ground" tabIndex={-1} inert={!active} aria-hidden={!active}>
+  return <div ref={page} className="gesso-shape-light" data-frame="ground" data-frame-scroll tabIndex={-1} inert={!active} aria-hidden={!active}>
     <GlassineStudy ref={study} active={active} page={page}/>
     <a data-frame-outside className="shape-light-skip" href="#shape-light-content">Skip to philosophy</a>
     <a data-frame-outside className="shape-light-skip" href="#shape-light-principles">Skip to principles</a>

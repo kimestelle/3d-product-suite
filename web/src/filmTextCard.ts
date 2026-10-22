@@ -1,7 +1,7 @@
 export type FilmTextCard = {version: 1; text: string; color: string; background: string};
 export const defaultFilmTextCard: FilmTextCard = {version: 1, text: '', color: '#ffffff', background: '#181818'};
 export const filmTextLimit = 600;
-export const filmTextFont = '"Halyard Text"';
+export const filmTextFont = '"halyard-text-variable", "Halyard Text"';
 
 export function isFilmTextCard(value: unknown): value is FilmTextCard {
   if (!value || typeof value !== 'object') return false;
@@ -63,7 +63,7 @@ let fontReady: Promise<void> | undefined;
 export async function prepareFilmTextFont() {
   fontReady ??= (async () => {
     const faces = await document.fonts.load(`400 16px ${filmTextFont}`);
-    if (!faces.length || !document.fonts.check(`400 16px ${filmTextFont}`)) throw new Error('Halyard Text is unavailable. Install or enable it, then try again.');
+    if (!faces.length || !document.fonts.check(`400 16px ${filmTextFont}`)) throw new Error('Halyard Text is unavailable. Check the connection or enable the local font, then try again.');
   })().catch(error => {fontReady = undefined; throw error;});
   return fontReady;
 }

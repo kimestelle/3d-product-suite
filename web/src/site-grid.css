@@ -67,3 +67,10 @@
   .gesso-site-nav a { flex: none; }
   .gesso-site-header .gesso-site-nav a img { width: 12px; height: 18px; }
 }
+
+@media (max-width: 760px) {
+  /* The cover's white wordmark lives above the specimen; its primary action
+     stays below it. Keep only the two reading destinations in this row. */
+  .gesso-landing .landing-mobile-home, .gesso-landing .site-studio-link { display: none; }
+  .gesso-landing .gesso-site-nav { display: flex; width: 100%; justify-content: space-between; gap: 24px; font-size: 14px; line-height: 20px; }
+}
