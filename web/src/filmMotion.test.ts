@@ -4,6 +4,7 @@ import {addMotion, filmCameraPoseAtFrame, availableMotionKinds, changeMotionScop
 import {cameraPoseAtFrame} from './cameraFraming';
 import {addShot, duplicateShot, moveShot, setFrameRate, setShotFrames, stretchShotFrames} from './sequence';
 import {defaultLighting} from './world';
+import {commitHistory, createHistory, undoHistory, redoHistory} from './state';
 const source = () => structuredClone(fixture) as any;
 const get = (scene: any, shotId = scene.shots[0].id) => listMotions(scene, shotId)[0].motion;
 
@@ -236,5 +237,45 @@ describe('bounded Film motions', () => {
     expect(() => setMotionKeys(scene, shot, id, [{frame: 1, value: 2, interpolation: 'ease'}])).toThrow('0% and 100%');
     expect(() => updateMotion(scene, shot, id, {amount: Number.NaN})).toThrow('finite');
     expect(() => validateFilmMotions(scene)).not.toThrow();
+  });
+});
+
+
+describe('motions retained on removed parts', () => {
+  it.each(['component', 'source branch'] as const)('keeps %s motion valid through further film edits and Undo', scope => {
+    const scene = source(), first = scene.shots[0].id;
+    const cap = scene.product.components.find((part: any) => part.id === 'cap');
+    cap.sourceNodes = [
+      {nodeIndex: 3, parentIndex: null, name: 'Assembly', drawable: true, hasMesh: false},
+      {nodeIndex: 7, parentIndex: 3, name: 'Shell', drawable: true, hasMesh: true},
+    ];
+    const target = scope === 'component' ? 'cap' : 'cap::node:7';
+    addMotion(scene, first, target, 'move');
+    const original = structuredClone(scene), motions = structuredClone(scene.shots[0].motions);
+    let history = createHistory(scene);
+    const removed = structuredClone(scene);
+    removed.product.removedPartIds = [scope === 'component' ? 'cap' : 'cap::node:3'];
+    history = commitHistory(history, removed);
+    expect(availableMotionKinds(removed, target)).toEqual([]);
+    expect(() => validateFilmMotions(removed)).not.toThrow();
+    const edited = structuredClone(removed), next = addShot(edited, first);
+    const camera = addMotion(edited, next, '$camera', 'orbit');
+    updateMotion(edited, next, camera, {amount: 12});
+    expect(edited.shots[0].motions).toEqual(motions);
+    expect(() => validateFilmMotions(edited)).not.toThrow();
+    const beforeRejectedEdit = structuredClone(edited);
+    expect(() => addMotion(edited, next, target, 'rotate')).toThrow('unavailable');
+    expect(() => updateMotion(edited, next, camera, {target, kind: 'rotate'})).toThrow('unavailable');
+    expect(edited).toEqual(beforeRejectedEdit);
+    history = commitHistory(history, edited);
+    history = undoHistory(history);
+    expect(history.present).toEqual(removed);
+    history = undoHistory(history);
+    expect(history.present).toEqual(original);
+    expect(availableMotionKinds(history.present, target)).toContain('move');
+    history = redoHistory(history);
+    expect(availableMotionKinds(history.present, target)).toEqual([]);
+    expect(history.present.shots[0].motions).toEqual(motions);
+    expect(() => validateFilmMotions(history.present)).not.toThrow();
   });
 });

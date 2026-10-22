@@ -1,0 +1,33 @@
+/* Export becomes a dark editor tab; the dice is an independent icon action. */
+.gesso-studio .gesso-workspace-navigation{min-width:0;flex-wrap:nowrap}
+.gesso-studio .gesso-workspace-navigation .gesso-tab-surface{opacity:1;transition:transform 380ms cubic-bezier(.22,.7,.2,1),opacity 180ms ease}
+.gesso-studio .gesso-workspace-navigation[data-export-active=true] .gesso-tab-surface{opacity:0}
+.gesso-studio .gesso-workspace-navigation[data-export-active=true] .gesso-category-button{color:#fff9}
+.gesso-studio .gesso-workspace-navigation[data-export-active=true] .gesso-category-button:hover{color:#fff}
+.gesso-export-actions{--export-action-width:clamp(120px,var(--editor-grid-pitch),200px);--export-dice-space:44px;position:relative;display:flex;align-items:center;gap:8px;flex:0 1 calc(var(--export-action-width) + var(--export-dice-space));width:calc(var(--export-action-width) + var(--export-dice-space));min-width:calc(112px + var(--export-dice-space));height:40px}
+.gesso-export-actions[data-with-dice=false]{--export-dice-space:0px}
+.gesso-export-actions[data-disabled=true]{opacity:.35}
+.gesso-studio .gesso-workspace-navigation .gesso-export-tab{position:relative;isolation:isolate;display:flex;align-items:baseline;justify-content:flex-start;flex:1 1 auto;min-width:112px;height:36px;min-height:36px;margin-bottom:4px;padding:4px 16px 6px;border:0;border-radius:10px;background:transparent;color:#181818;font:600 20px/26px var(--gesso-font-text);letter-spacing:-.2px;white-space:nowrap;overflow:visible;transition:color 220ms ease,transform 220ms ease}
+.gesso-studio .gesso-workspace-navigation .gesso-export-tab:is(:hover,:focus-visible){background:transparent;color:#181818}
+.gesso-studio .gesso-workspace-navigation .gesso-export-tab[aria-pressed=true]{background:transparent;color:var(--gesso-text-primary);transform:translateY(4px)}
+.gesso-export-tab-surface{position:absolute;inset:0;z-index:-1;pointer-events:none}
+.gesso-export-tab-surface svg{position:absolute;left:-12px;top:0;width:calc(100% + 24px);height:100%;overflow:visible}
+.gesso-export-tab-fill{fill:#fff;d:var(--export-contour);transition:d 240ms cubic-bezier(.22,.7,.2,1),fill 220ms ease}
+.gesso-export-tab[aria-pressed=true] .gesso-export-tab-fill{fill:var(--gesso-surface-chrome,#181818)}
+.gesso-studio .gesso-workspace-navigation .gesso-export-actions>button:focus-visible{outline:0;box-shadow:inset 0 0 0 2px var(--gesso-text-secondary)}
+.gesso-studio .gesso-workspace-navigation .gesso-export-actions>button:disabled{opacity:1;cursor:default}
+.gesso-export-tab-label{position:relative}
+
+/* Place this outside each rail's scroll body so its two modes remain available. */
+.gesso-film-mode-tabs{position:sticky;top:0;z-index:2;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;flex:0 0 auto;min-width:0;margin:0;padding:8px 0 12px;background:var(--gesso-surface-chrome,#181818)}
+.gesso-studio .gesso-film-mode-tabs>button{display:flex;align-items:center;justify-content:flex-start;min-width:0;min-height:28px;padding:3px 5px;border:0;border-radius:4px;background:transparent;color:var(--gesso-text-primary,#f5f5f3);font:400 14px/20px var(--gesso-font-text);opacity:.5;transition:opacity 140ms ease,background-color 140ms ease}
+.gesso-studio .gesso-film-mode-tabs>button[aria-selected=true]{opacity:1}
+.gesso-studio .gesso-film-mode-tabs>button:not([aria-selected=true]):hover{background:transparent;opacity:.8}
+.gesso-studio .gesso-film-mode-tabs>button:focus-visible{background:var(--gesso-surface-action);color:var(--gesso-text-on-action);opacity:1}
+@media(prefers-reduced-motion:reduce),(max-width:899px){.gesso-studio .gesso-workspace-navigation .gesso-tab-surface,.gesso-export-tab-fill,.gesso-studio .gesso-workspace-navigation .gesso-export-tab,.gesso-studio .gesso-film-mode-tabs>button{transition:none}}
+
+/* The dice opens the setup rail; it never generates on contact. */
+.gesso-studio .gesso-workspace-navigation .gesso-random-setup-button{display:grid;place-items:center;flex:0 0 36px;width:36px;min-width:36px;height:36px;min-height:36px;padding:0;border:0;border-radius:10px;background:transparent;color:var(--gesso-text-secondary);transition:color 160ms ease}
+.gesso-studio .gesso-workspace-navigation .gesso-random-setup-button:is(:hover,[aria-pressed=true],:focus-visible){background:transparent;color:var(--gesso-text-primary)}
+
+@media(prefers-reduced-motion:reduce){.gesso-studio .gesso-workspace-navigation .gesso-random-setup-button{transition:none}}

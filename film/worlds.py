@@ -443,12 +443,16 @@ def verify_scene_assets(scene, source_dir):
     from .audio import validate_audio_asset, verify_audio
     if scene.get("audio"):
         references.append((validate_audio_asset(scene["audio"].get("asset")), "audio"))
+    from .artwork import iter_artwork_assets, verify_artwork, validate_artwork_nodes
+    references.extend((asset, "product-artwork") for asset in iter_artwork_assets(scene))
     records = {}
     for asset, component in references:
         path = safe_asset_path(source_dir, asset["path"])
         payload = _read_asset(path)
         _require(hashlib.sha256(payload).hexdigest() == asset["sha256"], "Asset hash does not match the immutable scene revision")
-        if component == "film-image":
+        if component == "product-artwork":
+            metadata = verify_artwork(payload, asset)
+        elif component == "film-image":
             metadata = verify_film_image(payload, asset)
         elif component == "audio":
             metadata = verify_audio(payload, asset)
@@ -460,10 +464,12 @@ def verify_scene_assets(scene, source_dir):
         elif component is None:
             metadata = _validate_content(payload, asset["format"])
         else:
-            from .products import inspect_product_glb, validate_product_dimensions, validate_product_material_nodes
+            from .products import inspect_product_glb, validate_product_dimensions, validate_product_material_nodes, validate_product_source_nodes
             metadata = inspect_product_glb(payload)
             validate_product_dimensions(metadata, component["sizeM"])
             validate_product_material_nodes(component, payload)
+            validate_product_source_nodes(component, payload)
+            validate_artwork_nodes(scene, component, payload)
         records[asset["path"]] = {"path": asset["path"], "sha256": asset["sha256"], "format": asset["format"],
                                    "bytes": len(payload), **metadata}
     return list(records.values())

@@ -12,19 +12,20 @@ describe('Combined editor panels', () => {
     for (const layer of ['Lens', 'Focus', 'Path'] as const) {
       const html = renderToStaticMarkup(<CameraPanel scene={fixture} frame={1} layer={layer} onChange={noop} onFrame={noop}/>);
       for (const name of ['Focal length', 'Target', 'Start target X', 'Start position Z', 'Reverse', 'Hold view', 'Copy start to end']) expect(html).toContain(name);
-      expect(html).toContain('Depth of field is controlled on the image.');
+      expect(html).toContain('type="checkbox" aria-label="Depth of field"');
+      expect(html).not.toContain('Depth of field is controlled on the image.');
       expect(html).toContain('aria-label="Aim at start" disabled="">Aim');
       expect(html).toMatch(/disabled=""[^>]*>Both ends/);
     }
   });
-  it('uses the viewport endpoint while retaining precise coordinates in the rail', () => {
+  it('uses the requested endpoint while keeping framing controls in the rail', () => {
     const html = renderToStaticMarkup(<FilmPanel scene={fixture} frame={fixture.shots[0].endFrame} cameraEnd="to" viewportControls onChange={noop} onFrame={noop}/>);
     expect(html).toContain('End target X');
     expect(html).toContain('End position Z');
     expect(html).toContain('Copy end to start');
     expect(html).not.toContain('aria-label="Lens controls"');
-    expect(html).not.toContain('aria-label="Target"');
-    expect(html).not.toContain('aria-label="Camera endpoint"');
+    for (const label of ['Focal length', 'Target', 'Depth of field', 'Camera endpoint']) expect(html.match(new RegExp(`aria-label="${label}"`, 'g'))).toHaveLength(1);
+    expect(html).toContain('<button type="button" aria-pressed="true">End</button>');
   });
   it('requires both evaluated endpoints before offering an aim operation for the whole shot', () => {
     const sample = {frame: fixture.shots[0].startFrame, shotId: fixture.shots[0].id};
@@ -47,7 +48,10 @@ describe('Combined editor panels', () => {
     expect(html.match(/aria-label="Film shot"/g)).toHaveLength(1);
     expect(html).not.toContain('aria-label="Camera shot"');
     expect(html.match(/class="gesso-section-body"/g)).toHaveLength(1);
-    expect(html).toContain('Camera options');
+    expect(html).toContain('aria-label="Camera framing"');
+    expect(html).toContain('gesso-camera-position');
+    expect(html).not.toContain('gesso-camera-position" open');
+    expect(html).not.toContain('gesso-camera-advanced" open');
     expect(html).toContain('aria-current="true" aria-controls="film-section-Framing"');
     expect(html).toContain('aria-controls="film-section-Animation"');
     expect(html).toContain('aria-controls="film-section-Sequence"');
@@ -67,7 +71,13 @@ describe('Combined editor panels', () => {
       }
     }
     const framing = renderToStaticMarkup(<FilmPanel scene={fixture} frame={1} onChange={noop} onFrame={noop}/>);
-    expect(framing).toContain('<details class="gesso-disclosure gesso-compact-details gesso-camera-options"><summary>Camera options');
+    for (const disclosure of ['gesso-camera-size', 'gesso-camera-position', 'gesso-camera-advanced']) {
+      const summary = framing.match(new RegExp(`<details class="film-rail-disclosure ${disclosure}"><summary>([\\s\\S]*?)<\/summary>`));
+      expect(summary).not.toBeNull();
+      expect(summary![1]).toContain('gesso-ui-icon');
+    }
+    expect(framing).toContain('<span>Position and target</span>');
+    expect(framing).toContain('<span>Advanced</span>');
   });
   it('offers an actual frame in Still and hides video-only controls without changing the scene', () => {
     const scene = structuredClone(fixture), before = JSON.stringify(scene);
@@ -78,7 +88,7 @@ describe('Combined editor panels', () => {
     expect(html).toContain('aria-label="Frame"');
     expect(html).toContain('aria-current="true" aria-controls="film-section-Framing"');
     expect(html).toContain('Frame position X');
-    expect(html).toContain('Edits shift the whole shot. Video motion is preserved.');
+    expect(html).toContain('Edits shift the whole scene. Video motion is preserved.');
     expect(html).toContain('>Export still…</button>');
     for (const name of ['Camera endpoint', 'Reverse', 'Hold view', 'Film sequence', 'Frame rate', 'Render video', 'aria-controls="film-section-Animation"']) expect(html).not.toContain(name);
     expect(JSON.stringify(scene)).toBe(edited);

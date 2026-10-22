@@ -4,6 +4,7 @@ import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import mimetypes
+import os
 from pathlib import Path
 import queue
 import re
@@ -19,13 +20,14 @@ from .stills import create_still_job, run_still_job
 from .store import ConflictError, ProjectStore, ROOT, identifier, now
 from .worlds import MAX_ASSET_BYTES, import_world, list_worlds
 from .github_worlds import GitHubWorlds
-from .products import create_product_scene
+from .products import PRODUCT_SUFFIXES, create_product_scene
 from .comparison import calibrate_scene, comparison_payload, review_alignment
 from .comparison_jobs import ComparisonJobs
 from .materials import MaterialLibrary
 from .polyhaven import PolyHavenLibrary
 from .film_images import import_film_image, MAX_IMAGE_BYTES
 from .audio import MAX_AUDIO_BYTES, MIME_TYPES as AUDIO_MIME_TYPES, ffprobe_command, import_audio
+from .artwork import import_artwork
 
 ARTIFACTS = {"scene.blend", "contact-sheet.png", "still-01.png", "still-02.png", "still-03.png"} | {item[1] for item in FORMATS.values()}
 ASSET_NAME = re.compile(r"[0-9a-f]{64}\.(?:glb|spz|ply|png|jpeg|webp|hdr|mp3|wav|m4a)\Z")
@@ -230,10 +232,11 @@ class RenderQueue:
 
 
 class Application:
-    def __init__(self, data_dir, *, port=8787, blender="blender", ffmpeg="ffmpeg"):
+    def __init__(self, data_dir, *, port=8787, blender="blender", ffmpeg="ffmpeg", import_blender=None):
         self.store = ProjectStore(data_dir)
         self.store.seed_worlds()
         self.port = port
+        self.import_blender = import_blender or os.environ.get("GESSO_IMPORT_BLENDER")
         self.github = GitHubWorlds(self.store.root)
         self.materials = MaterialLibrary(self.store.root)
         self.polyhaven = PolyHavenLibrary(self.store.root, material_library=self.materials)
@@ -406,6 +409,9 @@ def make_handler(app):
                 if not selected.exists():
                     return self._json({"error": "Build the editor first: cd web && npm ci && npm run build"}, 503)
                 return self._file(selected)
+            if self.command == "POST" and path == "/api/artwork/import":
+                return self._json(import_artwork(self._body(binary=True, limit=MAX_IMAGE_BYTES),
+                                  self.headers.get("X-Asset-Filename", ""), app.store.root), 201)
             if self.command == "POST" and path == "/api/film/images/import":
                 return self._json(import_film_image(self._body(binary=True, limit=MAX_IMAGE_BYTES),
                                   self.headers.get("X-Asset-Filename", ""), app.store.root), 201)
@@ -418,8 +424,8 @@ def make_handler(app):
                 query = parse_qs(parsed.query)
                 one = lambda name, default="": query.get(name, [default])[0]
                 suffix = Path(self.headers.get("X-Asset-Filename", "")).suffix.lower()
-                if suffix not in (".glb", ".blend"):
-                    raise ValueError("Upload a product GLB or Blender .blend file")
+                if suffix not in PRODUCT_SUFFIXES:
+                    raise ValueError("Choose GLB, Blender, STEP, IGES, STL or OBJ; export native CAD to STEP first")
                 temporary = app.store.root / f"product-import-{uuid.uuid4().hex}"
                 temporary.mkdir()
                 try:
@@ -429,7 +435,8 @@ def make_handler(app):
                                   "owner": one("owner"), "reuseBasis": one("reuseBasis"),
                                   "allowedExternalDestinations": []}
                     scene = create_product_scene(source, temporary / "prepared", name=one("name", "Imported product"),
-                                                 provenance=provenance, blender=app.renders.blender)
+                                                 provenance=provenance, blender=app.import_blender or app.renders.blender,
+                                                 source_up=one("sourceUp", "z"), source_units=one("sourceUnits") or None)
                     return self._json(app.store.create(one("name", "Imported product"), scene,
                                                        source_dir=temporary / "prepared"), 201)
                 finally:
@@ -468,7 +475,8 @@ def make_handler(app):
                     if "frame" in body:
                         # Interactive transforms need only the visible pose. Keep
                         # the canonical sampler and validation shared with export.
-                        return self._json({"scene": scene, "sample": evaluate(scene, body["frame"]),
+                        return self._json({"scene": scene, "sample": evaluate(
+                            scene, body["frame"], include_placement=body.get("includePlacement") is True),
                                            "digest": scene_digest(scene)})
                     result = {**sample_scene(scene), "digest": scene_digest(scene)}
                     payload = comparison_payload(scene) if "comparison" in scene else None
@@ -525,8 +533,8 @@ def make_handler(app):
     return Handler
 
 
-def serve(data_dir="workspace-data", *, port=8787, blender="blender", ffmpeg="ffmpeg"):
-    app = Application(data_dir, port=port, blender=blender, ffmpeg=ffmpeg)
+def serve(data_dir="workspace-data", *, port=8787, blender="blender", ffmpeg="ffmpeg", import_blender=None):
+    app = Application(data_dir, port=port, blender=blender, ffmpeg=ffmpeg, import_blender=import_blender)
     server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(app))
     app.port = server.server_port
     app.renders.base_url = f"http://127.0.0.1:{app.port}"

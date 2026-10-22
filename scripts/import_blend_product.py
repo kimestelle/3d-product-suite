@@ -12,8 +12,11 @@ from mathutils import Matrix, Vector
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from blend_material_mix import normalize_mix_surface
-from blend_material_bake import bake_material_inputs, material_needs_bake
+import blend_material_bake as material_baker
+from blend_material_bake import STATIC_NODES, bake_material_inputs, material_needs_bake
 from blend_scene_filter import select_product_objects
+
+SOURCE_UNIT_SCALES = {"mm": 0.001, "cm": 0.01, "m": 1.0, "in": 0.0254, "ft": 0.3048}
 
 
 def require(condition, message):
@@ -123,16 +126,32 @@ def material_resources(material, *, for_bake=False):
     allowed = {"OUTPUT_MATERIAL", "BSDF_PRINCIPLED", "EMISSION", "TEX_IMAGE", "UVMAP", "TEX_COORD",
                "MAPPING", "NORMAL_MAP", "SEPRGB", "SEPARATE_COLOR", "RGB", "VALUE", "REROUTE"}
     if for_bake:
-        allowed |= {"TEX_NOISE", "TEX_VORONOI", "TEX_WAVE", "TEX_GRADIENT", "TEX_MAGIC", "TEX_CHECKER",
-                    "TEX_BRICK", "TEX_WHITE_NOISE", "VALTORGB", "MATH", "VECT_MATH", "MIX", "MIX_RGB",
-                    "BUMP", "NEW_GEOMETRY", "VECTOR_ROTATE", "COMBRGB", "COMBINE_COLOR", "COMBXYZ", "SEPXYZ"}
+        # Resource validation and the baker must agree about static graphs.
+        # Keeping a second list made ordinary color/math nodes fail before
+        # their supported parameter maps could be baked.
+        allowed |= STATIC_NODES
 
     def visit(node):
         if node.as_pointer() in seen:
             return
         seen.add(node.as_pointer())
+        require(len(seen) <= 4096, f'Material “{material.name}” exceeds the 4096-node import budget; simplify its graph before importing.')
         require(node.type in allowed,
                 f'Material “{material.name}” uses {node.name}, which cannot be preserved as a static product material. Bake its appearance to image textures and connect them to a Principled BSDF before importing.')
+        if node.type == "BSDF_PRINCIPLED" and for_bake:
+            # Both supported exporters ignore linked IOR, even a Value node.
+            # Preserve a saved-frame constant; reject spatial refraction rather
+            # than silently replacing it with glTF's default IOR of 1.5.
+            socket = node.inputs["IOR"]
+            value = source_socket(socket)
+            require(not socket.is_linked or value.node.type == "VALUE",
+                    f'Material “{material.name}” uses a varying IOR. glTF supports one IOR value; set a numeric IOR or connect a Value node before importing.')
+            ior = float(value.default_value)
+            require(math.isfinite(ior) and ior >= 1,
+                    f'Material “{material.name}” needs an IOR of at least 1 for glTF import.')
+            for link in list(socket.links):
+                material.node_tree.links.remove(link)
+            socket.default_value = ior
         if node.type == "OUTPUT_MATERIAL":
             require(not node.inputs["Volume"].is_linked and not node.inputs["Displacement"].is_linked,
                     f'Material “{material.name}” has volume or shader displacement. Convert displacement to mesh geometry and bake volume appearance before importing.')
@@ -173,39 +192,124 @@ def material_resources(material, *, for_bake=False):
         visit(output)
 
 
-def convert(source, output):
-    require(bpy.app.version == (4, 3, 2),
-            "Blender product import requires Blender 4.3.2. Configure the server's --blender executable to use that version, then try again.")
+def convert(source, output, *, source_units=None):
+    require(source_units is None or source_units in SOURCE_UNIT_SCALES,
+            "Blender units override must be mm, cm, m, in, or ft")
+    require((4, 3) <= bpy.app.version[:2] <= (5, 1),
+            "Blender product import supports Blender 4.3 through 5.1. Configure the import executable to use a supported version, then try again.")
     bpy.context.preferences.filepaths.use_scripts_auto_execute = False
     try:
         bpy.ops.wm.open_mainfile(filepath=str(source), load_ui=False, use_scripts=False)
     except Exception as error:
         raise ValueError("Blender could not open this .blend file. Open and save it in the configured Blender version, then try again.") from error
+    source_version = tuple(bpy.data.version)
+    require(source_version[:2] <= bpy.app.version[:2],
+            f'This file was saved in Blender {source_version[0]}.{source_version[1]}; the import executable is {bpy.app.version_string}. Use the same or a newer supported Blender version so newer scene data is not lost.')
     scene = bpy.context.scene
     scene_name, frame = scene.name, scene.frame_current
     view_layer_name = bpy.context.view_layer.name
     unit_system = scene.unit_settings.system
-    scale = scene.unit_settings.scale_length if unit_system != "NONE" else 1.0
+    original_scale = scene.unit_settings.scale_length if unit_system != "NONE" else 1.0
+    scale = SOURCE_UNIT_SCALES[source_units] if source_units is not None else original_scale
     require(math.isfinite(scale) and scale > 0, "Blender scene unit scale must be positive and finite")
     warnings = []
     converted_materials = set()
     mixed_materials = set()
     baked_materials = []
+    material_states = {}
 
-    def prepare_material(material):
-        require(not material.library,
-                f'Material “{material.name}” is linked from another file. Make the product materials local, pack resources, and save before importing.')
-        if normalize_mix_surface(material, glass_shader, source_socket):
-            mixed_materials.add(material.name)
-        if normalize_glass_surface(material):
-            converted_materials.add(material.name)
-        material_resources(material, for_bake=True)
-        # Freeze saved-frame values before switching to a temporary bake scene.
-        material.animation_data_clear()
-        if material.node_tree:
-            material.node_tree.animation_data_clear()
+    def material_repair(error):
+        message = str(error).lower()
+        if message.startswith('material “') and '”' in message:
+            message = message.split('”', 1)[1]
+        if " ior" in " " + message or "spatially varying refraction" in message:
+            return "Use one numeric IOR for the material and matching IOR values in mixed surfaces, save, and reimport."
+        if "no source uv" in message:
+            return "Assign the image texture's original UV map in Blender, pack the images, save, and reimport."
+        if "linked from another file" in message:
+            return "Make the material and its textures local in Blender, use File → External Data → Pack Resources, save, and reimport."
+        if any(text in message for text in ("empty image", "external or missing", "no image data")):
+            return "Locate or assign the missing texture in Blender, use File → External Data → Pack Resources, save, and reimport."
+        if "tiles, video, or an image sequence" in message:
+            return "Bake the desired frame to a single image texture in Blender, pack it, save, and reimport."
+        if "import pixel budget" in message:
+            return "Reduce the texture to 8192 × 8192 or smaller in Blender, pack the reduced image, save, and reimport."
+        if "normal" in message:
+            return "Bake the normal input to a tangent-space normal texture in Blender, use a Normal Map node with numeric strength, pack the image, save, and reimport."
+        if "volume or shader displacement" in message:
+            return "Apply displacement to mesh geometry and replace volume shading with a surface material in Blender, then save and reimport."
+        if "budget" in message or "eight uv" in message:
+            return "Simplify the material graph or bake fewer, smaller maps in Blender, remove unused UV layers, pack the images, save, and reimport."
+        return "Bake the appearance to image textures in Blender, connect them to a Principled BSDF, pack the images, save, and reimport."
 
-    if unit_system == "NONE":
+    def material_state(material, object_name):
+        key = material.as_pointer()
+        if key not in material_states:
+            material_states[key] = {"name": material.name, "source": material,
+                                    "prepared": False, "fallback": None, "objects": set()}
+        state = material_states[key]
+        state["objects"].add(object_name)
+        return state
+
+    def fallback_material(state, error):
+        if state["fallback"] is not None:
+            return state["fallback"]
+        name, source = state["name"], state["source"]
+        # This process only edits its loaded copy. Keep a separate, named
+        # surface so replacing one unsupported material cannot merge its slots
+        # into a different material or alter the source .blend on disk.
+        if not source.library:
+            source.name = name + " / source"
+        material = bpy.data.materials.new(name)
+        material.use_nodes = True
+        shader = material.node_tree.nodes.get("Principled BSDF")
+        shader.inputs["Base Color"].default_value = (0.5, 0.5, 0.5, 1)
+        shader.inputs["Metallic"].default_value = 0
+        shader.inputs["Roughness"].default_value = 0.6
+        shader.inputs["Alpha"].default_value = 1
+        shader.inputs["Transmission Weight"].default_value = 0
+        material.diffuse_color = (0.5, 0.5, 0.5, 1)
+        reason = str(error).strip().split(". ", 1)[0].rstrip(".")
+        if reason.startswith('Material “') and '”' in reason:
+            reason = reason.split('”', 1)[1].lstrip(': ')
+        # Older validation messages include preparation instructions after a
+        # semicolon. They are not a prerequisite now that import can continue.
+        reason = reason.split(";", 1)[0].strip()
+        state.update(fallback=material, reason=(reason or "The material could not be converted")[:500],
+                     fix=material_repair(error))
+        converted_materials.discard(name)
+        mixed_materials.discard(name)
+        return material
+
+    def prepare_material(state):
+        if state["fallback"] is not None:
+            return state["fallback"]
+        material = state["source"]
+        if state["prepared"]:
+            return material
+        try:
+            require(not material.library,
+                    f'Material “{material.name}” is linked from another file. Make the product materials local, pack resources, and save before importing.')
+            mixed = normalize_mix_surface(material, glass_shader, source_socket)
+            glass = normalize_glass_surface(material)
+            material_resources(material, for_bake=True)
+            # Freeze saved-frame values before switching to a temporary bake scene.
+            material.animation_data_clear()
+            if material.node_tree:
+                material.node_tree.animation_data_clear()
+            material_needs_bake(material)
+        except (ValueError, RuntimeError) as error:
+            return fallback_material(state, error)
+        state["prepared"] = True
+        if mixed:
+            mixed_materials.add(state["name"])
+        if glass:
+            converted_materials.add(state["name"])
+        return material
+
+    if source_units is not None:
+        warnings.append(f'Units overridden to {source_units}: 1 Blender unit = {scale:g} metres. The source file is unchanged.')
+    elif unit_system == "NONE":
         warnings.append("Scene units are unset; imported with 1 Blender unit = 1 metre. Set Scene Properties → Units if this is not the intended size.")
     # Excluded collections are absent from the active view layer. Render-hidden
     # objects are intentionally omitted, rather than becoming surprise parts.
@@ -250,9 +354,6 @@ def convert(source, output):
             if modifier.show_viewport:
                 require(modifier.type not in {"FLUID", "MESH_SEQUENCE_CACHE", "MESH_CACHE", "CLOTH", "SOFT_BODY"},
                         f'Object “{obj.name}” depends on simulation or external cache data. Convert its saved-frame result to a mesh, then save before importing.')
-        for slot in obj.material_slots:
-            if slot.material:
-                prepare_material(slot.material)
     bpy.context.view_layer.update()
     depsgraph = bpy.context.evaluated_depsgraph_get()
     require(not any(instance.is_instance and not curve_self_entry(instance)
@@ -287,25 +388,92 @@ def convert(source, output):
                 mesh.materials[index] = material
             else:
                 mesh.materials.append(material)
-        for material in mesh.materials:
-            if material:
-                prepare_material(material)
-        if any(material_needs_bake(material) for material in mesh.materials if material):
+        # Abandoned material slots do not contribute to the visible product.
+        # Remove them before validation, preserving evaluated face assignments.
+        polygon_materials = [polygon.material_index for polygon in mesh.polygons]
+        used_slots = sorted(set(polygon_materials) & set(range(len(mesh.materials))))
+        materials = [mesh.materials[index] for index in used_slots]
+        slot_map = {old: new for new, old in enumerate(used_slots)}
+        mesh.materials.clear()
+        for material in materials:
+            mesh.materials.append(material)
+        for polygon, old in zip(mesh.polygons, polygon_materials):
+            polygon.material_index = slot_map.get(old, 0)
+        states = [material_state(material, obj.name) if material else None for material in mesh.materials]
+        for index, state in enumerate(states):
+            if state:
+                mesh.materials[index] = prepare_material(state)
+        # Bake one source material at a time. A trial mesh keeps UV changes,
+        # material copies and partially baked maps out of the accepted snapshot
+        # if that material fails. Other surfaces retain their supported maps.
+        bake_states = {state["source"].as_pointer(): state for state in states
+                       if state and state["fallback"] is None and material_needs_bake(state["source"])}
+        bake_queue = list(bake_states.values())
+        while bake_queue:
+            state = bake_queue.pop(0)
+            if state["fallback"] is not None:
+                continue
             if bake_scene is None:
                 bake_scene = bpy.data.scenes.new("gesso material maps")
                 bake_scene.frame_current = frame
-            bake_object = bpy.data.objects.new(obj.name + " material maps", mesh)
+            trial_mesh = mesh.copy()
+            bake_object = bpy.data.objects.new(obj.name + " material maps", trial_mesh)
             bake_object.matrix_world = world_matrix
             bake_scene.collection.objects.link(bake_object)
+            before_images = {image.as_pointer() for image in bpy.data.images}
+            before_materials = {material.as_pointer() for material in bpy.data.materials}
+            before_budget = material_baker._budget.copy()
+            failed = False
             try:
                 bpy.context.window.scene = bake_scene
                 bpy.context.view_layer.update()
-                baked_materials.append(bake_material_inputs(bake_object))
+                index = next(index for index, source_state in enumerate(states) if source_state is state)
+                try:
+                    record = bake_material_inputs(bake_object, materials=[trial_mesh.materials[index]])
+                except (ValueError, RuntimeError) as error:
+                    # Preparing a shared bake atlas also checks neighboring image
+                    # materials. Attribute their missing-UV error to that material,
+                    # then retry the selected surface with the neighbor replaced.
+                    failed_state = state
+                    message = str(error)
+                    if message.startswith('Material “') and '”' in message:
+                        failed_name = message.split('“', 1)[1].split('”', 1)[0]
+                        for slot, candidate in enumerate(trial_mesh.materials):
+                            if candidate and candidate.name == failed_name and states[slot] and states[slot]["fallback"] is None:
+                                failed_state = states[slot]
+                                break
+                    fallback_material(failed_state, error)
+                    failed = True
             finally:
                 bpy.context.window.scene = scene
                 bpy.data.objects.remove(bake_object, do_unlink=True)
-        for material in mesh.materials:
-            if material:
+            if failed:
+                bpy.data.meshes.remove(trial_mesh)
+                for material in list(bpy.data.materials):
+                    if material.as_pointer() not in before_materials and not material.users and material != failed_state["fallback"]:
+                        bpy.data.materials.remove(material)
+                for image in list(bpy.data.images):
+                    if image.as_pointer() not in before_images and not image.users:
+                        bpy.data.images.remove(image)
+                # Failed maps were discarded with the trial. They must not
+                # consume the retained-image allowance of later materials.
+                material_baker._budget.update(before_budget)
+            else:
+                bpy.data.meshes.remove(mesh)
+                mesh = trial_mesh
+                # Selected baking can copy a material which was already copied
+                # for an earlier channel. Report its original identity.
+                for entry in record["materials"]:
+                    entry["sourceMaterial"] = state["name"]
+                if record["materials"]:
+                    baked_materials.append(record)
+            for index, source_state in enumerate(states):
+                if source_state and source_state["fallback"] is not None:
+                    mesh.materials[index] = source_state["fallback"]
+            if failed and state["fallback"] is None:
+                bake_queue.insert(0, state)
+        for index, material in enumerate(mesh.materials):
+            if material and states[index]["fallback"] is None:
                 # Remove disconnected source graphs so dead coordinate links
                 # cannot affect the exporter's traversal of baked UV maps.
                 if material.use_nodes and material.node_tree:
@@ -320,7 +488,10 @@ def convert(source, output):
                     for node in list(material.node_tree.nodes):
                         if node.as_pointer() not in keep:
                             material.node_tree.nodes.remove(node)
-                material_resources(material)
+                try:
+                    material_resources(material)
+                except (ValueError, RuntimeError) as error:
+                    mesh.materials[index] = fallback_material(states[index], error)
         # Bake evaluated transforms (including parent scale, constraints and
         # posed armatures) into static mesh vertices. Hierarchy remains intact
         # without glTF TRS decomposition losing a source shear transform.
@@ -339,7 +510,7 @@ def convert(source, output):
                 require(math.isfinite(value), "Blender product contains nonfinite geometry")
                 minimum[axis], maximum[axis] = min(minimum[axis], value), max(maximum[axis], value)
         parent = product_parent(obj)
-        snapshots[obj.name] = {"mesh": mesh, "parent": parent.name if parent else None}
+        snapshots[obj.name] = {"mesh": mesh, "parent": parent.name if parent else None, "materialStates": states}
         depth = 0
         while parent:
             depth += 1
@@ -354,6 +525,12 @@ def convert(source, output):
     center = (minimum + maximum) * 0.5
     normalize = Matrix.Translation(-center) @ Matrix.Scale(scale, 4)
     for record in snapshots.values():
+        # A later object may expose a source material's unsupported bake path.
+        # Keep all uses of that source material consistent, including snapshots
+        # that were completed before the failure became known.
+        for index, state in enumerate(record["materialStates"]):
+            if state and state["fallback"] is not None:
+                record["mesh"].materials[index] = state["fallback"]
         record["mesh"].transform(normalize)
         record["mesh"].update()
         for material in record["mesh"].materials:
@@ -387,6 +564,27 @@ def convert(source, output):
         export_materials="EXPORT", export_image_format="AUTO", export_apply=False,
     )
     require("FINISHED" in result and output.is_file(), "Blender could not export the static product. Check its materials and mesh geometry.")
+    material_fallbacks = [{"name": state["name"], "reason": state["reason"], "fix": state["fix"],
+                           "objects": sorted(state["objects"])[:8], "objectCount": len(state["objects"]),
+                           "objectsTruncated": len(state["objects"]) > 8}
+                          for state in material_states.values() if state["fallback"] is not None]
+    material_fallbacks.sort(key=lambda record: record["name"])
+    fallback_names = {record["name"] for record in material_fallbacks}
+    retained_bakes = []
+    for record in baked_materials:
+        entries = [entry for entry in record["materials"] if entry["sourceMaterial"] not in fallback_names]
+        if entries:
+            retained_bakes.append({**record, "materials": entries,
+                                   "imageCount": sum(len(entry["channels"]) for entry in entries)})
+    baked_materials = retained_bakes
+    if material_fallbacks:
+        names = ", ".join(record["name"] for record in material_fallbacks[:8])
+        if len(material_fallbacks) > 8:
+            names += f' and {len(material_fallbacks) - 8} more'
+        noun = "material" if len(material_fallbacks) == 1 else "materials"
+        repair = (f'To keep the original finish: {material_fallbacks[0]["fix"]}' if len(material_fallbacks) == 1 else
+                  'To keep the original finishes, see Import notes for repair steps.')
+        warnings.append(f'Imported without {len(material_fallbacks)} {noun}: {names}. A neutral surface was used; assign a replacement in Material. {repair}')
     for name in sorted(converted_materials):
         warnings.append(f'Material “{name}”: converted Glass BSDF to glTF transmission, preserving color, roughness, IOR and supported normal maps. Refraction may differ from Blender.')
     for name in sorted(mixed_materials):
@@ -398,9 +596,12 @@ def convert(source, output):
         suffix = f' and {len(excluded) - 8} more' if len(excluded) > 8 else ""
         warnings.append(f'Left out {len(excluded)} scene objects: {names}{suffix}. Product dimensions exclude these objects. To change this, set the Blender custom property gesso_role to product or environment on an object or collection.')
     return {"sourceFormat": "blend", "sourceScene": scene_name, "sourceViewLayer": view_layer_name, "sourceFrame": frame,
-            "blenderVersion": bpy.app.version_string, "sourceUnitSystem": unit_system,
+            "blenderVersion": bpy.app.version_string, "sourceBlenderVersion": ".".join(map(str, source_version)), "sourceUnitSystem": unit_system,
+            "sourceUnitScaleToMeters": original_scale, "sourceUnitsOverride": source_units,
             "sourceScaleToMeters": scale, "objectCount": len(records), "meshCount": len(snapshots),
             "transformsBaked": True, "warnings": warnings,
+            "materialFallbacks": material_fallbacks[:200], "materialFallbackCount": len(material_fallbacks),
+            "materialFallbacksTruncated": len(material_fallbacks) > 200,
             "materialConversions": [{"material": name, "from": "Glass BSDF", "to": "Principled transmission"}
                                     for name in sorted(converted_materials)] +
                                    [{"material": name, "from": "Mix Shader", "to": "Principled parameter maps"}
@@ -415,10 +616,11 @@ def main():
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--report", required=True)
+    parser.add_argument("--source-units", choices=tuple(SOURCE_UNIT_SCALES))
     args = parser.parse_args(sys.argv[sys.argv.index("--") + 1:])
     report = Path(args.report)
     try:
-        result = convert(Path(args.input), Path(args.output))
+        result = convert(Path(args.input), Path(args.output), source_units=args.source_units)
     except Exception as error:
         message = str(error) if isinstance(error, ValueError) else "Blender could not convert this saved frame. Convert unsupported geometry to meshes, bake materials to image textures, pack resources, and save before importing."
         report.write_text(json.dumps({"error": message[:1600]}), encoding="utf-8")

@@ -40,18 +40,68 @@ class ScaleTests(unittest.TestCase):
 
     def test_scale_is_bounded_finite_positive_scalar(self):
         for field in ("placement", "assembly"):
-            for value in (0, -.5, .00999, 100.01, True, False, None, "2", [1, 1, 1], {}, math.inf, -math.inf, math.nan):
+            minimum, maximum = (1e-6, 1e6) if field == "placement" else (.01, 100)
+            for value in (0, -.5, minimum * .99, maximum * 1.01, True, False, None, "2", [1, 1, 1], {}, math.inf, -math.inf, math.nan):
                 with self.subTest(field=field, value=value):
                     scene = copy.deepcopy(self.scene)
                     target = scene["placement"] if field == "placement" else scene["product"]["components"][0]["assembly"]
                     target["scale"] = value
                     with self.assertRaisesRegex(ValueError, "scale"):
                         validate_scene(scene)
-            for value in (.01, 1, 100):
+            for value in (minimum, 1, maximum):
                 scene = copy.deepcopy(self.scene)
                 target = scene["placement"] if field == "placement" else scene["product"]["components"][0]["assembly"]
                 target["scale"] = value
                 self.assertIs(validate_scene(scene), scene)
+
+    def test_small_product_scale_and_absolute_keys_keep_source_and_support_coordinates(self):
+        self.scene["placement"].update(translationM=[1, 2, 3], scale=.00148)
+        self.cap["assembly"].update(translationM=[10, 20, 30], scale=.5)
+        before = copy.deepcopy(self.scene)
+        validate_scene(self.scene)
+        sample = evaluate(self.scene, 1, include_placement=True)
+        self.assertEqual(sample["productPlacement"], {"translationM": [1, 2, 3], "scale": .00148})
+        self.assertVectorAlmostEqual(sample["components"]["cap"]["translationM"], [1.0148, 2.0296, 3.0444])
+        self.assertAlmostEqual(sample["components"]["cap"]["scale"], .00074)
+        self.assertEqual(self.scene, before)
+        self.scene["animation"] = {"tracks": [{"id": "tiny-product", "componentId": "$product", "property": "scale", "enabled": True,
+            "keys": [{"frame": 1, "value": .00148, "interpolation": "linear"}, {"frame": 25, "value": .00296, "interpolation": "linear"}]}]}
+        validate_scene(self.scene)
+        self.assertAlmostEqual(evaluate(self.scene, 13, include_placement=True)["productPlacement"]["scale"], .00222)
+        self.assertEqual(self.scene["product"], before["product"])
+        for value in (1e-6, 1e6):
+            self.scene["animation"]["tracks"][0]["keys"][0]["value"] = value
+            validate_scene(self.scene)
+        for value in (1e-7, 1e7):
+            self.scene["animation"]["tracks"][0]["keys"][0]["value"] = value
+            with self.assertRaisesRegex(ValueError, "scale"):
+                validate_scene(self.scene)
+        self.scene["animation"]["tracks"][0].update(componentId="cap", keys=[{"frame": 1, "value": .00148, "interpolation": "linear"}])
+        with self.assertRaisesRegex(ValueError, "scale"):
+            validate_scene(self.scene)
+
+    def test_relative_product_motion_keeps_existing_scale_limits(self):
+        self.scene["placement"]["scale"] = .00148
+        self.scene["motions"] = [{"id": "scale", "target": "$product", "kind": "scale", "axis": "y", "amount": 2,
+                                  "startFrame": 1, "durationFrames": 25, "easing": "linear", "enabled": True}]
+        validate_scene(self.scene)
+        self.assertAlmostEqual(evaluate(self.scene, 25, include_placement=True)["productPlacement"]["scale"], .00296)
+        for value in (.00148, 100.01):
+            self.scene["motions"][0]["amount"] = value
+            with self.assertRaisesRegex(ValueError, "Film motion amount"):
+                validate_scene(self.scene)
+
+    def test_optional_studio_size_is_bounded_without_rewriting_legacy_scenes(self):
+        before = copy.deepcopy(self.scene)
+        validate_scene(self.scene)
+        self.assertEqual(self.scene, before)
+        for value in (1e-6, .32, 1e6):
+            self.scene["environment"]["studioSizeM"] = value
+            self.assertIs(validate_scene(self.scene), self.scene)
+        for value in (0, -1, 1e-7, 1e7, True, None, "0.32", math.inf, math.nan):
+            self.scene["environment"]["studioSizeM"] = value
+            with self.assertRaisesRegex(ValueError, "studio size"):
+                validate_scene(self.scene)
 
     def test_product_scales_assembly_about_support_without_scaling_world_translation(self):
         self.scene["environment"]["plinth"].update(translationM=[4, 5, 6], sizeM=[.4, .4, .4])
@@ -138,7 +188,7 @@ class ScaleTests(unittest.TestCase):
 
         camera_data = Object(dof=SimpleNamespace())
         camera = Object()
-        scene = SimpleNamespace(frame_set=lambda _: None)
+        scene = SimpleNamespace(frame_set=lambda _: None, objects=[])
         objects = {"cap": Object(scale=(1, 1, 1), children=[Object(scale=(.12, .12, .12))])}
         source = ast.parse((ROOT / "scripts/blender_scene.py").read_text())
         functions = [node for node in source.body if isinstance(node, ast.FunctionDef)
@@ -177,7 +227,8 @@ class ScaleApiTests(unittest.TestCase):
         project = self.bootstrap()["project"]
         route = f"/api/projects/{project['id']}"
         edited = copy.deepcopy(project["scene"])
-        edited["placement"]["scale"] = 2
+        edited["placement"]["scale"] = .00148
+        edited["environment"]["studioSizeM"] = .32
         edited["product"]["components"][0]["assembly"]["scale"] = .5
         status, saved, _ = self.request("PUT", route, {"scene": edited, "expectedRevisionId": project["revisionId"]})
         self.assertEqual(status, 200, saved)
@@ -185,7 +236,7 @@ class ScaleApiTests(unittest.TestCase):
         status, sampled, _ = self.request("POST", "/api/evaluate", {"scene": edited})
         self.assertEqual(status, 200, sampled)
         first_component = edited["product"]["components"][0]["id"]
-        self.assertEqual(sampled["frames"][0]["components"][first_component]["scale"], 1)
+        self.assertAlmostEqual(sampled["frames"][0]["components"][first_component]["scale"], .00074)
         self.assertEqual(sampled["frames"][0], evaluate(edited, 1))
         invalid = copy.deepcopy(edited)
         invalid["placement"]["scale"] = 0

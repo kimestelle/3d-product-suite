@@ -34,6 +34,7 @@ export interface FilmPanelProps {
   animationContent?: ReactNode;
   onExport?: (mode: 'still' | 'video') => void;
   exportDisabled?: boolean;
+  outputOnly?: boolean;
 }
 
 /** Keep all changes made by sequence edits, including frame-rate retiming of authored keys. */
@@ -56,7 +57,7 @@ export function applyFilmAudioEdit(scene: any, onChange: FilmPanelProps['onChang
 
 const outputSizes = [{label: 'Portrait / 1080 × 1920', width: 1080, height: 1920}, {label: 'Landscape / 1920 × 1080', width: 1920, height: 1080}, {label: 'Square / 1080 × 1080', width: 1080, height: 1080}, {label: 'Portrait / 540 × 960', width: 540, height: 960}, {label: 'Landscape / 960 × 540', width: 960, height: 540}];
 
-export default function FilmPanel({scene, layer, onLayerChange, mode = 'video', frame, samples = [], onChange, onFrame, onResetView, cameraEnd, onCameraEndChange, viewportControls, cameraTargetId, onCameraTargetChange, animationContent, onExport, exportDisabled}: FilmPanelProps) {
+export default function FilmPanel({scene, layer, onLayerChange, mode = 'video', frame, samples = [], onChange, onFrame, onResetView, cameraEnd, onCameraEndChange, viewportControls, cameraTargetId, onCameraTargetChange, animationContent, onExport, exportDisabled, outputOnly = false}: FilmPanelProps) {
   const [error, setError] = useState('');
   const [localSection, setLocalSection] = useState<FilmSection>('Framing');
   const selectedSection = layer === 'Shots' ? 'Sequence' : layer === 'Timing' ? 'Output' : layer ?? localSection;
@@ -105,6 +106,39 @@ export default function FilmPanel({scene, layer, onLayerChange, mode = 'video', 
   };
   const selectSection = (next: FilmSection) => {setLocalSection(next); onLayerChange?.(next);};
 
+  const outputControls = <>
+      <section className="gesso-section" aria-label="Film output">
+        <StepField label="Composition"><select value={chosenSize} onChange={event => {const size = outputSizes[Number(event.target.value)]; if (size) edit(draft => setOutputDimensions(draft, size.width, size.height));}}>
+          {chosenSize < 0 && <option value={-1}>Custom / {scene.render.width} × {scene.render.height}</option>}{outputSizes.map((size, position) => <option key={size.label} value={position}>{size.label}</option>)}
+        </select></StepField>
+        {!still && <StepField label="Rate"><select aria-label="Frame rate" value={fps} onChange={event => edit(draft => setFrameRate(draft, Number(event.target.value)))}>
+          {![24, 25, 30, 48, 50, 60].includes(fps) && <option value={fps}>{fps} fps</option>}{[24, 25, 30, 48, 50, 60].map(rate => <option key={rate} value={rate}>{rate} fps</option>)}
+        </select></StepField>}
+        <StepNumber label="Width" value={scene.render.width} unit="px" min={2} max={8192} step={2} onChange={value => edit(draft => setOutputDimensions(draft, value, draft.render.height))}/>
+        <StepNumber label="Height" value={scene.render.height} unit="px" min={2} max={8192} step={2} onChange={value => edit(draft => setOutputDimensions(draft, draft.render.width, value))}/>
+        <p className="gesso-meta">Export chooses file type, resolution, and render quality.{!still && ' Frame rate changes preserve timing to the nearest frame.'}</p>
+      </section>
+      {!still && <section className="gesso-section gesso-film-sound" aria-label="Film sound">
+        <div className="gesso-section-heading film-section-label"><span>Sound</span><span>{audio ? `${Number(audio.durationS.toFixed(1))} s${audio.bpm ? ` · ${audio.bpm} bpm` : ''}` : 'none'}</span></div>
+        <input hidden type="file" ref={audioFile} accept={AUDIO_ACCEPT} aria-label="Film sound file" onChange={() => {void importAudio();}}/>
+        {audio ? <>
+          <p className="gesso-meta">{audio.asset.format.toUpperCase()} · {Number(audio.durationS.toFixed(2))} s. Plays with the film and is muxed into MP4 and ProRes exports.</p>
+          <StepField label="Tempo"><input type="number" aria-label="Sound BPM" placeholder="bpm" inputMode="decimal" min={AUDIO_LIMITS.bpm.min} max={AUDIO_LIMITS.bpm.max} step={1} value={bpmDraft ?? (audio.bpm ?? '')} onChange={event => setBpmDraft(event.target.value)} onBlur={commitBpm} onKeyDown={event => {if (event.key === 'Enter') {event.preventDefault(); commitBpm();}}}/></StepField>
+          <StepNumber label="Offset" value={audio.offsetS} unit="s" min={AUDIO_LIMITS.offsetS.min} max={AUDIO_LIMITS.offsetS.max} step={0.01} onChange={value => editAudio(draft => {updateFilmAudio(draft, {offsetS: value});})}/>
+          <StepNumber label="Gain" value={audio.gain} min={AUDIO_LIMITS.gain.min} max={AUDIO_LIMITS.gain.max} step={0.05} onChange={value => editAudio(draft => {updateFilmAudio(draft, {gain: value});})}/>
+          <div className="gesso-button-row"><button type="button" disabled={importingAudio} onClick={() => audioFile.current?.click()}>{importingAudio ? 'Importing…' : 'Replace sound'}</button><button type="button" onClick={() => editAudio(draft => {removeFilmAudio(draft);})}>Remove sound</button></div>
+          <p className="gesso-meta">Offset is the film time where the sound starts; negative values trim its beginning. Tempo draws bar ticks on the timeline.</p>
+        </> : <>
+          <button type="button" disabled={importingAudio} onClick={() => audioFile.current?.click()}>{importingAudio ? 'Importing sound…' : 'Add sound…'}</button>
+          <p className="gesso-meta">MP3, WAV or M4A up to 64 MB. The soundtrack plays with the film and is muxed into MP4 and ProRes exports.</p>
+        </>}
+      </section>}
+  </>;
+  if (outputOnly) return <div className="gesso-panel gesso-compact-panel gesso-film-panel">
+    {outputControls}
+    {error && <p className="gesso-error" role="alert">{error}</p>}
+  </div>;
+
   return <div className="gesso-panel gesso-compact-panel gesso-film-panel">
     <section className="gesso-section gesso-film-scope" aria-label="Film scope">
       {still ? <><StepNumber label="Frame" value={frame} min={1} max={total} step={1} onChange={value => {onFrame(Math.round(value)); onResetView?.();}}/>
@@ -144,32 +178,7 @@ export default function FilmPanel({scene, layer, onLayerChange, mode = 'video', 
     </FilmSectionBlock>}
 
     <FilmSectionBlock name="Output" shortcut={still ? 6 : 8} description={<>{scene.render.width} × {scene.render.height}{!still && ` · ${fps} fps`}</>} active={section === 'Output'} onSelect={() => selectSection('Output')}>
-      <section className="gesso-section" aria-label="Film output">
-        <StepField label="Composition"><select value={chosenSize} onChange={event => {const size = outputSizes[Number(event.target.value)]; if (size) edit(draft => setOutputDimensions(draft, size.width, size.height));}}>
-          {chosenSize < 0 && <option value={-1}>Custom / {scene.render.width} × {scene.render.height}</option>}{outputSizes.map((size, position) => <option key={size.label} value={position}>{size.label}</option>)}
-        </select></StepField>
-        {!still && <StepField label="Rate"><select aria-label="Frame rate" value={fps} onChange={event => edit(draft => setFrameRate(draft, Number(event.target.value)))}>
-          {![24, 25, 30, 48, 50, 60].includes(fps) && <option value={fps}>{fps} fps</option>}{[24, 25, 30, 48, 50, 60].map(rate => <option key={rate} value={rate}>{rate} fps</option>)}
-        </select></StepField>}
-        <StepNumber label="Width" value={scene.render.width} unit="px" min={2} max={8192} step={2} onChange={value => edit(draft => setOutputDimensions(draft, value, draft.render.height))}/>
-        <StepNumber label="Height" value={scene.render.height} unit="px" min={2} max={8192} step={2} onChange={value => edit(draft => setOutputDimensions(draft, draft.render.width, value))}/>
-        <p className="gesso-meta">Export chooses file type, resolution, and render quality.{!still && ' Frame rate changes preserve timing to the nearest frame.'}</p>
-      </section>
-      {!still && <section className="gesso-section gesso-film-sound" aria-label="Film sound">
-        <div className="gesso-section-heading film-section-label"><span>Sound</span><span>{audio ? `${Number(audio.durationS.toFixed(1))} s${audio.bpm ? ` · ${audio.bpm} bpm` : ''}` : 'none'}</span></div>
-        <input hidden type="file" ref={audioFile} accept={AUDIO_ACCEPT} aria-label="Film sound file" onChange={() => {void importAudio();}}/>
-        {audio ? <>
-          <p className="gesso-meta">{audio.asset.format.toUpperCase()} · {Number(audio.durationS.toFixed(2))} s. Plays with the film and is muxed into MP4 and ProRes exports.</p>
-          <StepField label="Tempo"><input type="number" aria-label="Sound BPM" placeholder="bpm" inputMode="decimal" min={AUDIO_LIMITS.bpm.min} max={AUDIO_LIMITS.bpm.max} step={1} value={bpmDraft ?? (audio.bpm ?? '')} onChange={event => setBpmDraft(event.target.value)} onBlur={commitBpm} onKeyDown={event => {if (event.key === 'Enter') {event.preventDefault(); commitBpm();}}}/></StepField>
-          <StepNumber label="Offset" value={audio.offsetS} unit="s" min={AUDIO_LIMITS.offsetS.min} max={AUDIO_LIMITS.offsetS.max} step={0.01} onChange={value => editAudio(draft => {updateFilmAudio(draft, {offsetS: value});})}/>
-          <StepNumber label="Gain" value={audio.gain} min={AUDIO_LIMITS.gain.min} max={AUDIO_LIMITS.gain.max} step={0.05} onChange={value => editAudio(draft => {updateFilmAudio(draft, {gain: value});})}/>
-          <div className="gesso-button-row"><button type="button" disabled={importingAudio} onClick={() => audioFile.current?.click()}>{importingAudio ? 'Importing…' : 'Replace sound'}</button><button type="button" onClick={() => editAudio(draft => {removeFilmAudio(draft);})}>Remove sound</button></div>
-          <p className="gesso-meta">Offset is the film time where the sound starts; negative values trim its beginning. Tempo draws bar ticks on the timeline.</p>
-        </> : <>
-          <button type="button" disabled={importingAudio} onClick={() => audioFile.current?.click()}>{importingAudio ? 'Importing sound…' : 'Add sound…'}</button>
-          <p className="gesso-meta">MP3, WAV or M4A up to 64 MB. The soundtrack plays with the film and is muxed into MP4 and ProRes exports.</p>
-        </>}
-      </section>}
+      {outputControls}
     </FilmSectionBlock>
     </div>
 

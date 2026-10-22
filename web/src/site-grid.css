@@ -52,18 +52,16 @@
   .gesso-site-nav a:hover { opacity: .85; }
 }
 .gesso-site-nav img { display: block; flex: none; }
+.landing-mobile-home { display: none; }
 @media (max-width: 760px) {
   :is(.gesso-landing, .gesso-about, .gesso-shape-light) { --site-margin: var(--gesso-space-24); }
-  .gesso-site-header { grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: var(--gesso-space-16); }
-  .gesso-site-wordmark { padding-top: var(--gesso-space-16); font-size: 28px; }
-  .gesso-site-nav { grid-column: 2 / -1; column-gap: var(--gesso-space-12); padding-top: var(--site-nav-offset, var(--gesso-space-24)); font-size: 12px; line-height: 18px; }
-  .gesso-site-nav img { width: 12px; height: 18px; }
-  .landing-topline .gesso-site-nav { grid-column: 1 / -1; }
-}
-@media (max-width: 560px) {
-  /* Keep every link visible in the narrow header, with the logo occupying
-     the first column and the studio action on the second baseline. */
-  :is(.about-header, .shape-light-header) .gesso-site-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: var(--gesso-space-8); }
-  :is(.about-header, .shape-light-header) .site-study-link { justify-self: end; }
-  :is(.about-header, .shape-light-header) .site-studio-link { grid-column: 2; grid-row: 2; }
+  /* Unequal labels share the available row through equal gaps, without
+     wrapping the studio link onto a separate baseline on narrower pages. */
+  .gesso-site-header { display: flex; align-items: center; justify-content: space-between; gap: var(--gesso-space-12); }
+  .gesso-site-header .gesso-site-wordmark { display: grid; place-items: center; flex: none; width: 32px; height: 40px; padding: 0; font-size: 0; line-height: 0; }
+  /* Reuse the tab icon's exact contour; page chrome supplies its color. */
+  .gesso-site-wordmark::before { content: ""; grid-area: 1 / 1; width: 32px; height: 32px; background: currentColor; mask: url("/favicon.svg?v=halo-oval-1") center / contain no-repeat; -webkit-mask: url("/favicon.svg?v=halo-oval-1") center / contain no-repeat; mask-mode: alpha; }
+  .gesso-site-nav { display: contents; font-size: 12px; line-height: 18px; }
+  .gesso-site-nav a { flex: none; }
+  .gesso-site-header .gesso-site-nav a img { width: 12px; height: 18px; }
 }

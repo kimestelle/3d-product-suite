@@ -11,6 +11,12 @@ export const materialTypes: {id: MaterialType; name: string; material: MaterialS
   ...MATERIAL_PRESETS.map(preset => ({...structuredClone(preset), id: preset.id as MaterialType})),
   {id: 'custom', name: 'Custom', material: {...structuredClone(MATERIAL_PRESETS[1].material), name: 'Custom'}},
 ];
+/** Library starters are never assigned to a product until explicitly saved and attached. */
+export const materialStarters: SavedMaterialPreset[] = [
+  {id: 'starter-red-plastic', name: 'Red plastic', type: 'plastic', material: {...structuredClone(MATERIAL_PRESETS[1].material), name: 'Red plastic', baseColor: [.6, .018, .008, 1]}},
+  {id: 'starter-satin-metal', name: 'Satin metal', type: 'metal', material: {...structuredClone(MATERIAL_PRESETS[2].material), name: 'Satin metal', roughness: .32}},
+  {id: 'starter-clear-glass', name: 'Clear glass', type: 'glass', material: {...structuredClone(MATERIAL_PRESETS[0].material), name: 'Clear glass'}},
+];
 const typeIds = new Set(materialTypes.map(type => type.id));
 const mapNames = new Set(['basecolor', 'normal', 'roughness', 'metalness', 'height']);
 

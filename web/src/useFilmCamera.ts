@@ -1,9 +1,11 @@
+import {isCameraHoldMotion} from './cameraMotionPresets';
 import {useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject} from 'react';
 import {cameraTarget, editCamera, type CameraEnd, type CameraPose} from './camera';
 import {cameraPoseAtFrame, cameraSourceEndFrame, offsetCameraFraming} from './cameraFraming';
 import {shotAtFrame, setOutputDimensions} from './sequence';
 import {createViewport} from './viewport';
 import type {FilmGuideProjection} from './filmGuides';
+import {partTargetIds} from './partTargets';
 
 type Viewport = ReturnType<typeof createViewport>;
 type Props = {
@@ -17,7 +19,8 @@ type Props = {
 
 /** Camera motions own the spatial pose for the whole shot, including held endpoints. */
 export function cameraMotionOwnsPose(scene: any, shot: any): boolean {
-  return [...(scene?.motions ?? []), ...(shot?.motions ?? [])].some(motion => motion.target === '$camera' && motion.enabled !== false);
+  const owner = [...(shot?.motions ?? []), ...(scene?.motions ?? [])].find(motion => motion.target === '$camera' && motion.enabled !== false);
+  return !!owner && !isCameraHoldMotion(owner);
 }
 
 const motionPoseMessage = 'Camera motion controls position. Select its motion to edit.';
@@ -32,7 +35,7 @@ export function useFilmCamera(props: Props) {
   const end: CameraEnd = selection && shot && selection.shotId === shot.id ? selection.end : shot && frame !== shot.startFrame && frame === sourceEnd ? 'to' : 'from';
   const [error, setError] = useState('');
   const [targetId, onTargetChange] = useState('');
-  useEffect(() => {if (targetId && !scene?.product.components.some((part: any) => part.id === targetId)) onTargetChange('');}, [scene, targetId]);
+  useEffect(() => {if (targetId && !partTargetIds(scene).includes(targetId)) onTargetChange('');}, [scene, targetId]);
   const [draftGuide, setDraftGuide] = useState<FilmGuideProjection | null>(null);
   const [dragging, setDragging] = useState(false);
   const latest = useRef({...props, shot, end, cameraMotionDriven}); latest.current = {...props, shot, end, cameraMotionDriven};
@@ -138,7 +141,8 @@ export function useFilmCamera(props: Props) {
       if (!point) return;
       const dx = pointer.clientX - start.clientX, dy = pointer.clientY - start.clientY;
       moved = moved || Math.hypot(dx, dy) > 2;
-      setDraftGuide({...projection, target: {...projection.target, x: projection.target.x + dx, y: projection.target.y + dy}, targetM: point,
+      setDraftGuide({...projection, target: {...projection.target, x: projection.target.x + dx, y: projection.target.y + dy},
+        ...(projection.focus ? {focus: {...projection.focus, x: projection.focus.x + dx, y: projection.focus.y + dy}} : {}), targetM: point,
         distanceM: Math.hypot(...pose.positionM.map((value, index) => value - point![index]))});
     };
     const finish = (pointer: PointerEvent) => {

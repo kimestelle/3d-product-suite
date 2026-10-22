@@ -2,17 +2,19 @@ import {describe,it,expect} from 'vitest';
 import {defaultLayers,editorDestinationUrl,editorModeUrl,groups,layers,readEditorDestination,readEditorMode,shortcutDestination} from './navigation';
 const key={altKey:true,metaKey:false,ctrlKey:false,shiftKey:false,code:'Digit1'};
 describe('editor shortcuts',()=>{
- it('uses uniform Option digits for the four steps in displayed order',()=>{
-  expect(groups.map(group=>group.id)).toEqual(['product','material','world','renders']);
+ it('uses uniform Option digits for Product, Stage and Film in displayed order',()=>{
+  expect(groups).toEqual([{id:'product',label:'Product'},{id:'world',label:'Stage'},{id:'renders',label:'Film'}]);
   groups.forEach(({id},index)=>expect(shortcutDestination({...key,code:`Digit${index+1}`},'product')).toEqual({group:id}));
  });
  it('addresses the layers inside each step with Option 5 onward',()=>{
-  expect(layers.product).toEqual(['Model']);
-  expect(layers.material).toEqual(['Materials','Decals']);
+  expect(layers.product).toEqual(['Model','Materials','Decals']);
   expect(layers.renders).toEqual(['Framing','Animation','Sequence','Output']);
   for(const {id} of groups) {
    layers[id].forEach((layer,index)=>expect(shortcutDestination({...key,code:`Digit${index+5}`},id)).toEqual({layer}));
-   expect(shortcutDestination({...key,code:'Digit9'},id)).toBeNull();
+   for(const mode of ['still','video'] as const) {
+    expect(shortcutDestination({...key,code:'Digit4'},id,mode)).toBeNull();
+    expect(shortcutDestination({...key,code:'Digit9'},id,mode)).toBeNull();
+   }
   }
  });
  it('limits Still shortcuts to its visible Film sections without changing Video mapping',()=>{
@@ -20,7 +22,8 @@ describe('editor shortcuts',()=>{
   expect(shortcutDestination({...key,code:'Digit6'},'renders','still')).toEqual({layer:'Output'});
   for(const digit of [7,8,9])expect(shortcutDestination({...key,code:`Digit${digit}`},'renders','still')).toBeNull();
   expect(shortcutDestination({...key,code:'Digit6'},'renders','video')).toEqual({layer:'Animation'});
-  expect(shortcutDestination({...key,code:'Digit6'},'material','still')).toEqual({layer:'Decals'});
+  expect(shortcutDestination({...key,code:'Digit6'},'product','still')).toEqual({layer:'Materials'});
+  expect(shortcutDestination({...key,code:'Digit7'},'product','still')).toEqual({layer:'Decals'});
   groups.forEach(({id},index)=>expect(shortcutDestination({...key,code:`Digit${index+1}`},'renders','still')).toEqual({group:id}));
  });
  it('leaves browser and modified shortcuts alone',()=>{for(const patch of [{altKey:false},{metaKey:true},{ctrlKey:true},{shiftKey:true},{repeat:true},{code:'KeyA'}])expect(shortcutDestination({...key,...patch},'product')).toBeNull()});
@@ -73,13 +76,39 @@ describe('editor window URLs',()=>{
   expect(readEditorDestination('/?step=world&layer='+layer)).toEqual({group:'world',layer:'Environment'});
   expect(readEditorDestination('/?step=unknown&layer='+layer)).toEqual({group:'product',layer:'Model'});
  });
- it('routes legacy Material and Decal links out of Product',()=>{
+ it('keeps Materials and Decals within Product, including old Material links',()=>{
   for(const layer of ['Materials','Decals']) {
-   const url='/?step=product&layer='+layer.toLowerCase();
-   const destination=readEditorDestination(url);
-   expect(destination).toEqual({group:'material',layer});
-   expect(editorDestinationUrl(url,destination)).toBe('/?step=material&layer='+layer.toLowerCase());
+   for(const step of ['product','material','%20MATERIAL%20']) {
+    const url='/?step='+step+'&layer='+layer.toLowerCase();
+    const destination=readEditorDestination(url);
+    expect(destination).toEqual({group:'product',layer});
+    expect(editorDestinationUrl(url,destination)).toBe('/?step=product&layer='+layer.toLowerCase());
+   }
   }
+ });
+ it('preserves the Material default for missing, invalid or formerly mismatched layers',()=>{
+  for(const layer of ['', '&layer=unknown', '&layer=model', '&layer=animation', '&layer=constructor']) {
+   const input='/?step=material'+layer;
+   const destination=readEditorDestination(input);
+   expect(destination).toEqual({group:'product',layer:'Materials'});
+   expect(editorDestinationUrl(input,destination)).toBe('/?step=product&layer=materials');
+  }
+ });
+ it('accepts Stage links while retaining canonical World URLs',()=>{
+  for(const layer of layers.world) {
+   const input='/?step=%20STAGE%20&layer='+layer.toLowerCase();
+   const destination=readEditorDestination(input);
+   expect(destination).toEqual({group:'world',layer});
+   expect(editorDestinationUrl(input,destination)).toBe('/?step=world&layer='+layer.toLowerCase());
+  }
+  expect(readEditorDestination('/?step=stage')).toEqual({group:'world',layer:'Environment'});
+ });
+ it('normalizes a bookmarked Material window once without losing its mode or unrelated state',()=>{
+  const input='/studio?campaign=lamp&step=material&layer=decals&tag=one&tag=two&mode=still#part';
+  const canonical=editorDestinationUrl(input,readEditorDestination(input));
+  expect(canonical).toBe('/studio?campaign=lamp&step=product&layer=decals&tag=one&tag=two&mode=still#part');
+  expect(editorDestinationUrl(canonical,readEditorDestination(canonical))).toBe(canonical);
+  expect(readEditorMode(canonical)).toBe('still');
  });
  it('moves Camera links to Film Framing and preserves the transitional Motion alias',()=>{
   for(const layer of ['lens','focus','path']) {
@@ -111,7 +140,7 @@ describe('Still / Video URL mode',()=>{
   expect(readEditorMode('/?mode=%20STILL%20')).toBe('still');
  });
  it('preserves Still across group changes without changing other query state',()=>{
-  expect(editorDestinationUrl('/studio?mode=still&campaign=lamp#part',{group:'material',layer:'Materials'})).toBe('/studio?mode=still&campaign=lamp&step=material&layer=materials#part');
+  expect(editorDestinationUrl('/studio?mode=still&campaign=lamp#part',{group:'product',layer:'Materials'})).toBe('/studio?mode=still&campaign=lamp&step=product&layer=materials#part');
  });
  it('changes only mode plus canonical window parameters, retaining repeated unrelated values',()=>{
   const original='/studio?step=film&layer=animation&tag=one&tag=two#key';

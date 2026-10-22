@@ -2,9 +2,10 @@ import {useEffect,useRef,useState} from 'react';
 import {equalJson} from './state';
 import {displayPartName} from './hierarchy';
 import {animatedTransformScene,copyAnimatedTransform} from './animatedTransforms';
+import {getPropertyValue,PRODUCT_TARGET} from './keyframes';
 import type {TransformGesture} from './transformPointer';
 import {
-  nudgeTransformAmount,pointerTransformAmount,rotationSampleDelta,supportsTransform,transformKeyIntent,transformTargetKey,typedTransformAmount,
+  nudgeTransformAmount,pointerTransformAmount,rotationSampleDelta,supportsTransform,transformKeyIntent,transformTargetKey,transformScaleLimits,typedTransformAmount,
   type TransformAxis,type TransformMode,type TransformTarget,
 } from './transforms';
 
@@ -31,7 +32,7 @@ function editableTarget(target:EventTarget|null):boolean {
 function displayAmount(transaction:Transaction):string {
   if (transaction.text) return transaction.text;
   const value = transaction.mode === 'translate' ? transaction.amount*1000 : transaction.amount;
-  return Number(value.toFixed(4)).toString();
+  return Number(transaction.mode === 'scale' ? value.toPrecision(8) : value.toFixed(4)).toString();
 }
 
 /** A transient transaction: preview never enters scene history; Apply makes one edit. */
@@ -126,7 +127,9 @@ export default function TransformShortcuts(props:TransformShortcutsProps) {
       if (intent.type === 'axis') {
         chooseAxis(intent.axis);
       } else if (intent.type === 'nudge') {
-        const next = {...state,amount:nudgeTransformAmount(state.mode,state.amount,intent.direction,intent.fine),text:''};
+        const scale=getPropertyValue(state.source,state.target.kind==='product'?PRODUCT_TARGET:state.target.componentId,'scale',state.frame);
+        const bounds=transformScaleLimits(state.target);
+        const next = {...state,amount:nudgeTransformAmount(state.mode,state.amount,intent.direction,intent.fine,{min:bounds.min/scale,max:bounds.max/scale}),text:''};
         update(next);anchorPointer(next);
       } else if (intent.type === 'type') {
         let text = intent.key === 'backspace' ? state.text.slice(0,-1) : state.text+intent.key;

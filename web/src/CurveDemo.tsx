@@ -205,8 +205,8 @@ export default function CurveDemo() {
   return <div className="curve-demo">
     <header className="curve-header">
       <a className="gesso-wordmark" href="/landing" aria-label="gesso home">gesso<span>studio</span></a>
-      <h1>Curve study <span>design system</span></h1>
-      <nav aria-label="Study navigation"><a href="/aperture">Form + light</a><a href="/?step=product&layer=model">Enter studio <span className="gesso-ui-icon gesso-export-arrow" aria-hidden="true"/></a><button onClick={save}><Icon name="download"/>Export SVG</button></nav>
+      <h1>Curve study <span>design system</span><a href={`/curves?${new URLSearchParams({study:'logo',pattern:ids.join(','),loop:loop?'1':'0',t:String(progress.current),duration:String(duration)})}`} onClick={event=>{const url=new URL(event.currentTarget.href);url.searchParams.set('t',String(progress.current));event.currentTarget.href=url.href;}} className="curve-compare-link">Logo ↗</a></h1>
+      <nav aria-label="Study navigation"><a className="curve-compare-link" href={`/curves?${new URLSearchParams({compare:'1',pair:'rectangle-star',pattern:ids.join(','),loop:loop?'1':'0',pattern_t:String(progress.current),t:'.5',duration:String(duration)})}`} onClick={event=>{const url=new URL(event.currentTarget.href);url.searchParams.set('pattern_t',String(progress.current));event.currentTarget.href=url.href;}}>Compare</a><a href="/aperture">Form + light</a><a href="/?step=product&layer=model">Enter studio <span className="gesso-ui-icon gesso-export-arrow" aria-hidden="true"/></a><button onClick={save}><Icon name="download"/>Export SVG</button></nav>
     </header>
     <div className="curve-workspace">
       <aside className="curve-library" aria-label="Shape library">

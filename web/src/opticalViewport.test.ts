@@ -9,7 +9,7 @@ function viewport(capture = false) {
   const camera = new THREE.PerspectiveCamera(2 * Math.atan(18 / 50) * 180 / Math.PI, 2, .001, 100);
   camera.position.set(0, 0, .5); camera.lookAt(0, 0, 0); camera.updateMatrixWorld(true);
   const scene = new THREE.Scene(), content = new THREE.Group(); scene.add(content);
-  const renderer = {setSize: vi.fn(), render: vi.fn(), getPixelRatio: () => 1, getContext: () => ({finish: vi.fn()})};
+  const renderer = {setSize: vi.fn(), setPixelRatio: vi.fn(), render: vi.fn(), getPixelRatio: () => 1, getContext: () => ({finish: vi.fn()})};
   Object.assign(view, {camera, scene, content, renderer, options: {studioMode: true, capture},
     canvas: {style: {}}, components: new Map(), controls: null, selection: null,
     frameQueue: Promise.resolve(), frameRequest: 0, filmGuides: false, filmOutputAspect: 9 / 16, presentedFilm: null,
@@ -39,6 +39,41 @@ describe('Viewport optical presentation', () => {
     await view.draw(false, 1); expect(view.depthOfFieldPreview).toBeNull(); expect(renderer.render).toHaveBeenCalledOnce();
     const previous = {dispose: vi.fn()}; view.depthOfFieldPreview = previous;
     await view.draw(false, 1); expect(previous.dispose).toHaveBeenCalledOnce(); expect(view.depthOfFieldPreview).toBeNull();
+  });
+  it('keeps one transmission-cache identity while presenting each updated camera pose', async () => {
+    const {view, camera, renderer} = viewport();
+    const presented: THREE.PerspectiveCamera[] = [], positions: number[][] = [];
+    renderer.render.mockImplementation((_scene, drawnCamera) => {
+      presented.push(drawnCamera); positions.push(drawnCamera.position.toArray());
+    });
+    for (let frame = 0; frame < 60; frame++) {
+      camera.position.x = frame / 10;
+      await view.draw(false, 1);
+    }
+    expect(new Set(presented.map(value => value.id)).size).toBe(1);
+    expect(presented[0]).not.toBe(camera);
+    expect(positions).toEqual(Array.from({length: 60}, (_, frame) => [frame / 10, 0, .5]));
+    camera.position.x = 100;
+    expect(presented[0].position.x).toBe(5.9);
+  });
+  it('bounds only live pixels, keeping camera framing and capture resolution intact', async () => {
+    for (const capture of [false, true]) {
+      const {view, renderer} = viewport(capture);
+      view.pendingSize = {width: 2560, height: 1440};
+      await view.draw(false, 1);
+      expect(renderer.setSize).toHaveBeenCalledWith(2560, 1440, false);
+      expect(renderer.render.mock.calls[0][1].aspect).toBe(2560 / 1440);
+      if (capture) expect(renderer.setPixelRatio).not.toHaveBeenCalled();
+      else expect(renderer.setPixelRatio).toHaveBeenCalledWith(.5);
+    }
+  });
+  it('pauses drawing under a completed still and resumes with the current view', async () => {
+    const {view, renderer} = viewport();
+    await view.draw(false, 1);
+    view.setSuspended(true); await view.draw(false, 1);
+    expect(renderer.render).toHaveBeenCalledOnce();
+    view.setSuspended(false); await view.draw(false, 1);
+    expect(renderer.render).toHaveBeenCalledTimes(2);
   });
   it('freezes focus/aperture alongside the camera during Gaussian sorting', async () => {
     const {view, renderer} = viewport();
@@ -82,12 +117,13 @@ describe('Viewport optical presentation', () => {
     expect(renderer.render).toHaveBeenCalledOnce(); expect(view.depthOfFieldPreview).toBeNull();
   });
   it('uses native per-splat aperture for capture without postprocessing or tone-map duplication', async () => {
-    const {view, renderer} = viewport(true);
+    const {view, camera, renderer} = viewport(true);
     view.sampledOptics = {enabled: true, fStop: 2, focusDistanceM: .5};
     view.spark = {visible: true, renderSize: new THREE.Vector2(), update: vi.fn(async () => {})};
     await view.draw(true, 1);
     expect(view.spark.focalDistance).toBe(.5); expect(view.spark.apertureAngle).toBeCloseTo(sparkApertureAngle(50, .5, 2));
     expect(view.depthOfFieldPreview).toBeNull(); expect(renderer.render).toHaveBeenCalledOnce();
+    expect(renderer.render.mock.calls[0][1]).toBe(camera);
     view.sampledOptics.enabled = false; await view.draw(true, 1);
     expect(view.spark.apertureAngle).toBe(0); expect(view.spark.focalDistance).toBe(0);
   });

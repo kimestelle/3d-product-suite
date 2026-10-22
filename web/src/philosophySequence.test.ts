@@ -1,11 +1,17 @@
-import {afterAll,beforeAll,describe,expect,it,vi} from 'vitest';
-import {clearCache,prepareWithSegments} from '@chenglou/pretext';
+import {describe,expect,it} from 'vitest';
 import {frameBounds,philosophyFrameNodes} from './frameGeometry';
-import {createPhilosophySequence,philosophySequenceContour,philosophySequenceNodes} from './philosophySequence';
-import {createContourQuery} from './philosophyContour';
-import {layoutContourText,type LineFlowLeaf} from './philosophyLineLayout';
+import {createPhilosophySequence,philosophyReadingBounds,philosophySequenceContour,philosophySequenceNodes} from './philosophySequence';
 
-describe('Shape + Light editorial sequence',()=>{
+function scrollPositionForEasedProgress(progress:number) {
+  let low=0,high=1;
+  for(let step=0;step<48;step++) {
+    const middle=(low+high)/2;
+    if(middle*middle*(3-2*middle)<progress)low=middle;else high=middle;
+  }
+  return (low+high)/2;
+}
+
+describe('Form + Light editorial sequence',()=>{
   it('changes shrink on a held playhead without rebuilding or moving finished frames',()=>{
     const sample=createPhilosophySequence(1280,832),end=sample(2);
     for(const shrink of [0,.08,.25,.5]) {
@@ -24,19 +30,96 @@ describe('Shape + Light editorial sequence',()=>{
     expect(middle.left+middle.width/2).toBeCloseTo((a.left+a.width/2+b.left+b.width/2)/2,7);
     expect(middle.top+middle.height/2).toBeCloseTo((a.top+a.height/2+b.top+b.height/2)/2,7);
   });
-  it('preserves compact covers and keeps the snapped desktop cover clear of its title',()=>{
+  it('preserves compact covers and uniformly fits the desktop cover within the inner grid',()=>{
     for(const [w,h] of [[390,844],[800,600],[900,700]])
       expect(philosophySequenceNodes(w,h,0)).toEqual(philosophyFrameNodes(w,h,0));
     for(const [w,h] of [[955,832],[1280,832],[1440,540],[1600,1100]]){
       const before=frameBounds(philosophyFrameNodes(w,h,0));
       const after=frameBounds(philosophySequenceNodes(w,h,0));
-      expect(after.left).toBeGreaterThanOrEqual(before.left-1e-7);
+      const pitch=(w-60)/7;
+      expect(after.left).toBeGreaterThanOrEqual(40+3*pitch-1e-7);
+      expect(after.right).toBeLessThanOrEqual(w-40-pitch+1e-7);
       expect(after.width/after.height).toBeCloseTo(before.width/before.height,10);
     }
   });
 
+  it('reserves the outside columns symmetrically and leaves compact padding unchanged',()=>{
+    for(const width of [901,955,1280,1422,1600,1920]) {
+      const pitch=(width-60)/7,bounds=philosophyReadingBounds(width);
+      expect(bounds.left).toBeCloseTo(40+pitch,10);
+      expect(bounds.right).toBeCloseTo(40+6*pitch-20,10);
+      expect(bounds.left).toBeCloseTo(width-bounds.right,10);
+    }
+    for(const width of [390,800,900]) {
+      const bounds=philosophyReadingBounds(width);
+      expect(bounds.left).toBe(40);
+      expect(bounds.right).toBe(width-40);
+    }
+  });
+
+  it('retains every endpoint and contracts all transition midpoints by thirty percent',()=>{
+    for(const [w,h] of [[901,700],[955,832],[1280,832],[1422,900],[1600,1100],[1920,1080]]) {
+      const sample=createPhilosophySequence(w,h);
+      for(let stage=0;stage<=5;stage++) {
+        const endpoint=sample(stage);
+        expect(sample(stage,0)).toBe(endpoint);
+        expect(sample(stage,.3)).toBe(endpoint);
+        expect(endpoint).toHaveLength(64);
+      }
+      for(let stage=0;stage<5;stage++) {
+        const plainNodes=sample(stage+.5,0),shrunkNodes=sample(stage+.5);
+        const plain=frameBounds(plainNodes),shrunk=frameBounds(shrunkNodes);
+        expect(shrunk.width).toBeCloseTo(plain.width*.7,7);
+        expect(shrunk.height).toBeCloseTo(plain.height*.7,7);
+        // Asymmetric corner radii can offset the AABB midpoint. Opposing
+        // side anchors retain the actual authored transform center.
+        for(const axis of ['x','y'] as const)
+          expect((shrunkNodes[0].point[axis]+shrunkNodes[32].point[axis])/2)
+            .toBeCloseTo((plainNodes[0].point[axis]+plainNodes[32].point[axis])/2,7);
+      }
+    }
+  });
+
+  it('keeps the window near its outgoing and incoming lanes outside the middle crossing',()=>{
+    for(const [width,height] of [[955,832],[1280,832],[1422,900],[1920,1080]]) {
+      const sample=createPhilosophySequence(width,height);
+      const center=(position:number)=>{
+        const nodes=sample(position);
+        return (nodes[0].point.x+nodes[32].point.x)/2;
+      };
+      // The cover and introduction occupy the same side; the four following
+      // transitions cross the reading lanes in alternating directions.
+      for(let stage=1;stage<5;stage++) {
+        const from=center(stage),to=center(stage+1),distance=Math.abs(to-from);
+        expect(distance).toBeGreaterThan(0);
+        for(const progress of [.05,.125,.25,.75,.875,.95]) {
+          const x=center(stage+scrollPositionForEasedProgress(progress));
+          const endpoint=progress<=.25?from:to;
+          expect(Math.abs(x-endpoint),`${width}×${height}, section ${stage}, eased ${progress}`)
+            .toBeLessThanOrEqual(distance*.05+1);
+        }
+      }
+    }
+  });
+
+  it('starts and finishes horizontal crossing without a position or velocity jump',()=>{
+    const sample=createPhilosophySequence(1280,832);
+    const center=(progress:number)=>{
+      const nodes=sample(1+scrollPositionForEasedProgress(progress));
+      return (nodes[0].point.x+nodes[32].point.x)/2;
+    };
+    const from=center(0),to=center(1),travel=Math.abs(to-from),epsilon=1e-5;
+    for(const boundary of [.25,.75]) {
+      const before=center(boundary-epsilon),at=center(boundary),after=center(boundary+epsilon);
+      expect(at).toBeCloseTo(boundary===.25?from:to,7);
+      expect(Math.abs(after-before)/travel).toBeLessThan(1e-8);
+      expect(Math.abs((after-at)/epsilon)/travel).toBeLessThan(.001);
+      expect(Math.abs((at-before)/epsilon)/travel).toBeLessThan(.001);
+    }
+  });
+
   it('aligns every desktop endpoint’s true bounds with the seven-column layout grid',()=>{
-    for(const [w,h] of [[901,700],[955,832],[1000,600],[1201,700],[1280,832],[1440,540],[1600,1100],[1920,1080]]){
+    for(const [w,h] of [[901,700],[955,832],[1000,600],[1201,700],[1280,832],[1422,900],[1440,540],[1600,1100],[1920,1080]]){
       const pitch=(w-60)/7,column=pitch-20;
       const edges=Array.from({length:7},(_,i)=>[40+i*pitch,40+i*pitch+column]).flat();
       for(let stage=0;stage<=5;stage++){
@@ -125,34 +208,32 @@ describe('Shape + Light editorial sequence',()=>{
     expect(wide(2.5)).toEqual(philosophySequenceNodes(1440,832,2.5));
   });
 
-  it('keeps true cubic bounds inside the fixed padding, including in-between frames',()=>{
-    for(const [w,h] of [[800,600],[955,832],[1280,832],[1440,540],[1600,1100]])
+  it('keeps true cubic bounds inside the inner columns throughout each morph',()=>{
+    for(const [w,h] of [[800,600],[901,700],[955,832],[1280,832],[1422,900],[1440,540],[1600,1100],[1920,1080]])
       for(let sample=0;sample<=100;sample++) {
         const nodes=philosophySequenceNodes(w,h,sample/20),bounds=frameBounds(nodes);
+        const inset=w>900?(w-60)/7:0;
         expect(nodes).toHaveLength(64);
         // The preserved cover's circular cubics differ from ideal arcs by
         // millionths of a pixel; keep this far below a rendered pixel.
-        expect(bounds.left).toBeGreaterThanOrEqual(40-1e-4);
+        expect(bounds.left).toBeGreaterThanOrEqual(40+inset-1e-4);
         expect(bounds.top).toBeGreaterThanOrEqual(96-1e-4);
-        expect(bounds.right).toBeLessThanOrEqual(w-40+1e-4);
+        expect(bounds.right).toBeLessThanOrEqual(w-40-inset+1e-4);
         expect(bounds.bottom).toBeLessThanOrEqual(h-40+1e-4);
       }
   });
 
-  it('reaches into the reading columns while retaining a readable lane at each endpoint',()=>{
-    for(const [w,h] of [[955,832],[1280,832],[1440,540],[1600,1100]])
-      for(let stage=1;stage<=5;stage++) {
+  it('leaves a fixed two-column text line and a twenty-four pixel gap at every endpoint',()=>{
+    for(const [w,h] of [[901,700],[955,832],[1000,600],[1201,700],[1280,832],[1422,900],[1440,540],[1600,1100],[1920,1080]])
+      for(let stage=0;stage<=5;stage++) {
         const bounds=frameBounds(philosophySequenceNodes(w,h,stage));
-        const pitch=(w-60)/7,copyWidth=3*pitch-20;
-        const readingWidth=Math.min(240,(w-80)*.24),gap=24;
-        if(stage%2===1) {
-          const copyLeft=40+pitch;
-          expect(bounds.left-copyLeft-gap).toBeGreaterThanOrEqual(readingWidth-1e-7);
-          expect(bounds.left-gap).toBeLessThan(copyLeft+copyWidth-24);
+        const pitch=(w-60)/7,lineWidth=2*pitch-44,gap=24;
+        const left=40+pitch,right=w-40-pitch;
+        const context=`${w}×${h}, section ${stage}`;
+        if(stage===0||stage%2===1) {
+          expect(bounds.left-left-gap,context).toBeGreaterThanOrEqual(lineWidth-1e-7);
         } else {
-          const copyLeft=40+4*pitch;
-          expect(w-40-bounds.right-gap).toBeGreaterThanOrEqual(readingWidth-1e-7);
-          expect(bounds.right+gap).toBeGreaterThan(copyLeft+24);
+          expect(right-bounds.right-gap,context).toBeGreaterThanOrEqual(lineWidth-1e-7);
         }
       }
   });
@@ -162,7 +243,6 @@ describe('Shape + Light editorial sequence',()=>{
     const bounds=shapes.map(frameBounds);
     expect(bounds[0].width).toBeCloseTo(bounds[0].height,8);
     expect(bounds[1].width).toBeCloseTo(bounds[1].height,8);
-    expect(bounds[1].width).toBeGreaterThan(bounds[0].width);
     expect(bounds[2].height/bounds[2].width).toBeGreaterThan(1.2);
     expect(bounds[3].width/bounds[3].height).toBeGreaterThan(1.3);
     // Circle anchors at 0/6 coincide; the square retains a straight side.
@@ -214,52 +294,5 @@ describe('Shape + Light editorial sequence',()=>{
         for(const node of philosophySequenceNodes(w,h,position))
           for(const point of [node.point,node.in,node.out])
             expect(Number.isFinite(point.x)&&Number.isFinite(point.y)).toBe(true);
-  });
-});
-
-/** Deterministic font metrics keep this an integration test of the actual
- * contour and Pretext line-breaking path, independent of installed fonts. */
-class TestCanvas {
-  getContext() {
-    return {font:'16px sans-serif',letterSpacing:'0px',measureText(text:string) {
-      const size=Number(this.font.match(/([\d.]+)px/)?.[1]??16);
-      const width=[...text].length*size/2;
-      return {width,actualBoundingBoxLeft:0,actualBoundingBoxRight:width};
-    }};
-  }
-}
-
-describe('editorial shapes and selectable contour text',()=>{
-  beforeAll(()=>{vi.stubGlobal('OffscreenCanvas',TestCanvas);clearCache();});
-  afterAll(()=>{clearCache();vi.unstubAllGlobals();});
-
-  it('changes real line breaks or positions without losing words or crossing the contour',()=>{
-    const text='From any step, jump to a polished still or film. Gesso fills the gaps around the decisions you have made. Everything it adds stays inspectable and editable.';
-    for(const [w,h] of [[955,832],[1280,832],[1440,540],[1600,1100]])
-      for(let stage=1;stage<=5;stage++) {
-        const nodes=philosophySequenceNodes(w,h,stage),bounds=frameBounds(nodes);
-        const query=createContourQuery(philosophySequenceContour(nodes));
-        const pitch=(w-60)/7,side=stage%2===1?'left':'right';
-        const left=40+(side==='left'?1:4)*pitch,top=bounds.top+bounds.height*.35;
-        const leaf:LineFlowLeaf={prepared:prepareWithSegments(text,'400 16px "Halyard Text"'),
-          lineHeight:24,top:0,left:0,width:3*pitch-20,naturalHeight:96};
-        const options={left,top,right:w-40,side,query} as const;
-        const plain=layoutContourText([leaf],{...options,query:()=>null});
-        const flow=layoutContourText([leaf],options);
-        expect(flow.lines.map(line=>[line.left,line.text]),`no reflow at ${w}×${h}, section ${stage}`)
-          .not.toEqual(plain.lines.map(line=>[line.left,line.text]));
-        expect(flow.lines.map(line=>line.text+line.separator).join('')).toBe(text);
-        expect(top+flow.height).toBeLessThanOrEqual(h-40);
-        for(const line of flow.lines) {
-          const lineLeft=left+line.left,lineRight=lineLeft+line.width;
-          expect(lineLeft).toBeGreaterThanOrEqual(40);
-          expect(lineRight).toBeLessThanOrEqual(w-40);
-          const edge=query(top+line.top-4,top+line.top+leaf.lineHeight+4);
-          if(edge) {
-            if(side==='left')expect(lineRight).toBeLessThanOrEqual(edge.left-24+1e-7);
-            else expect(lineLeft).toBeGreaterThanOrEqual(edge.right+24-1e-7);
-          }
-        }
-      }
   });
 });

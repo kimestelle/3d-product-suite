@@ -75,21 +75,22 @@ describe('Whole-film timeline coordinates', () => {
 describe('Scene editing and persistent curve context', () => {
   it('keeps recovery actions available for an empty legacy movie', () => {
     const props = context(); props.scene.shots = []; props.scene.render.durationFrames = 240;
-    const html = renderToStaticMarkup(<FilmTimeline {...props} onImportImage={noop}/>);
+    const html = renderToStaticMarkup(<FilmTimeline {...props}/>);
     expect(html).toContain('aria-label="Movie duration in seconds"');
     expect(html).toContain('value="10"');
-    expect(html).toContain('New scene'); expect(html).toContain('Add image');
+    expect(html).toContain('New scene'); expect(html).not.toContain('Add image');
     expect(html).not.toContain('aria-label="Motion progress curve"');
   });
 
-  it('exposes movie duration in seconds and a disabled import action while an image loads', () => {
+  it('exposes movie duration and one scene entry point, disabled while work is pending', () => {
     const props = context(); props.scene.render.durationFrames = 240;
-    const html = renderToStaticMarkup(<FilmTimeline {...props} onImportImage={noop}/>);
+    const html = renderToStaticMarkup(<FilmTimeline {...props}/>);
     expect(html).toContain('aria-label="Movie duration in seconds"');
     expect(html).toContain(`value="${240 / props.scene.render.fps}"`);
-    expect(html).toContain('New scene'); expect(html).toContain('Add image');
-    const pending = renderToStaticMarkup(<FilmTimeline {...props} onImportImage={noop} importingImage/>);
-    expect(pending).toContain('disabled="">Importing image…</button>');
+    expect(html).toContain('New scene'); expect(html).not.toContain('Add image');
+    const pending = renderToStaticMarkup(<FilmTimeline {...props} disabled/>);
+    expect(pending).toMatch(/data-new-scene-trigger="true" disabled=""/);
+    expect(pending).not.toContain('Add image');
   });
 
   it('keeps the edited scene and curve while playback enters another scene', () => {
@@ -165,5 +166,24 @@ describe('Soundtrack tempo on the ruler', () => {
     delete props.scene.audio.bpm;
     expect(renderToStaticMarkup(<FilmTimeline {...props}/>)).not.toContain('film-beat-grid');
     expect(renderToStaticMarkup(<FilmTimeline {...context()}/>)).not.toContain('film-beat-grid');
+  });
+});
+
+
+describe('Timeline heading and loop preference', () => {
+  it('shows the scene count once above the shots, with no second Scenes label', () => {
+    const html = renderToStaticMarkup(<FilmTimeline {...context()}/>);
+    expect(html).toContain('<h2 class="film-scene-count">2 scenes</h2>');
+    expect(html.match(/2 scenes/g)).toHaveLength(1);
+    expect(html).not.toContain('>Scenes<');
+    const props = context(); props.scene.shots = props.scene.shots.slice(0, 1);
+    expect(renderToStaticMarkup(<FilmTimeline {...props}/>)).toContain('>1 scene</h2>');
+  });
+  it('renders loop as a native keyboard-operable checkbox below transport', () => {
+    const html = renderToStaticMarkup(<FilmTimeline {...context()} loopPlayback onLoopPlaybackChange={noop}/>);
+    expect(html).toMatch(/class="film-loop"><input type="checkbox" checked=""\/>Loop/);
+    expect(html.indexOf('class="film-loop"')).toBeGreaterThan(html.indexOf('class="film-transport"'));
+    const disabled = renderToStaticMarkup(<FilmTimeline {...context()} disabled onLoopPlaybackChange={noop}/>);
+    expect(disabled).toMatch(/class="film-loop"><input type="checkbox" disabled=""/);
   });
 });

@@ -143,7 +143,7 @@ export class FrameDriver {
     const previous=this.measured.get(page);if(previous)return previous;
     // A failed initial render may remove its source. Keep an honest loading
     // destination available so error/retry/back never depend on that renderer.
-    if(page==='studio'&&typeof innerWidth==='number')return {nodes:roundedFrameNodes({left:innerWidth<900?0:340,top:innerWidth<900?0:116,right:innerWidth,bottom:innerHeight},20),ground:'#131313',fill:'#252525',halo:{color:'#131313',blur:0,spread:0,opacity:0}};
+    if(page==='studio'&&typeof innerWidth==='number')return {nodes:roundedFrameNodes({left:innerWidth<900?0:340,top:innerWidth<900?0:124,right:innerWidth,bottom:innerHeight},20),ground:'#181818',fill:'#252525',halo:{color:'#181818',blur:0,spread:0,opacity:0}};
     return null;
   }
   private loading(visual:FrameVisual):FrameVisual {

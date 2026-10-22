@@ -56,10 +56,18 @@ class ProjectStore:
             saved = json.loads((directory / "revisions" / f"{selected}.json").read_text())
             validate_scene(saved["scene"])
             verify_scene_assets(saved["scene"], self.root)
+            # Read old campaigns without rewriting their immutable revisions.
+            # The catalog becomes part of the next explicit user save.
+            from .products import hydrate_product_nodes
+            hydrate_product_nodes(saved["scene"], self.root)
             return {**index, "scene": saved["scene"], "headRevisionId": index["revisionId"], "revisionId": selected}
 
     def create(self, name="MORA / Campaign 01", scene=None, *, source_dir=None):
-        scene = load_scene(ROOT / "examples" / "bottle.scene.json") if scene is None else validate_scene(scene)
+        if scene is None:
+            from .campaign_defaults import resize_campaign_defaults
+            scene = resize_campaign_defaults(load_scene(ROOT / "examples" / "bottle.scene.json"))
+        else:
+            scene = validate_scene(scene)
         if not isinstance(name, str) or not name.strip() or len(name) > 120:
             raise ValueError("Project name must contain 1–120 characters")
         with self.lock:

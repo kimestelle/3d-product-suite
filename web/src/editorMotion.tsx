@@ -41,6 +41,7 @@ export function EditorMenu({name, onClose, children}: {name:string|null; onClose
   if (name && name !== retained) setRetained(name);
   const shown = name || retained;
   const [height, setHeight] = useState(0);
+  const [left, setLeft] = useState<number>();
   const content = useRef<HTMLDivElement>(null);
   const surface = useRef<HTMLDivElement>(null);
   const returnTo = useRef<HTMLElement|null>(null);
@@ -65,10 +66,43 @@ export function EditorMenu({name, onClose, children}: {name:string|null; onClose
       returnTo.current?.focus({preventScroll:true});
     }
   }, [name]);
+  useLayoutEffect(() => {
+    const popup = surface.current, parent = popup?.parentElement;
+    if (!name || !popup || !parent) return;
+    const trigger = parent.querySelector<HTMLElement>(name === 'History' ? 'button[aria-label="History"]' : '.gesso-appmenus button[aria-expanded="true"]');
+    if (!trigger) return;
+    const position = () => {
+      const anchor = trigger.getBoundingClientRect(), bounds = popup.getBoundingClientRect();
+      const triggerStyle = getComputedStyle(trigger), popupStyle = getComputedStyle(popup);
+      const px = (value: string) => parseFloat(value) || 0;
+      const inset = px(popupStyle.getPropertyValue('--gesso-menu-inset')) || 12;
+      let desired = anchor.left + px(triggerStyle.borderLeftWidth) + px(triggerStyle.paddingLeft)
+        - inset - px(popupStyle.borderLeftWidth);
+      if (name === 'History') {
+        const parentStyle = getComputedStyle(parent);
+        desired = parent.getBoundingClientRect().right - px(parentStyle.borderRightWidth) - px(parentStyle.paddingRight) - bounds.width;
+      }
+      const viewportLeft = Math.max(8, Math.min(window.innerWidth - bounds.width - 8, desired));
+      // CSS left is relative to the positioned header, whereas trigger bounds are viewport coordinates.
+      const containing = popup.offsetParent as HTMLElement | null;
+      const origin = containing ? containing.getBoundingClientRect().left + containing.clientLeft - containing.scrollLeft : -window.scrollX;
+      setLeft(viewportLeft - origin);
+    };
+    position();
+    const observer = new ResizeObserver(position);
+    observer.observe(trigger); observer.observe(parent);
+    window.addEventListener('resize', position);
+    return () => {observer.disconnect(); window.removeEventListener('resize', position);};
+  }, [name]);
   if (!shown) return null;
   return <div ref={surface} className={`gesso-menu gesso-motion-menu ${shown==='History'?'gesso-menu-right':''}`} data-open={!!name}
-    onKeyDown={event => {if (event.key === 'Escape' && !event.defaultPrevented) {event.preventDefault(); event.stopPropagation(); returnTo.current?.focus({preventScroll:true}); onClose();}}}
-    aria-label={`${shown} options`} aria-hidden={!name || undefined} inert={!name} style={{height:name ? height : 0}}>
+    onKeyDown={event => {if (event.key === 'Escape' && !event.defaultPrevented) {
+      event.stopPropagation();
+      // Let the native picker dismiss before dismissing the menu around it.
+      if ((event.target as Element).closest('select:open')) return;
+      event.preventDefault(); returnTo.current?.focus({preventScroll:true}); onClose();
+    }}}
+    aria-label={`${shown} options`} aria-hidden={!name || undefined} inert={!name} style={{height:name ? height : 0,left,right:left === undefined ? undefined : 'auto'}}>
     <div ref={content} className="gesso-menu-content" key={shown}>{children(shown)}</div>
   </div>;
 }

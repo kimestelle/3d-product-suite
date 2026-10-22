@@ -62,3 +62,50 @@ describe('Sound section', () => {
     expect(filmAudioUrl(asset)).toBe(`/api/assets/${digest}.wav`);
   });
 });
+
+
+describe('export composition settings', () => {
+  function renderOutput(value: any, mode: 'still' | 'video') {
+    return renderToStaticMarkup(<FilmPanel scene={value} outputOnly mode={mode} frame={1} onChange={vi.fn()} onFrame={vi.fn()} onExport={vi.fn()}/>);
+  }
+
+  it('retains video dimensions, frame rate and sound without a second navigation or export entry', () => {
+    const value = scene(), before = structuredClone(value), html = renderOutput(value, 'video');
+    for (const label of ['Film output', 'Frame rate', 'Film sound', 'Film sound file']) expect(html).toContain(`aria-label="${label}"`);
+    expect(html).toContain('<span>Composition</span>');
+    for (const label of ['Width', 'Height']) expect(html).toContain(`aria-label="${label}"`);
+    expect(html).toContain('Add sound…');
+    for (const label of ['Film scope', 'Film sequence', 'Export controls']) expect(html).not.toContain(`aria-label="${label}"`);
+    expect(html).not.toContain('gesso-section-selector');
+    expect(html).not.toContain('gesso-control-sections');
+    expect(html).not.toContain('Export video…');
+    expect(value).toEqual(before);
+  });
+
+  it('keeps attached audio editing available in the output-only view', () => {
+    const value = scene();
+    attachFilmAudio(value, asset, 10);
+    updateFilmAudio(value, {bpm: 120, offsetS: .5, gain: .8});
+    const html = renderOutput(value, 'video');
+    expect(html).toContain('aria-label="Sound BPM"');
+    expect(html).toContain('aria-label="Offset"');
+    expect(html).toContain('aria-label="Gain"');
+    expect(html).toContain('value="0.5"');
+    expect(html).toContain('value="0.8"');
+    expect(html).toContain('Replace sound');
+    expect(html).toContain('Remove sound');
+  });
+
+  it('keeps still composition dimensions and leaves the saved soundtrack untouched', () => {
+    const value = scene(); attachFilmAudio(value, asset, 10);
+    const before = structuredClone(value), html = renderOutput(value, 'still');
+    expect(html).toContain('aria-label="Film output"');
+    expect(html).toContain('aria-label="Width"');
+    expect(html).toContain('aria-label="Height"');
+    expect(html).not.toContain('aria-label="Film sound"');
+    expect(html).not.toContain('aria-label="Frame rate"');
+    expect(html).not.toContain('aria-label="Film scope"');
+    expect(html).not.toContain('Export still…');
+    expect(value).toEqual(before);
+  });
+});

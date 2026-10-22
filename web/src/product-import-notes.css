@@ -1,0 +1,5 @@
+.product-import-notes{flex-shrink:0}
+.product-import-notes-body{max-height:160px;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.product-import-notes-body ul{list-style:none;padding:0;margin:8px 0;display:grid;gap:12px}
+.product-import-notes-body p{margin:4px 0}
+.product-import-notes-body strong{font-weight:500}

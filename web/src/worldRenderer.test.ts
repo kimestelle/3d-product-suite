@@ -12,6 +12,8 @@ function studio(scene: any, options = {studioMode: true, capture: false}) {
   view.scene.add(view.content);
   view.options = options;
   view.disposed = false;
+  view.canvas = {style: {}};
+  view.controls = null;
   view.environmentObjects = new Map<THREE.Object3D, boolean>();
   view.environmentBackground = view.color(scene.environment.worldColor);
   view.scene.background = view.environmentBackground;
@@ -24,6 +26,55 @@ function studio(scene: any, options = {studioMode: true, capture: false}) {
 }
 
 describe('world geometry and lighting renderer contract', () => {
+  it('keeps a fixed studio and shadow budget across differently scaled source products', () => {
+    const sources = [1, 1000].map(factor => {
+      const scene: any = structuredClone(fixture);
+      scene.product.dimensionsM = [.32, .16, .24].map(value => value * factor);
+      scene.placement.scale = 1 / factor;
+      if (factor === 1000) scene.placement.translationM = [4, 5, -1.28];
+      scene.environment.studioSizeM = .32;
+      scene.environment.plinth.translationM = [.1, .2, .3];
+      return scene;
+    });
+    const before = structuredClone(sources), views = sources.map(scene => studio(scene));
+    try {
+      const snapshot = (view: any) => {
+        const sweep = [...view.environmentObjects.keys()].find((object: any) => object instanceof THREE.Mesh && object.name !== 'Explicit contact plinth') as THREE.Mesh;
+        const ground = view.productGround as THREE.Mesh<THREE.PlaneGeometry, THREE.ShadowMaterial>;
+        const shader: any = {uniforms: {}, vertexShader: '#include <begin_vertex>', fragmentShader: '#include <tonemapping_fragment>'};
+        ground.material.onBeforeCompile(shader, null!);
+        const lights = view.content.children.filter((object: THREE.Object3D) => object instanceof THREE.DirectionalLight) as THREE.DirectionalLight[];
+        return {sweep: Array.from(sweep.geometry.getAttribute('position').array),
+          span: ground.geometry.parameters.width, contact: shader.uniforms.contactRadius.value,
+          contactCenter: shader.uniforms.contactCenter.value.toArray(),
+          lights: lights.map(light => ({position: light.position.toArray(), target: light.target.position.toArray(),
+            left: light.shadow.camera.left, far: light.shadow.camera.far, bias: light.shadow.normalBias}))};
+      };
+      expect(snapshot(views[1])).toEqual(snapshot(views[0]));
+      expect(snapshot(views[0]).span).toBe(32);
+      expect(snapshot(views[0]).contact).toBeCloseTo(.32 * .9);
+      expect(snapshot(views[0]).contactCenter).toEqual([.1, .3]);
+      expect(snapshot(views[0]).lights[0].target).toEqual([.1, .2 + .07 / 2 + .32 * .52, .3]);
+      expect(sources).toEqual(before);
+    } finally {views.forEach(view => view.disposeObject(view.content));}
+  });
+
+  it('keeps fixed-stage shadow coverage when editing the light rig', () => {
+    const sources = [1, 1000].map(factor => {
+      const scene: any = structuredClone(fixture);
+      scene.environment.studioSizeM = .32;
+      scene.product.dimensionsM = [.32, .16, .24].map(value => value * factor);
+      scene.lighting = defaultLighting(scene);
+      return scene;
+    });
+    const views = sources.map(scene => studio(scene));
+    try {
+      const coverage = (view: any) => view.content.children.filter((object: THREE.Object3D) => object instanceof THREE.DirectionalLight)
+        .map((light: THREE.DirectionalLight) => [light.shadow.camera.left, light.shadow.camera.right, light.shadow.camera.far, light.shadow.normalBias]);
+      expect(coverage(views[0])).toEqual(coverage(views[1]));
+    } finally {views.forEach(view => view.disposeObject(view.content));}
+  });
+
   it('retains the exact legacy live rig for documents without explicit lighting', () => {
     const scene = structuredClone(fixture); const before = JSON.stringify(scene);
     const view = studio(scene); const scale = .137 / .12;
@@ -35,6 +86,7 @@ describe('world geometry and lighting renderer contract', () => {
     expect(lights.slice(1).map((light: any) => light.intensity)).toEqual([2.4, .9, 3]);
     expect(lights[1].position.toArray()).toEqual([-.19 * scale, .32 * scale, .24 * scale]);
     expect(lights[1].target.position.toArray()).toEqual([0, .137 * .52, 0]);
+    expect(view.productGround.geometry.parameters.width).toBe(.137 * 100);
     expect(lights.every((light: any) => !(light instanceof THREE.RectAreaLight))).toBe(true);
     expect(JSON.stringify(scene)).toBe(before);
     view.disposeObject(view.content);
@@ -73,6 +125,28 @@ describe('world geometry and lighting renderer contract', () => {
     const scene: any = structuredClone(fixture); scene.environment.plinth.visible = visible;
     const view = studio(scene), ledge = view.content.getObjectByName('Explicit contact plinth');
     expect(ledge.visible).toBe(true); expect(view.environmentObjects.get(ledge)).toBe(true);
+    view.disposeObject(view.content);
+  });
+
+  it.each([undefined, true, false])('anchors the authored sweep to the contact plane when plinth visibility is %s', visible => {
+    const scene: any = structuredClone(fixture);
+    scene.environment.props = [];
+    Object.assign(scene.environment.plinth, {visible, translationM: [.1, .2, .3], sizeM: [.3, .12, .4]});
+    const before = structuredClone(scene), view = studio(scene);
+    const sweep = [...view.environmentObjects.keys()].find((object: any) => object instanceof THREE.Mesh && object.name !== 'Explicit contact plinth') as THREE.Mesh;
+    sweep.geometry.computeBoundingBox();
+    const bottom = sweep.geometry.boundingBox!.min.y;
+    expect(bottom).toBeCloseTo((visible === false ? .26 : .14) - .0001, 7);
+    if (visible === false) expect(bottom).toBeCloseTo(view.productGround.position.y, 7);
+    expect(scene).toEqual(before);
+    view.disposeObject(view.content);
+  });
+
+  it.each(['mesh', 'splat'])('does not add an authored sweep over a %s world with hidden support', kind => {
+    const scene: any = structuredClone(fixture);
+    scene.environment.kind = kind; scene.environment.props = []; scene.environment.plinth.visible = false;
+    const view = studio(scene);
+    expect([...view.environmentObjects.keys()]).toEqual([view.content.getObjectByName('Explicit contact plinth')]);
     view.disposeObject(view.content);
   });
 

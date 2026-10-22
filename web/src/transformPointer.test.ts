@@ -1,4 +1,4 @@
-import { Euler, PerspectiveCamera, Quaternion, Vector3 } from 'three';
+import { Euler, Matrix4, PerspectiveCamera, Quaternion, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { createTransformPointerGesture } from './transformPointer';
 
@@ -47,6 +47,32 @@ describe('pointer transform projection', () => {
     const gesture = createTransformPointerGesture(view, rect, pivot, start, { rotationXyzw: quaternion.toArray() })!;
     // After X=90°, changing Euler Y rotates around world Z.
     expect(gesture.sample('rotate', 'y', project(view, new Vector3(0, 1, 0)))).toBeCloseTo(90);
+  });
+
+  it('measures source-parent axes through inherited rotation, nonuniform scale and shear', () => {
+    const view = camera(new Vector3(4, 3, 10));
+    const parent = new Matrix4().makeRotationZ(.4).multiply(new Matrix4().makeScale(2, .5, 1.5));
+    parent.elements[4] += .3; parent.setPosition(.5, -.3, .2);
+    const localPivot = new Vector3(.2, .4, -.1), pivot = localPivot.clone().applyMatrix4(parent);
+    const start = project(view, pivot), end = project(view, localPivot.clone().add(new Vector3(0, .75, 0)).applyMatrix4(parent));
+    const gesture = createTransformPointerGesture(view, rect, pivot, start, {parentToWorld: parent})!;
+    expect(gesture.sample('translate', 'y', end)).toBeCloseTo(.75);
+    // The coordinate frame is frozen even while its parent animates afterwards.
+    parent.identity();
+    expect(gesture.sample('translate', 'y', end)).toBeCloseTo(.75);
+  });
+
+  it('uses authored Euler rotation angles rather than the sheared world silhouette', () => {
+    const view = camera(new Vector3(4, 3, 10));
+    const parent = new Matrix4().makeRotationY(.4).multiply(new Matrix4().makeScale(2, .5, 1));
+    parent.elements[4] += .7;
+    const localPivot = new Vector3(.2, .4, 0), pivot = localPivot.clone().applyMatrix4(parent);
+    const start = project(view, localPivot.clone().add(new Vector3(1, 0, 0)).applyMatrix4(parent));
+    const end = project(view, localPivot.clone().add(new Vector3(0, 1, 0)).applyMatrix4(parent));
+    const quaternion = new Quaternion().setFromEuler(new Euler(Math.PI / 2, 0, 0, 'XYZ'));
+    const gesture = createTransformPointerGesture(view, rect, pivot, start, {parentToWorld: parent, rotationXyzw: quaternion.toArray()})!;
+    expect(gesture.sample('rotate', 'y', end)).toBeCloseTo(90);
+    expect(createTransformPointerGesture(view, rect, pivot, start, {parentToWorld: new Matrix4().makeScale(1, 0, 1)})).toBeNull();
   });
 
   it('uses a radial scale ratio and rejects the center instead of inventing a sensitivity', () => {

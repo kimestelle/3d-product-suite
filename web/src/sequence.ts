@@ -1,7 +1,8 @@
+import type {FilmTextCard} from './filmTextCard';
 import {cameraBaseForSharedMotion, filmCameraPoseAtFrame, retimeMotions, validateFilmMotions} from './filmMotion';
 export type ImageShotAsset = {path: string; sha256: string; format: 'png' | 'jpeg' | 'webp'; width: number; height: number};
 export type Shot = {id: string; name: string; startFrame: number; endFrame: number; camera: any;
-  kind?: 'scene' | 'image'; image?: {asset: ImageShotAsset; fit: 'contain' | 'cover'}; [key: string]: any};
+  kind?: 'scene' | 'image'; image?: {asset: ImageShotAsset; fit: 'contain' | 'cover'; textCard?: FilmTextCard}; [key: string]: any};
 
 export function shotFrames(shot: Shot): number { return shot.endFrame - shot.startFrame + 1; }
 /** Display and playback share this exact shot lookup. */

@@ -1,14 +1,14 @@
 # 3d-product-suite
 
-A local editor and repeatable render pipeline for editable product films. Import prepared product GLBs or static Blender snapshots, or explore the fictional **MORA** bottle fixture with its confirmed cap movement and label/color controls. Shared Python scene evaluation drives both browser playback and Blender/Cycles.
+A local editor and repeatable render pipeline for editable product films. Import prepared GLBs, static Blender snapshots, STEP/IGES CAD, or STL/OBJ geometry, or explore the fictional **MORA** bottle fixture with its confirmed cap movement and label/color controls. Shared Python scene evaluation drives both browser playback and Blender/Cycles.
 
 The fixture produces a 15-second, 24 fps sequence: **360 frames**, with native final settings of **1080 × 1920**. A successful render exports an MP4, three stills, a contact sheet covering the sequence, and a reopenable `.blend` scene. Generated outputs are local and are not committed.
 
-World comparisons support an official World Labs visual mesh and a mesh reconstructed from that same world's Gaussian splats. Optional reference images guide generation; original Gallery, Botanical room and neutral Studio defaults work offline without images or API keys. Native Gaussian preview/plate rendering remains available as a diagnostic. Product GLB and `.blend` import are available; direct CAD import, automatic mechanism inference and human usability/quality gates remain open. See the [real product workflow and verified trial status](docs/real-product-trials.md) and [validation plan](docs/validation-plan.md).
+World comparisons support an official World Labs visual mesh and a mesh reconstructed from that same world's Gaussian splats. Optional reference images guide generation; original Gallery, Botanical room and neutral Studio defaults work offline without images or API keys. Native Gaussian preview/plate rendering remains available as a diagnostic. Product import supports GLB, `.blend`, STEP/STP, IGES/IGS, STL and OBJ. Native CAD features/constraints, automatic mechanism inference and human usability/quality gates remain open. See [format compatibility](docs/import-compatibility.md). See the [real product workflow and verified trial status](docs/real-product-trials.md) and [validation plan](docs/validation-plan.md).
 
 ## Run locally
 
-Use **Python 3.12** (CI: 3.12.14) and **Node.js 24.19.0** with npm. The core editor and Python server need no third-party Python packages, API keys, Blender, or FFmpeg. The server uses POSIX file locking; use macOS or Linux. Native Windows is not supported.
+Use **Python 3.12** (CI: 3.12.14) and **Node.js 24.19.0** with npm. The Python server installs Pillow for image decoding. Editing needs no API keys, Blender, or FFmpeg. The server uses POSIX file locking; use macOS or Linux. Native Windows is not supported.
 
 Run from the repository root:
 
@@ -28,7 +28,11 @@ The Film timeline keeps scene and image shots adjacent. Trimming or removing a s
 
 On first use, an empty data directory creates the fictional MORA campaign and seeds the bundled environment fixtures. **`workspace-data/` is local and ignored by Git**: it holds projects, saved revisions, imported assets, material jobs, and render jobs. Keep using the same directory to reopen your work; back it up as a whole. The lamp campaigns and generated worlds in the author's workspace are not installed by cloning this repository. The bundled landing reel is a visual reference, not an editable lamp project.
 
+New starter campaigns share one fixed studio reference. Products fit proportionally into a 320 mm display envelope using placement scale; their source dimensions, geometry and artwork stay unchanged. Camera and movement coordinates follow that display size, while imported worlds retain their own saved scale. This is composition sizing, not a correction to the source file’s physical units. Existing projects are not silently resized when opened; the October 21 default-campaign resize was saved as new, recoverable revisions.
+
 The editor opens paused. Use a window at least **900 px wide** for its viewport and sidebars. Browser shading is a draft; use a Cycles still for appearance decisions.
+
+The live viewport defaults to a low-resolution preview (up to 1280px on its longest edge, under one megapixel), with imported texture previews capped at 2048px. Original assets stay unchanged. **Render still**, at the viewport's top right, makes one GPU render of the current view at a 2048px longest edge and displays the PNG in the same window. It uses the loaded preview textures, shading and material drafts; no Blender job or asset reload is needed. The renderer returns to its low-resolution buffer immediately after copying the frame and pauses while the still is displayed. **Back to preview** resumes editing. A still does not save or change the campaign's camera; scene/frame/view changes cancel an unfinished capture. Use **Export** for physically rendered Blender output and its independent resolution settings.
 
 | Page | Local URL |
 | --- | --- |
@@ -36,12 +40,24 @@ The editor opens paused. Use a window at least **900 px wide** for its viewport 
 | About | [127.0.0.1:8787/about](http://127.0.0.1:8787/about) |
 | Form + light | [127.0.0.1:8787/aperture](http://127.0.0.1:8787/aperture) |
 | Curve catalog | [127.0.0.1:8787/curves](http://127.0.0.1:8787/curves) |
+| Morph comparison | [Current / distance field / radial](http://127.0.0.1:8787/curves?compare=1&pair=rectangle-star&t=0.5) |
 | Product | [Product / Model](http://127.0.0.1:8787/?step=product&layer=model) |
 | Material | [Material / Materials](http://127.0.0.1:8787/?step=material&layer=materials) |
 | World | [World / Props](http://127.0.0.1:8787/?step=world&layer=props) |
 | Film | [Film / Framing](http://127.0.0.1:8787/?step=film&layer=framing) |
 
 The visible name is **Form + light**; `/aperture` remains the route so existing links keep working. Editor links use `step` and `layer`; add `mode=still` for still-image controls.
+
+In **Morph comparison**, radial smoothing opens by default. Select a frame to inspect the local Nessino product as **Solid**, **Translucent**, or **Wireframe**. Object/edge opacity and back-edge visibility are independent per frame; **Apply to all frames** matches them. Drag the product or use **Turn** to rotate all views together. **Product** toggles the mesh and original silhouette. Settings and angle remain in the URL. The study loads the verified local lamp GLB, not its room, and shares one 750 × 450 renderer across the frames. It requires a local Nessino campaign; a fresh clone reports the missing product.
+
+### Bottle labels and individual part motion
+
+1. Open **Material → Decals**, select the label mesh in the parts tree, and use **Upload label**. PNG, JPEG and WebP images are normalized locally to one immutable sRGB PNG (up to 4096px per side). The source UV map determines placement. **Plain label** removes the selected surface's old color and finish maps; **Keep original finish** keeps its roughness/normal/transmission maps, which can contain old printed details. **Restore original artwork** removes the replacement.
+2. For positioned or raised artwork, use **Add decal**, edit its text and choose **Apply text**, or upload an image. Move it on the UV map and adjust height/bevel. New text is rasterized once with the packaged Studio Sans font, so browser and Blender use the same image. Existing legacy text decals retain their older rendering until Apply text is used.
+3. In **Film**, select a scene and an individual imported part, then add Move, Rotate, Scale or Custom keys. The new-scene flow exposes the same parts. Rotation uses the measured part center; the pose inspector exposes an editable pivot. Physical source children follow their parent. Renaming or organizing the tree does not invent a hinge or change physical parenting.
+4. Save the campaign. Preview and Blender consume the same sampled part transforms and hashed artwork. Exports bundle the assets and the saved `.blend` keeps the animated hierarchy and packed images. Preview resolution, lighting, transmission and shading remain approximations; this is identity, placement and timing consistency, not a promise of pixel-identical WebGL and Cycles output.
+
+Replacement needs one actual mesh with a complete source UV map. Shared UV islands repeat the image; no automatic unwrap is performed. Old imported campaigns gain their source-part catalog when opened without rewriting old revisions; the next save keeps it. Original `.blend` and GLB files remain unchanged. Image decoding needs Pillow from the project's installed dependencies.
 
 ### Fonts and assets
 
@@ -61,7 +77,8 @@ Open [the Vite development server](http://127.0.0.1:5173/). Vite hot-reloads fro
 
 ### Optional rendering and online resources
 
-- **Blender product import:** `.blend` files need local Blender **4.3.2**, configured with the same `--blender` option as rendering. GLB import needs no Blender installation.
+- **Blender product import:** use Blender **4.3–5.1**; tested import runtimes are **4.3.2** and **5.1.1**. `--import-blender /path/to/blender` (or `GESSO_IMPORT_BLENDER`) selects a separate import executable while exports keep the pinned 4.3.2 renderer. Without an override, imports use `--blender`. Open and resave older files in a supported version if needed; a file saved by a newer Blender needs an equally new supported import runtime.
+- **CAD product import:** install the optional OpenCascade worker with `.venv/bin/python -m pip install -e ".[cad]"`. Alternatively set `GESSO_CAD_PYTHON` to a separate Python 3.12 environment with that extra installed. STEP/IGES conversion is local and needs no Blender. STL/OBJ conversion uses the import Blender. GLB needs neither converter.
 - **Local export:** install Blender **4.3.2** and FFmpeg **7.1.5** separately. The worker checks those versions. Blender is required for PNG stills and PNG sequences; JPEG, WebP, H.264 MP4, and ProRes MOV also need FFmpeg with the relevant encoders. Missing tools disable the affected export choices, not editing.
 - **Poly Haven:** browsing/importing textures, props, and HDRIs needs network access, with no API key. Only selected assets are imported into the local data directory; existing local assets remain available offline.
 - **Patina materials:** set `FAL_KEY` in the Python server's environment before starting it. Generation is an explicit user action and uses the fal account's credits.
@@ -78,7 +95,7 @@ If render executables are not on `PATH`, pass their absolute paths:
   --ffmpeg /absolute/path/to/ffmpeg
 ```
 
-On macOS, a standard Blender app executable is `/Applications/Blender.app/Contents/MacOS/Blender`; it must still be version 4.3.2. Tool availability is checked once per server process, so restart after installing or changing executables.
+On macOS, a standard Blender app executable is `/Applications/Blender.app/Contents/MacOS/Blender`; the export executable must still be version 4.3.2. Tool availability is checked once per server process, so restart after installing or changing executables.
 
 ### If it does not open
 
@@ -96,7 +113,7 @@ On macOS, a standard Blender app executable is `/Applications/Blender.app/Conten
 
 In **World → Enable A/B comparison**, choose two meshes and switch between A, B and Split. Both views share one product, camera, timeline, lighting and contact geometry. Floor picks, known-distance scale and yaw adjustments save with the project; placement review becomes draft after relevant edits. **Render matching stills** and **Export matching reels** queue both conditions and provide a ZIP with matching outputs and an integrity manifest. Offline Gallery/Botanical defaults work immediately. See the [comparison workflow](docs/comparison-workflow.md).
 
-In the Product panel, **Import product** accepts **GLB and Blender `.blend` files** up to 128 MiB and creates a separate campaign with fitted camera shots. Record the owner, source and usage permission. Imported products do not inherit the fixture's fictional labels or cap action.
+In the Product panel, **Import product** accepts **GLB, Blender `.blend`, STEP/STP, IGES/IGS, STL and OBJ files** up to 128 MiB and creates a separate campaign with fitted camera shots. Record the owner, source and usage permission. Imported products do not inherit the fixture's fictional labels or cap action.
 
 - **GLB:** supply a static self-contained file in Y-up meters, centered at its bounding-box origin. Its geometry and material asset bytes remain unchanged.
 - **Blender:** imports a static snapshot of the active scene at its saved frame. Geometry is converted locally to a centered, meter-scale GLB, preserving object names, parenting and supported materials. Cameras, lights and animation are excluded. Pack textures in Blender before saving. Supported procedural surface inputs are baked automatically to local material maps; this is not a full Blender project round trip. The source file remains unchanged; the campaign stores the converted asset and import metadata. CAD conversion still happens before this handoff.
@@ -109,6 +126,8 @@ Direct **Glass BSDF** surfaces convert automatically to glTF transmission materi
 
 Unsupported linked surface parameters such as object-coordinate noise, color ramps, shader masks and bump are baked locally with Cycles into **1024 px packed maps**, without baking scene lighting. Existing UVs are retained for source artwork; a separate bake atlas is generated when needed. Object-dependent maps use separate material copies. Baking is bounded by 48 images / 32 megapixels and the existing 180-second conversion timeout. Conversion details appear in the import notice and metadata. Browser refraction, especially nested glass and liquid, can differ from Cycles. Ray-dependent shaders, volume absorption/scattering, incompatible shader branches and spatially varying IOR remain explicit errors; the importer does not silently discard them or invent wall thickness.
 
+STEP and IGES read document units and preserve the available part structure and colors as a static tessellated mesh. Choose the source up axis. STL and OBJ require an explicit units choice because their coordinates are unitless. OBJ imports geometry only; use packed GLB or `.blend` for linked MTL/texture appearance. Native CAD design history, sketches, constraints and joints are not imported. See [the compatibility and verification matrix](docs/import-compatibility.md).
+
 The CLI accepts the same files:
 
 ```bash
@@ -117,6 +136,8 @@ The CLI accepts the same files:
   --owner "Product owner" --source "Approved Blender revision" \
   --reuse-basis "Owner supplied model" --blender /absolute/path/to/blender
 ```
+
+For STEP/IGES, use `--source-up z` or `--source-up y`; the file supplies units. For STL/OBJ, also supply `--source-units mm` (or `cm`, `m`, `in`, `ft`). Blender defaults to its file units; the same `--source-units` flag explicitly overrides them. In the editor, leave **Source units → Use file units** unless the source scale needs correction. Blender files with no units use one unit = one metre; no product dimensions are guessed.
 
 The World panel offers offline defaults and optional public HTTPS image-reference generation through GitHub Actions. Keep `WORLDLABS_API_KEY` encrypted in the repository's **Myenv** GitHub Environment. The workflow generates one world and exports its official textured GLB plus Gaussian SPZ, reconstructs the SPZ into a second GLB, and uploads both final meshes with 15 controlled probe scenes. Standard documented cost is 5,080 API credits (about $4.06); the default preflight cap is 6,000. API credits are separate from Marble website credits. See [World Labs setup and recovery](docs/worldlabs-api.md).
 
@@ -214,7 +235,7 @@ Legacy mechanism actions declare a normalized axis and pivot in the moving compo
 
 The Film workspace also stores object and camera motions in the scene document. Shot-local motions use a shot clock; across-cuts motions use the film clock. A local motion replaces an across-cuts motion on the same target/channel, and competing owners within one scope are rejected. Preset timing and custom progress keys feed the same evaluator. The shot row and playhead are views of this scene timeline, not a second animation source.
 
-`restsOn` carries the product with its explicit plinth; placement is deterministic rather than a physics solver. The MORA fixture uses synthetic box/cylinder geometry; imported products retain their GLB geometry. Worlds accept immutable, self-contained visual GLB or Gaussian SPZ/PLY files with declared units/axes/alignment, hashes and provenance. Labels are declared text using Blender 4.3.2's bundled Bfont on a separate label component. The adapter uses a 36 mm vertical camera gate, fixed authored studio lighting, AgX, and Cycles CPU with a fixed seed and denoising disabled.
+`restsOn` carries the product with its explicit plinth; placement is deterministic rather than a physics solver. The MORA fixture uses synthetic box/cylinder geometry; imported products retain their GLB geometry. Worlds accept immutable, self-contained visual GLB or Gaussian SPZ/PLY files with declared units/axes/alignment, hashes and provenance. Legacy fixture labels use Blender 4.3.2's bundled Bfont on a separate label component. New uploaded artwork and text decals use immutable PNGs shared with the editor. The adapter uses a 36 mm vertical camera gate, fixed authored studio lighting, AgX, and Cycles CPU with a fixed seed and denoising disabled.
 
 Product and environment revisions require provenance fields for source, reuse basis, owner, and allowed external-processing destinations. The fixture declares an empty destination list. Local edits/renders do not upload product geometry. Explicit World Labs generation sends the supplied environment prompt/reference to World Labs; provenance metadata records lineage and reuse basis.
 

@@ -22,6 +22,17 @@ describe('Film output guides', () => {
       expect((py - gate.y) / gate.height).toBeCloseTo((1 - expected.y) / 2);
     }
   });
+  it('projects manual optical focus separately from the aim point in inspection', () => {
+    const shotPosition=new Vector3(0,0,2), target=new Vector3();
+    const view=camera(2);view.position.set(1,0,2);view.lookAt(target);view.updateMatrixWorld(true);
+    const manual=projectFilmGuide(view,800,400,1,target,shotPosition,50,true,1);
+    const expected=new Vector3(0,0,1).project(view);
+    expect(manual.focus!.x).toBeCloseTo((expected.x+1)*400);
+    expect(manual.focus!.x).not.toBeCloseTo(manual.target.x);
+    const follow=projectFilmGuide(view,800,400,1,target,shotPosition,50,true,2);
+    expect(follow.focus).toEqual(follow.target);
+    expect(projectFilmGuide(view,800,400,1,target,shotPosition,50,true).focus).toBeUndefined();
+  });
   it('keeps margins bounded in a narrow viewport and rejects invalid geometry', () => {
     const gate = filmGateRect(100, 80, 1);
     expect(gate).toEqual({x: 34, y: 24, width: 32, height: 32});

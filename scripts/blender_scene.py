@@ -46,19 +46,22 @@ def package_root():
     raise ValueError("Cannot locate the film package for renderer helpers; set GESSO_ROOT to the repository root")
 
 
-@lru_cache(maxsize=1)
-def decal_geometry():
+@lru_cache(maxsize=4)
+def renderer_helper(name):
     """Load the frozen job helper; direct source runs use the repository helper."""
     renderer = Path(__file__).resolve()
-    source = (renderer.with_name("decal_geometry.py") if renderer.name == "renderer.py"
-              else renderer.parents[1] / "film" / "decal_geometry.py")
-    spec = importlib.util.spec_from_file_location("gesso_decal_geometry", source)
+    source = (renderer.with_name(name + ".py") if renderer.name == "renderer.py"
+              else renderer.parents[1] / "film" / (name + ".py"))
+    spec = importlib.util.spec_from_file_location("gesso_" + name, source)
     if spec is None or spec.loader is None:
         raise ImportError(f"Cannot load renderer geometry helper: {source}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
+
+def decal_geometry():
+    return renderer_helper("decal_geometry")
 
 def blender_position(value):
     """Rotate a canonical Y-up position into Blender Z-up."""
@@ -72,6 +75,124 @@ def blender_rotation(value):
     rotation = Quaternion((w, x, y, z))
     rotation.normalize()
     return COORDINATE_ROTATION @ rotation @ COORDINATE_ROTATION.conjugated()
+
+
+def blender_matrix(values):
+    canonical = Matrix([[values[column * 4 + row] for column in range(4)] for row in range(4)])
+    basis = COORDINATE_ROTATION.to_matrix().to_4x4()
+    return basis @ canonical @ basis.inverted()
+
+
+def source_part_objects(objects):
+    return {obj["source_part_id"]: obj for root in objects.values() for obj in root.children_recursive
+            if "gesso_source_node_index" in obj}
+
+
+def apply_product_removal(objects, removed_ids):
+    """Hide sampled parts, their native children and attached artwork in .blend.
+
+    Keep every object in the native file for recovery. Blender visibility does
+    not inherit from an Empty, so set both render and viewport flags recursively.
+    """
+    parts = {**objects, **source_part_objects(objects)}
+    for part_id in removed_ids:
+        root = parts.get(part_id)
+        if root is None:
+            raise ValueError(f"Removed product part is absent from imported geometry: {part_id}")
+        for obj in (root, *root.children_recursive):
+            obj.hide_render = True
+            obj.hide_viewport = True
+
+
+def part_motion_carriers(objects):
+    """Keep imported static transforms intact, including nonuniform scales.
+
+    The sampler's parent-space delta is ordinary TRS. A separate parent avoids
+    decomposing delta*source into a lossy rotation/scale at every frame.
+    """
+    parts = source_part_objects(objects)
+    carriers = {}
+    bpy.context.view_layer.update()
+    for part_id, obj in parts.items():
+        original_local = obj.matrix_local.copy()
+        carrier = bpy.data.objects.new("Motion / " + part_id, None)
+        bpy.context.collection.objects.link(carrier)
+        carrier.parent = obj.parent
+        carrier.matrix_parent_inverse = Matrix.Identity(4)
+        carrier.matrix_basis = Matrix.Identity(4)
+        carrier["source_part_motion_id"] = part_id
+        obj.parent = carrier
+        obj.matrix_parent_inverse = Matrix.Identity(4)
+        obj.matrix_basis = original_local
+        carriers[part_id] = carrier
+    return carriers
+
+
+def artwork_image(asset, samples_root):
+    path = verified_asset_record(asset, samples_root, "Label artwork")
+    renderer_helper("material_assets").validate_png(path.read_bytes())
+    image = bpy.data.images.load(str(path), check_existing=False)
+    image.colorspace_settings.name = "sRGB"
+    image.pack()
+    image["artwork_sha256"] = asset["sha256"]
+    return image
+
+
+def connect_artwork(surface, image, uv_name=None, flip_v=False):
+    nodes, links = surface.node_tree.nodes, surface.node_tree.links
+    shader = nodes.get("Principled BSDF")
+    if shader is None:
+        raise ValueError("Selected label surface has no supported Principled material")
+    texture = nodes.new("ShaderNodeTexImage")
+    texture.name = "Label artwork / immutable PNG"
+    texture.image = image
+    if uv_name is not None:
+        uv = nodes.new("ShaderNodeUVMap")
+        uv.uv_map = uv_name
+        coordinate = uv.outputs["UV"]
+        if flip_v:
+            multiply = nodes.new("ShaderNodeVectorMath")
+            multiply.operation = "MULTIPLY"
+            multiply.inputs[1].default_value = (1, -1, 1)
+            links.new(coordinate, multiply.inputs[0])
+            add = nodes.new("ShaderNodeVectorMath")
+            add.operation = "ADD"
+            add.inputs[1].default_value = (0, 1, 0)
+            links.new(multiply.outputs["Vector"], add.inputs[0])
+            coordinate = add.outputs["Vector"]
+        links.new(coordinate, texture.inputs["Vector"])
+    links.new(texture.outputs["Color"], shader.inputs["Base Color"])
+    # Match Three's alphaTest=.5 rather than independently blended transparency.
+    below = nodes.new("ShaderNodeMath")
+    below.operation = "LESS_THAN"
+    below.inputs[1].default_value = .5
+    links.new(texture.outputs["Alpha"], below.inputs[0])
+    cutout = nodes.new("ShaderNodeMath")
+    cutout.operation = "SUBTRACT"
+    cutout.inputs[0].default_value = 1
+    links.new(below.outputs["Value"], cutout.inputs[1])
+    links.new(cutout.outputs["Value"], shader.inputs["Alpha"])
+    surface["gesso_artwork_sha256"] = image["artwork_sha256"]
+
+
+def replace_product_artwork(source, objects, samples_root):
+    parts = {**objects, **source_part_objects(objects)}
+    for assignment in source["product"].get("artwork", []):
+        obj = parts.get(assignment["partId"])
+        if obj is None or obj.type != "MESH" or not obj.data.uv_layers:
+            raise ValueError("Select a source mesh with UVs to replace its artwork")
+        if obj.data.users > 1:
+            obj.data = obj.data.copy()
+        image = artwork_image(assignment["asset"], samples_root)
+        for slot in obj.material_slots:
+            if assignment["finish"] == "original":
+                surface = slot.material.copy()
+            else:
+                surface = material("Label / plain paper", (1, 1, 1, 1), .53)
+            surface.use_backface_culling = False if assignment["finish"] == "paper" else surface.use_backface_culling
+            connect_artwork(surface, image, obj.data.uv_layers[0].name,
+                            flip_v=not obj.get("gesso_uv0_source", False) and "gesso_source_node_index" in obj)
+            slot.material = surface
 
 
 def material(name, color, roughness=0.45, metallic=0.0, transmission=0.0, ior=1.5):
@@ -93,9 +214,8 @@ def specified_material(name, specification, samples_root=None, *, source_uv_flip
         return result
     if samples_root is None:
         raise ValueError("PBR maps require the sampled scene asset bundle")
-    sys.path.insert(0, str(package_root()))
-    from film.material_assets import validate_material_textures, validate_png
-    validate_material_textures(specification)
+    assets = renderer_helper("material_assets")
+    assets.validate_material_textures(specification)
     nodes, links = result.node_tree.nodes, result.node_tree.links
     shader = nodes.get("Principled BSDF")
     uv = nodes.new("ShaderNodeTexCoord").outputs["UV"]
@@ -118,7 +238,7 @@ def specified_material(name, specification, samples_root=None, *, source_uv_flip
     textures = {}
     for kind, asset in maps.items():
         path = verified_asset_record(asset, samples_root.resolve(), "Material image")
-        validate_png(path.read_bytes())
+        assets.validate_png(path.read_bytes())
         # Color space is an image property; separate datablocks keep a shared
         # hash safe when the same PNG is used for color and data channels.
         image = bpy.data.images.load(str(path), check_existing=False)
@@ -353,53 +473,82 @@ def decal_artwork(specification, output_root):
 
 
 def product_decals(source, objects, samples_root, output_root):
-    """Attach UV-clipped relief to the same animated rigid component as its source."""
+    """Split projected patches by source mesh so nested part motion carries ink."""
     geometry = decal_geometry()
-    imported_triangles, primitive_triangles, project_triangle = (
-        geometry.imported_triangles, geometry.primitive_triangles, geometry.project_triangle)
     components = {component["id"]: component for component in source["product"]["components"]}
+    source_parts = source_part_objects(objects)
     details = []
+    bpy.context.view_layer.update()
     for specification in source["product"].get("decals", []):
         component = components[specification["componentId"]]
         if component["shape"] == "mesh":
             asset_path = verified_asset_record(component["asset"], samples_root, "Product decal")
-            triangles = imported_triangles(asset_path.read_bytes(), specification["partId"], component["id"])
+            payload = asset_path.read_bytes()
+            size = struct.unpack_from("<I", payload, 12)[0]
+            document = json.loads(payload[20:20+size])
+            selected = specification["partId"]
+            indices = (document["scenes"][0]["nodes"] if selected == component["id"]
+                       else [int(selected.rsplit(":", 1)[1])])
+            meshes, pending = [], list(reversed(indices))
+            while pending:
+                index = pending.pop()
+                node = document["nodes"][index]
+                if "mesh" in node:
+                    meshes.append(index)
+                pending.extend(reversed(node.get("children", [])))
+            sources = [(f"{component['id']}::node:{index}",
+                        geometry.imported_triangles(payload, f"{component['id']}::node:{index}",
+                                                    component["id"], descendants=False)) for index in meshes]
         else:
-            triangles = primitive_triangles(component)
-        positions, normals, uvs = [], [], []
-        for triangle in triangles:
-            for patch in project_triangle(triangle, specification):
-                for point in patch:
-                    # Offset a zero-height print just beyond its source surface for Cycles.
-                    position = [point[axis] + point[axis+3]*.000002 for axis in range(3)]
-                    positions.append(blender_position(position))
-                    normals.append(blender_position(point[3:6]))
-                    uvs.append(point[6:8])
-        if not positions:
+            sources = [(component["id"], geometry.primitive_triangles(component))]
+        image = (artwork_image(specification["artwork"], samples_root) if specification.get("artwork")
+                 else decal_artwork(specification, output_root))
+        surface = material(f"Decal / {specification['id']} / surface", (1, 1, 1, 1), .53)
+        if specification.get("artwork"):
+            connect_artwork(surface, image)
+        else:
+            texture = surface.node_tree.nodes.new("ShaderNodeTexImage")
+            texture.image = image
+            surface.node_tree.links.new(texture.outputs["Color"], surface.node_tree.nodes.get("Principled BSDF").inputs["Base Color"])
+        total, pieces = 0, 0
+        for attachment_id, triangles in sources:
+            positions, normals, uvs = [], [], []
+            for triangle in triangles:
+                for patch in geometry.project_triangle(triangle, specification):
+                    for point in patch:
+                        position = [point[axis] + point[axis+3]*.000002 for axis in range(3)]
+                        positions.append(blender_position(position))
+                        normals.append(blender_position(point[3:6]))
+                        uvs.append(point[6:8])
+            if not positions:
+                continue
+            name = f"Decal / {specification['id']}" + (f" / {attachment_id}" if pieces else "")
+            mesh = bpy.data.meshes.new(name)
+            mesh.from_pydata(positions, [], [tuple(range(i, i+3)) for i in range(0, len(positions), 3)])
+            mesh.update()
+            uv_layer = mesh.uv_layers.new(name="Decal artwork")
+            for polygon in mesh.polygons:
+                polygon.use_smooth = True
+                for loop_index in polygon.loop_indices:
+                    uv_layer.data[loop_index].uv = uvs[mesh.loops[loop_index].vertex_index]
+            mesh.normals_split_custom_set_from_vertices(normals)
+            obj = bpy.data.objects.new(name, mesh)
+            bpy.context.collection.objects.link(obj)
+            parent = source_parts.get(attachment_id, objects[component["id"]])
+            obj.parent = parent
+            obj.matrix_parent_inverse = Matrix.Identity(4)
+            obj.matrix_basis = parent.matrix_world.inverted() @ objects[component["id"]].matrix_world
+            obj["source_part_id"] = specification["partId"]
+            obj["attachment_part_id"] = attachment_id
+            obj["height_m"] = specification["heightM"]
+            obj["bevel_m"] = specification["bevelM"]
+            mesh.materials.append(surface)
+            pieces += 1
+            total += len(positions)//3
+        if not total:
             raise ValueError(f"Decal {specification['id']} does not intersect the selected source UV map")
-        name = f"Decal / {specification['id']}"
-        mesh = bpy.data.meshes.new(name)
-        mesh.from_pydata(positions, [], [tuple(range(i, i+3)) for i in range(0, len(positions), 3)])
-        mesh.update()
-        uv_layer = mesh.uv_layers.new(name="Decal artwork")
-        for polygon in mesh.polygons:
-            polygon.use_smooth = True
-            for loop_index in polygon.loop_indices:
-                uv_layer.data[loop_index].uv = uvs[mesh.loops[loop_index].vertex_index]
-        mesh.normals_split_custom_set_from_vertices(normals)
-        obj = bpy.data.objects.new(name, mesh)
-        bpy.context.collection.objects.link(obj)
-        obj.parent = objects[component["id"]]
-        obj["source_part_id"] = specification["partId"]
-        obj["height_m"] = specification["heightM"]
-        obj["bevel_m"] = specification["bevelM"]
-        surface = material(name + " / surface", (1, 1, 1, 1), .6)
-        texture = surface.node_tree.nodes.new("ShaderNodeTexImage")
-        texture.image = decal_artwork(specification, output_root)
-        surface.node_tree.links.new(texture.outputs["Color"], surface.node_tree.nodes.get("Principled BSDF").inputs["Base Color"])
-        mesh.materials.append(surface)
         details.append({"id": specification["id"], "componentId": component["id"], "partId": specification["partId"],
-                        "triangles": len(positions)//3, "heightM": specification["heightM"], "bevelM": specification["bevelM"],
+                        "triangles": total, "pieces": pieces, "heightM": specification["heightM"], "bevelM": specification["bevelM"],
                         "uvSource": "Original source TEXCOORD_0" if component["shape"] == "mesh" else "Editor procedural UV map"})
     return details
 
@@ -546,6 +695,7 @@ def environment(source, samples_root=None):
             raise ValueError("HDRI requires the sampled scene asset bundle")
         hdri_lighting(source, samples_root)
     plinth = source["environment"]["plinth"]
+    studio_size = source["environment"].get("studioSizeM", max(source["product"]["dimensionsM"]))
     if plinth.get("visible", True):
         porcelain = specified_material("Set / plinth surface", plinth["material"], samples_root) if "material" in plinth else material("Set / warm matte porcelain", (0.56, 0.54, 0.49, 1), 0.58)
         obj = primitive(plinth["id"], "box", plinth["sizeM"], porcelain, min(0.004, min(plinth["sizeM"]) / 2))
@@ -575,7 +725,7 @@ def environment(source, samples_root=None):
         # contact shadow would otherwise vanish. An invisible Cycles shadow catcher
         # at the support height receives the product shadow for the compositor.
         floor_height = plinth["translationM"][1] + plinth["sizeM"][1] / 2
-        extent = max(source["product"]["dimensionsM"]) * 40
+        extent = studio_size * 40
         mesh = bpy.data.meshes.new("World / shadow catcher mesh")
         mesh.from_pydata([(-extent, -extent, 0), (extent, -extent, 0), (extent, extent, 0), (-extent, extent, 0)], [], [(0, 1, 2, 3)])
         mesh.update()
@@ -606,8 +756,10 @@ def environment(source, samples_root=None):
         obj["role"] = "Explicit near-field prop; independent of imported world alignment"
     if source["environment"]["kind"] == "authored":
         # The authored fallback sweep must never cover a mesh or splat plate.
-        floor_height = plinth["translationM"][1] - plinth["sizeM"][1] / 2
-        radius = max(source["product"]["dimensionsM"]) * 3
+        # Product placement stays at the support top even when the plinth is hidden.
+        support_side = -1 if plinth.get("visible", True) else 1
+        floor_height = plinth["translationM"][1] + support_side * plinth["sizeM"][1] / 2
+        radius = studio_size * 3
         sweep = [(-radius * 15, floor_height - 0.0001), (radius, floor_height - 0.0001)]
         sweep.extend((radius + radius * math.sin(index * math.pi / 64), floor_height + radius * (1 - math.cos(index * math.pi / 64))) for index in range(1, 33))
         sweep.append((radius * 2, floor_height + radius * 15))
@@ -633,10 +785,13 @@ def environment(source, samples_root=None):
                 # The sampled light poses are matched back by scene ID, never by name.
                 obj["gesso_light_id"] = light["id"]
         return
-    # Scale illumination with the product, keeping intensity stable for metre units.
-    size = max(source["product"]["dimensionsM"])
+    # Use the fixed stage reference when supplied; legacy scenes follow product size.
+    size = studio_size
     scale = size / 0.12
-    position = blender_position(source["placement"]["translationM"])
+    rig_origin = (source["placement"]["translationM"] if "studioSizeM" not in source["environment"] else
+                  [value + (plinth["sizeM"][1] / 2 if axis == 1 else 0)
+                   for axis, value in enumerate(plinth["translationM"])])
+    position = blender_position(rig_origin)
     target = Vector(position) + Vector((0, 0, size * 0.52))
     for name, offset, power, diameter, color in (
         ("Studio / large soft key", (-0.19, -0.24, 0.32), 2.6, 0.23, (1.0, 0.93, 0.82)),
@@ -879,9 +1034,13 @@ def product_mesh(component, samples_root, material_presets=()):
         raise ValueError("Rigid product GLB requires one fully reachable active scene with no unused nodes or meshes")
     bindings = material_binding_nodes(component, document, material_presets)
     prefix = f"Product / {component['id']} / "
-    imported, excluded = (import_bound_product_hierarchy(path, document, prefix) if bindings
-                          else imported_hierarchy(path, prefix))
+    imported, excluded = import_bound_product_hierarchy(path, document, prefix)
     anchor = parent_imported_hierarchy(imported, component["id"])
+    for obj in imported:
+        node_index = obj.get("gesso_material_node_index")
+        if type(node_index) is int:
+            obj["gesso_source_node_index"] = node_index
+            obj["source_part_id"] = f"{component['id']}::node:{node_index}"
     meshes = [obj for obj in imported if obj.type == "MESH"]
     override = component.get("materialOverride", False)
     surfaces = {}
@@ -908,6 +1067,7 @@ def product_mesh(component, samples_root, material_presets=()):
             # editor-applied maps, including the tangent-space normal basis.
             for loop in obj.data.uv_layers.active.data:
                 loop.uv.y = 1 - loop.uv.y
+            obj["gesso_uv0_source"] = True
         obj.data.materials.clear()
         obj.data.materials.append(surfaces[surface_key])
         for polygon in obj.data.polygons:
@@ -1000,7 +1160,7 @@ def keyframe_camera_optics(camera_data, values, frame):
         camera_data.keyframe_insert(data_path=f"dof.{property_name}", frame=frame, group="Sampled optical focus")
 
 
-def animate(source, frames, objects):
+def animate(source, frames, objects, part_carriers=None):
     scene = bpy.context.scene
     camera_data = bpy.data.cameras.new("Camera / sampled 36mm vertical gate")
     camera_data.type = "PERSP"
@@ -1015,6 +1175,7 @@ def animate(source, frames, objects):
     scene.frame_end = max(sample["frame"] for sample in frames)
     previous_rotations = {}
     previous_camera_rotation = None
+    part_carriers = part_carriers or {}
     camera.rotation_mode = "QUATERNION"
     # Sampled light poses (present only when a scene animates a light) key the
     # studio light objects the same way as the camera: location plus a tracking
@@ -1055,6 +1216,17 @@ def animate(source, frames, objects):
             obj.keyframe_insert(data_path="location", frame=frame, group="Sampled world transform")
             obj.keyframe_insert(data_path="rotation_quaternion", frame=frame, group="Sampled world transform")
             obj.keyframe_insert(data_path="scale", frame=frame, group="Sampled world transform")
+        for part_id, carrier in part_carriers.items():
+            pose = sample.get("parts", {}).get(part_id)
+            carrier.rotation_mode = "QUATERNION"
+            carrier.matrix_basis = blender_matrix(pose["deltaMatrix"]) if pose else Matrix.Identity(4)
+            rotation = carrier.rotation_quaternion.copy()
+            if part_id in previous_rotations and rotation.dot(previous_rotations[part_id]) < 0:
+                rotation.negate()
+            carrier.rotation_quaternion = rotation
+            previous_rotations[part_id] = rotation.copy()
+            for property_name in ("location", "rotation_quaternion", "scale"):
+                carrier.keyframe_insert(data_path=property_name, frame=frame, group="Sampled part delta")
         values = sample["camera"]
         camera.location = blender_position(values["positionM"])
         direction = Vector(blender_position(values["targetM"])) - camera.location
@@ -1070,7 +1242,7 @@ def animate(source, frames, objects):
         camera.keyframe_insert(data_path="location", frame=frame, group="Sampled camera")
         camera.keyframe_insert(data_path="rotation_quaternion", frame=frame, group="Sampled camera")
         camera_data.keyframe_insert(data_path="lens", frame=frame)
-    for item in [*objects.values(), *lights.values(), camera, camera_data]:
+    for item in [*objects.values(), *part_carriers.values(), *lights.values(), camera, camera_data]:
         if item.animation_data and item.animation_data.action:
             for curve in item.animation_data.action.fcurves:
                 for keyframe in curve.keyframe_points:
@@ -1134,17 +1306,26 @@ def main():
             obj, details = product_mesh(component, args.samples.parent, source["product"].get("materialPresets", []))
         else:
             surface = specified_material(component["id"] + " / surface", component["material"], args.samples.parent)
-            obj = primitive(component["id"], component["shape"], component["sizeM"], surface, component.get("bevelM", 0))
+            build_primitive = textured_primitive if any(item["partId"] == component["id"]
+                for item in source["product"].get("artwork", [])) else primitive
+            obj = build_primitive(component["id"], component["shape"], component["sizeM"], surface, component.get("bevelM", 0))
             details = {"id": component["id"], "shape": component["shape"], "materialSource": "declared"}
         objects[component["id"]] = obj
         product_components.append(details)
     label = source["product"].get("label")
-    if label and not any(decal["componentId"] == label["componentId"] for decal in source["product"].get("decals", [])):
+    if (label and not any(item["partId"] == label["componentId"] for item in source["product"].get("artwork", []))
+            and not any(decal["componentId"] == label["componentId"] for decal in source["product"].get("decals", []))):
         component = next(item for item in source["product"]["components"] if item["id"] == label["componentId"])
         text_on_label(objects[label["componentId"]], label, component["sizeM"])
+    replace_product_artwork(source, objects, args.samples.parent)
+    part_carriers = part_motion_carriers(objects) if any(sample.get("parts") for sample in frames) else {}
     decal_details = product_decals(source, objects, args.samples.parent, args.output)
+    removed = frames[0].get("removedPartIds", [])
+    if any(sample.get("removedPartIds", []) != removed for sample in frames):
+        raise ValueError("Product part removal is scene-wide and must match in every sampled frame")
+    apply_product_removal(objects, removed)
     environment(source, args.samples.parent)
-    animate(source, frames, objects)
+    animate(source, frames, objects, part_carriers)
     kind = source["environment"]["kind"]
     world_details = {}
     limitations = []

@@ -1,0 +1,17 @@
+.gesso-selected-world-cover {flex:0 0 auto;margin:0;min-width:0;display:flex;flex-direction:column;gap:8px;padding-bottom:8px}
+.gesso-world-cover-image {display:block;position:relative;aspect-ratio:16/9;width:100%;overflow:hidden;background:#242424;border-radius:8px}
+.gesso-world-cover-image img {display:block;width:100%;height:100%;object-fit:cover}
+.gesso-selected-world-cover .gesso-world-cover-image {max-height:132px}
+.gesso-world-cover-empty {position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:12px;color:var(--gesso-muted,#aaa);font-size:12px;font-weight:400;line-height:16px}
+.gesso-selected-world-cover figcaption {display:flex;gap:8px;align-items:baseline;justify-content:space-between;font-size:12px;line-height:16px}
+.gesso-selected-world-cover figcaption span {overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gesso-selected-world-cover figcaption small {flex:none;color:var(--gesso-muted,#aaa);font-size:11px;font-weight:400}
+.gesso-world-cover-library {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 8px}
+.gesso-world-cover-library button.gesso-world-cover-card {display:flex;flex-direction:column;gap:8px;min-width:0;border:0;background:none;padding:0;color:var(--gesso-muted,#aaa);text-align:left;border-radius:8px;font-weight:400}
+.gesso-world-cover-library button.gesso-world-cover-card:hover,.gesso-world-cover-library button.gesso-world-cover-card[aria-pressed=true] {color:#fff;background:none}
+.gesso-world-cover-card .gesso-world-cover-image {opacity:.65;transition:opacity 160ms ease}
+.gesso-world-cover-card:hover .gesso-world-cover-image,.gesso-world-cover-card[aria-pressed=true] .gesso-world-cover-image {opacity:1}
+.gesso-world-cover-card>span:last-child {font-size:12px;line-height:16px;overflow-wrap:anywhere}
+.gesso-world-cover-card .gesso-world-cover-empty {font-size:11px;padding:8px}
+.gesso-world-cover-card:focus-visible {outline:2px solid currentColor;outline-offset:4px}
+@media(prefers-reduced-motion:reduce){.gesso-world-cover-card .gesso-world-cover-image{transition:none}}

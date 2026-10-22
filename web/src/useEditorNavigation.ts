@@ -13,10 +13,11 @@ const sameWindow = (a:EditorLocation, b:EditorLocation) => a.group===b.group&&a.
 export function useEditorNavigation() {
   const [destination, setDestination] = useState(readLocation);
   const current = useRef(destination);
-  const remembered = useRef({...defaultLayers, [destination.group]: destination.layer});
+  const remembered = useRef({...defaultLayers, [destination.group]: destination.layer==='Output'?defaultLayers[destination.group]:destination.layer});
   const apply = useCallback((next:EditorLocation) => {
     current.current = next;
-    remembered.current[next.group] = next.layer;
+    // Export has its own tab; Film remembers its last editing surface.
+    if(next.layer!=='Output')remembered.current[next.group] = next.layer;
     setDestination(previous => sameWindow(previous, next) ? previous : next);
   }, []);
 
@@ -36,9 +37,9 @@ export function useEditorNavigation() {
     return () => {window.removeEventListener('popstate', restore);window.removeEventListener('gesso:locationchange', restore);};
   }, [apply]);
 
-  const navigate = useCallback((group:EditorGroup, layer=remembered.current[group]) => {
+  const navigate = useCallback((group:EditorGroup, layer=remembered.current[group], mode=current.current.mode) => {
     if (isEditorialRoute() || !layers[group]?.includes(layer)) return;
-    const next = {group, layer, mode:current.current.mode};
+    const next = {group, layer, mode};
     const url = editorDestinationUrl(window.location.href, next, next.mode);
     if (url !== currentUrl()) pushFrameHistory(url);
     apply(next);

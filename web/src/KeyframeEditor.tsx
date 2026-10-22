@@ -1,3 +1,4 @@
+import {partTargetIds} from './partTargets';
 import {useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent} from 'react';
 import {displayPartName} from './hierarchy';
 import {listMotions,motionChannels,motionLabel} from './filmMotion';
@@ -17,28 +18,28 @@ export interface KeyframeEditorProps {
 }
 type Selection={componentId:string;property:KeyframeProperty;frame?:number};
 type KeyDrag={trackId:string;fromFrame:number;toFrame:number;pointerId:number;left:number;width:number;button:HTMLButtonElement};
-const rounded=(value:number)=>Number(value.toFixed(4));
+const rounded=(value:number,precision=4)=>Number(value.toFixed(precision));
 
-function ValueField({value,label,step=1,min,max,disabled,onCommit}:{value:number;label:string;step?:number;min?:number;max?:number;disabled?:boolean;onCommit:(value:number)=>void}){
-  const [text,setText]=useState(String(rounded(value)));
+function ValueField({value,label,step=1,precision=4,min,max,disabled,onCommit}:{value:number;label:string;step?:number;precision?:number;min?:number;max?:number;disabled?:boolean;onCommit:(value:number)=>void}){
+  const [text,setText]=useState(String(rounded(value,precision)));
   const editing=useRef(false),skipBlur=useRef(false),dirty=useRef(false);
-  useEffect(()=>{if(!editing.current)setText(String(rounded(value)));},[value]);
+  useEffect(()=>{if(!editing.current)setText(String(rounded(value,precision)));},[value,precision]);
   const commit=()=>{
     editing.current=false;
     if(skipBlur.current){skipBlur.current=false;dirty.current=false;return;}
-    if(!dirty.current){setText(String(rounded(value)));return;}
+    if(!dirty.current){setText(String(rounded(value,precision)));return;}
     dirty.current=false;
     const parsed=Number(text);
     if(text.trim()&&Number.isFinite(parsed)&&(min===undefined||parsed>=min)&&(max===undefined||parsed<=max)){
       if(Math.abs(parsed-value)>1e-9)onCommit(parsed);
-      setText(String(rounded(parsed)));
-    }else setText(String(rounded(value)));
+      setText(String(rounded(parsed,precision)));
+    }else setText(String(rounded(value,precision)));
   };
   return <input type="number" aria-label={label} value={text} min={min} max={max} step={step} disabled={disabled}
     onFocus={()=>{editing.current=true;dirty.current=false;}} onChange={event=>{dirty.current=true;setText(event.target.value);}} onBlur={commit}
     onKeyDown={event=>{
       if(event.key==='Enter'){event.preventDefault();event.currentTarget.blur();}
-      else if(event.key==='Escape'){event.preventDefault();skipBlur.current=true;editing.current=false;setText(String(rounded(value)));event.currentTarget.blur();}
+      else if(event.key==='Escape'){event.preventDefault();skipBlur.current=true;editing.current=false;setText(String(rounded(value,precision)));event.currentTarget.blur();}
     }}/>;
 }
 
@@ -85,7 +86,7 @@ function Curve({track,total,frame,selectedFrame,onSelect,onScrub,onDrag,onDragMo
   path+=` L100,${y(pathKeys.at(-1)!.value)}`;
   const rulers=spread>1e-10?[low,(low+high)/2,high]:[low];
   return <div className="kf-curve" aria-label={`${channelName(scene,track.componentId,track.property)} curve`}>
-    <div className="kf-curve-unit">{rulers.map(value=><span key={value} style={{top:`${displayY(value)}%`}}>{rounded(value)} {info.unit}</span>)}</div>
+    <div className="kf-curve-unit">{rulers.map(value=><span key={value} style={{top:`${displayY(value)}%`}}>{rounded(value,info.precision)} {info.unit}</span>)}</div>
     <div className="kf-curve-plot" onPointerDown={event=>{
       if(event.target!==event.currentTarget||disabled)return;
       const rect=event.currentTarget.getBoundingClientRect();onScrub(Math.max(1,Math.min(total,Math.round(1+(event.clientX-rect.left)/rect.width*(total-1)))));
@@ -93,7 +94,7 @@ function Curve({track,total,frame,selectedFrame,onSelect,onScrub,onDrag,onDragMo
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d={rulers.map(value=>`M0 ${displayY(value)}H100`).join(' ')} className="kf-curve-grid"/><path d={path} className="kf-curve-line"/></svg>
       {showPlayhead&&<span className="kf-playhead" style={{left:`${x(frame)}%`}} aria-hidden="true"/>}
       {track.keys.map(key=><button key={key.frame} type="button" data-kf-track={track.id} data-kf-frame={key.frame} className={`kf-key kf-curve-key ${selectedFrame===key.frame?'selected':''}`} style={{left:`${x(dragFrame?.fromFrame===key.frame?dragFrame.toFrame:key.frame)}%`,top:`${y(key.value)}%`}}
-        aria-label={`Key at frame ${key.frame}, ${rounded(key.value*info.factor)} ${info.unit}`} aria-pressed={selectedFrame===key.frame} disabled={disabled}
+        aria-label={`Key at frame ${key.frame}, ${rounded(key.value*info.factor,info.precision)} ${info.unit}`} aria-pressed={selectedFrame===key.frame} disabled={disabled}
         onPointerDown={event=>onDrag(event,track,key)} onPointerMove={onDragMove} onPointerUp={onDragEnd} onPointerCancel={onDragCancel} onLostPointerCapture={onDragCancel}
         onClick={event=>{if(event.detail===0)onSelect(key);}} onKeyDown={event=>onKey(event,track,key)}><span aria-hidden="true"/></button>)}
     </div>
@@ -111,7 +112,7 @@ export default function KeyframeEditor({scene,componentId,frame,onFrame,onChange
   const pendingKeyFocus=useRef<{trackId:string;frame:number}|null>(null);
   const total=lastAnimationFrame(scene),fps=scene.render.fps;
   const targetBlockReason=animationBlockReason(scene,targetId,'position.x');
-  const components=scene.product?.components??[];
+  const components=partTargetIds(scene).map(id=>({id}));
   const ids=pin&&pin!==targetId&&components.some((part:any)=>part.id===pin)?[targetId,pin]:[targetId];
   const selected:Selection=selection&&ids.includes(selection.componentId)?selection:{componentId:targetId,property:(getMotion(scene,targetId)?'motion':'position.x') as KeyframeProperty};
   const selectedTrack=getTrack(scene,selected.componentId,selected.property);
@@ -251,7 +252,7 @@ export default function KeyframeEditor({scene,componentId,frame,onFrame,onChange
             return <div className={`kf-row ${isSelected?'selected':''} ${enabled?'animated':''}`} key={property}>
               <div className="kf-property">
                 <button type="button" className="kf-property-name" aria-pressed={isSelected} aria-label={`${targetName(scene,id)} ${name} property`} onClick={()=>setSelection({componentId:id,property})} title={`${targetName(scene,id)} → ${name}`}><span>{presentation.axis&&presentation.axis!=='X'?'':presentation.label}</span><small>{presentation.axis}</small></button>
-                <ValueField label={`${targetName(scene,id)} ${name}`} value={value*presentation.factor} step={presentation.step} min={presentation.min} max={presentation.max} disabled={disabled||!!owned||(property==='motion'&&!enabled)} onCommit={nextValue=>{
+                <ValueField label={`${targetName(scene,id)} ${name}`} value={value*presentation.factor} step={presentation.step} precision={presentation.precision} min={presentation.min} max={presentation.max} disabled={disabled||!!owned||(property==='motion'&&!enabled)} onCommit={nextValue=>{
                   commit(next=>writeProperty(next,id,property,frame,nextValue/presentation.factor),id,property);setSelection({componentId:id,property,...(enabled?{frame}: {})});
                 }}/>
                 <span className="kf-unit">{presentation.unit}</span>
@@ -272,8 +273,8 @@ export default function KeyframeEditor({scene,componentId,frame,onFrame,onChange
                   const keyFrame=dragPreview?.trackId===track!.id&&dragPreview.fromFrame===key.frame?dragPreview.toFrame:key.frame;
                   const keySelected=isSelected&&selected.frame===key.frame;
                   return <button type="button" key={key.frame} data-kf-track={track!.id} data-kf-frame={key.frame} className={`kf-key ${keySelected?'selected':''} ${key.interpolation==='hold'?'hold':''}`} style={{left:`${percent(keyFrame)}%`}} aria-pressed={keySelected}
-                    aria-label={`${targetName(scene,id)} ${name}, frame ${key.frame}, ${rounded(key.value*presentation.factor)} ${presentation.unit}`} disabled={disabled||!enabled}
-                    title={owned??`Frame ${key.frame} · ${rounded(key.value*presentation.factor)} ${presentation.unit} · ${key.interpolation}\nDrag to retime; arrow keys move one frame`}
+                    aria-label={`${targetName(scene,id)} ${name}, frame ${key.frame}, ${rounded(key.value*presentation.factor,presentation.precision)} ${presentation.unit}`} disabled={disabled||!enabled}
+                    title={owned??`Frame ${key.frame} · ${rounded(key.value*presentation.factor,presentation.precision)} ${presentation.unit} · ${key.interpolation}\nDrag to retime; arrow keys move one frame`}
                     onPointerDown={event=>beginDrag(event,track!,key)} onPointerMove={dragMove} onPointerUp={endDrag} onPointerCancel={cancelDrag} onLostPointerCapture={cancelDrag}
                     onClick={event=>{if(event.detail===0)selectKey(track!,key);}} onKeyDown={event=>keyKeyboard(event,track!,key)}><span aria-hidden="true"/></button>;
                 })}
@@ -287,7 +288,7 @@ export default function KeyframeEditor({scene,componentId,frame,onFrame,onChange
         <div className="kf-curve-caption"><span>{targetName(scene,selected.componentId)} → {channelName(scene,selected.componentId,selected.property)}</span><span>{info.unit}</span></div>
         {selectedTrack?.keys.length?<Curve track={selectedTrack} total={total} frame={frame} showPlayhead={!embedded} selectedFrame={selected.frame} dragFrame={dragPreview?.trackId===selectedTrack.id?dragPreview:undefined}
           onSelect={key=>selectKey(selectedTrack!,key)} onScrub={onFrame} onDrag={beginDrag} onDragMove={dragMove} onDragEnd={endDrag} onDragCancel={cancelDrag} onKey={keyKeyboard} disabled={disabled||!selectedTrack?.enabled} scene={scene}/>
-          :<div className="kf-curve-empty"><span>{rounded(currentValue*info.factor)} {info.unit} · all frames</span><button type="button" title={selectedOwner??animationBlockReason(scene,selected.componentId,selected.property)??undefined} onClick={()=>addAtPlayhead(selected.componentId,selected.property)} disabled={disabled||!!selectedOwner||!!animationBlockReason(scene,selected.componentId,selected.property)}>Record first key</button></div>}
+          :<div className="kf-curve-empty"><span>{rounded(currentValue*info.factor,info.precision)} {info.unit} · all frames</span><button type="button" title={selectedOwner??animationBlockReason(scene,selected.componentId,selected.property)??undefined} onClick={()=>addAtPlayhead(selected.componentId,selected.property)} disabled={disabled||!!selectedOwner||!!animationBlockReason(scene,selected.componentId,selected.property)}>Record first key</button></div>}
       </div>}
     </div>
     <footer className="kf-footer">
@@ -299,7 +300,7 @@ export default function KeyframeEditor({scene,componentId,frame,onFrame,onChange
           const to=Math.round(value);if(selectedTrack.keys.some(key=>key.frame===to&&key.frame!==selectedKey.frame)){setNotice(`Frame ${to} already has a key.`);return;}
           commit(next=>moveKey(next,selectedTrack.id,selectedKey.frame,to));setSelection({...selected,frame:to});onFrame(to);
         }}/></label>
-        <label className="kf-exact"><span>Value</span><ValueField label="Selected key value" value={selectedKey.value*info.factor} min={info.min} max={info.max} step={info.step} disabled={disabled||!!selectedOwner||!selectedTrack.enabled} onCommit={value=>commit(next=>upsertKey(next,selected.componentId,selected.property,selectedKey.frame,value/info.factor))}/><small>{info.unit}</small></label>
+        <label className="kf-exact"><span>Value</span><ValueField label="Selected key value" value={selectedKey.value*info.factor} min={info.min} max={info.max} step={info.step} precision={info.precision} disabled={disabled||!!selectedOwner||!selectedTrack.enabled} onCommit={value=>commit(next=>upsertKey(next,selected.componentId,selected.property,selectedKey.frame,value/info.factor))}/><small>{info.unit}</small></label>
         <select className="kf-interpolation" aria-label="Following segment interpolation" value={selectedKey.interpolation} disabled={disabled||!!selectedOwner||!selectedTrack.enabled||selectedIndex===selectedTrack.keys.length-1} title={selectedIndex===selectedTrack.keys.length-1?'Add a later key to shape the next segment':'Changes the segment after this key'}
           onChange={event=>{const value=event.target.value as KeyframeInterpolation;commit(next=>setKeyInterpolation(next,selectedTrack.id,selectedKey.frame,value));}}><option value="linear">Linear</option><option value="ease">Ease</option><option value="hold">Hold</option></select>
         <button type="button" className="kf-delete" aria-label="Delete selected keyframe" title="Delete selected keyframe" disabled={disabled||!!selectedOwner} onClick={()=>{commit(next=>removeKey(next,selectedTrack.id,selectedKey.frame));setSelection({componentId:selected.componentId,property:selected.property});}}>Delete</button>

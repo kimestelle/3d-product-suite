@@ -16,11 +16,12 @@ from .products import inspect_product_glb
 
 MAX_BLEND_BYTES = 128 * 1024 * 1024
 MAX_PRODUCT_BYTES = 128 * 1024 * 1024
+MAX_IMPORT_REPORT_BYTES = 1024 * 1024
 CONVERSION_TIMEOUT_SECONDS = 180
 IMPORT_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "import_blend_product.py"
 
 
-def convert_blend_product(source_path, output_path, *, blender="blender"):
+def convert_blend_product(source_path, output_path, *, blender="blender", source_units=None):
     """Return import metadata after writing a normalized static GLB.
 
     Failures raise ValueError and leave any existing destination untouched. The
@@ -29,6 +30,8 @@ def convert_blend_product(source_path, output_path, *, blender="blender"):
     converted to static material maps in the isolated process.
     """
     source, destination = Path(source_path).resolve(), Path(output_path).resolve()
+    if source_units is not None and (not isinstance(source_units, str) or source_units not in {"mm", "cm", "m", "in", "ft"}):
+        raise ValueError("Blender units override must be mm, cm, m, in, or ft; omit it to use file units")
     if source.suffix.lower() != ".blend":
         raise ValueError("Blender product import requires a .blend file")
     if destination.suffix.lower() != ".glb" or source == destination:
@@ -45,6 +48,8 @@ def convert_blend_product(source_path, output_path, *, blender="blender"):
         command = [executable, "--background", "--factory-startup", "--disable-autoexec",
                    "--python-exit-code", "1", "--python", str(IMPORT_SCRIPT), "--",
                    "--input", str(source), "--output", str(converted), "--report", str(report_path)]
+        if source_units is not None:
+            command.extend(["--source-units", source_units])
         try:
             result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                     timeout=CONVERSION_TIMEOUT_SECONDS, check=False)
@@ -55,7 +60,7 @@ def convert_blend_product(source_path, output_path, *, blender="blender"):
         except OSError as error:
             raise ValueError("Blender could not start; check the configured --blender executable and its permissions") from error
         report = None
-        if report_path.is_file() and report_path.stat().st_size <= 64 * 1024:
+        if report_path.is_file() and report_path.stat().st_size <= MAX_IMPORT_REPORT_BYTES:
             try:
                 report = json.loads(report_path.read_text(encoding="utf-8"))
             except (OSError, ValueError):

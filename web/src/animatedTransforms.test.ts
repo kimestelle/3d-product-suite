@@ -31,6 +31,15 @@ describe('Viewport transforms at the playhead',()=>{
     expect(getPropertyValue(scene,'cap','rotation.y',121)).toBe(360);
     expect(getPropertyValue(scene,'cap','rotation.y',61)).toBeCloseTo(180);
   });
+  it('previews and commits a sub-percent product scale without changing source parts',()=>{
+    const scene=structuredClone(fixture) as any,product={kind:'product'} as const;
+    scene.placement.scale=.00148;toggleTrack(scene,'$product','scale',1);
+    const before=structuredClone(scene),preview=animatedTransformScene(scene,product,'scale','x',2,25);
+    expect(getPropertyValue(preview,'$product','scale',25)).toBe(.00296);
+    copyAnimatedTransform(scene,preview,product,'scale','x',25);
+    expect(getPropertyValue(scene,'$product','scale',25)).toBe(.00296);
+    expect(scene.placement).toEqual(before.placement);expect(scene.product).toEqual(before.product);
+  });
   it('leaves a neutral gesture unchanged and rejects invalid animated scale',()=>{
     const scene=structuredClone(fixture) as any;toggleTrack(scene,'cap','scale',1);
     expect(animatedTransformScene(scene,target,'scale','x',1,100)).toEqual(scene);

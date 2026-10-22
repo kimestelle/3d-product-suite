@@ -13,7 +13,7 @@ import re
 
 from .worlds import validate_asset_record
 
-_SHARED_ENVIRONMENT = ("plinth", "props", "worldColor")
+_SHARED_ENVIRONMENT = ("plinth", "props", "worldColor", "studioSizeM")
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _CALIBRATION_FIELDS = {"sourceFloorPoint", "measurement", "yawDeltaDegrees"}
 
@@ -92,7 +92,7 @@ def validate_comparison(scene):
     _require(isinstance(alternative, dict) and alternative.get("kind") == "mesh",
              "Comparison B must be a visual mesh environment")
     _require(not any(key in alternative for key in _SHARED_ENVIRONMENT),
-             "Comparison alternative must omit shared plinth, props and worldColor")
+             "Comparison alternative must omit shared plinth, props, worldColor and studioSizeM")
     validate_asset_record(alternative.get("asset"), kind="mesh")
     _pairing(scene)
     if "calibration" in comparison:

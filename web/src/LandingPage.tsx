@@ -1,7 +1,6 @@
 import {useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type RefObject} from 'react';
 import lampRender from './assets/gesso/landing-reel-poster.png';
 import navArrow from './assets/gesso/about-arrow-up-right.svg';
-import actionArrow from './assets/gesso/landing-cta-arrow.svg';
 import {FrameWindow, useFrameSource, useFrameInvalidation} from './DynamicFrame';
 import {landingFrameNodes} from './frameGeometry';
 import {LandingReel, LANDING_REEL_STILL} from './landingReel';
@@ -12,6 +11,7 @@ import './landing.css';
 import './site-grid.css';
 
 const clamp = (value: number) => Math.min(1, Math.max(0, value));
+const repeatability = 'Set up your product once. Generate infinite worlds and content.';
 
 // Hover keeps one reversible timeline. Continuous geometry belongs to the shared
 // frame renderer; only the entrance's semantic thresholds update React.
@@ -144,7 +144,7 @@ export default function LandingPage({active}: {active:boolean}) {
 
   return <main ref={rootRef} inert={!active} aria-hidden={!active} className="gesso-landing" aria-label="gesso — your product, your world"
     onPointerDown={event=>{pointerKind.current=event.pointerType;if(event.pointerType==='touch'&&!aperture.windowRef.current?.contains(event.target as Node)) aperture.dismiss();}}>
-    <div className="landing-topline gesso-site-header" data-frame-outside><nav className="gesso-site-nav" aria-label="Main navigation"><a className="landing-about-link site-about-link" href="/about">about</a><a className="landing-study-link site-study-link" href="/aperture">form + light</a><a className="landing-studio-link site-studio-link" data-studio-resume href="/?step=product&layer=model">enter studio <img src={navArrow} alt="" width="14" height="20"/></a></nav></div>
+    <div className="landing-topline gesso-site-header" data-frame-outside><a className="landing-mobile-home gesso-site-wordmark" href="/landing" aria-label="gesso home">gesso</a><nav className="gesso-site-nav" aria-label="Main navigation"><a className="landing-about-link site-about-link" href="/about">about</a><a className="landing-study-link site-study-link" href="/aperture">form + light</a><a className="landing-studio-link site-studio-link" data-studio-resume href="/?step=product&layer=model">enter studio <img src={navArrow} alt="" width="14" height="20"/></a></nav></div>
 
     <section className="landing-composition" aria-label="Your product, your world">
       <a className="landing-side landing-product" data-frame-outside href="/?step=product&layer=model"><span>your product</span></a>
@@ -164,7 +164,10 @@ export default function LandingPage({active}: {active:boolean}) {
             poster={lampRender} muted playsInline loop preload="none" disablePictureInPicture tabIndex={-1} aria-hidden="true"/>
           <LandingVideoOverlay visible={active && aperture.open} playing={reel.playing} failed={reel.failed} videoRef={reel.videoRef} onToggle={reel.toggle}/>
         </FrameWindow>
-        <a id={`${id}-enter`} className="landing-enter" data-frame-outside data-studio-resume href="/?step=product&layer=model">enter studio <img src={actionArrow} alt=""/></a>
+        <div id={`${id}-enter`} className="landing-entrance" data-frame-outside inert={!aperture.open}>
+          <a className="landing-enter" data-studio-resume href="/?step=product&layer=model">enter studio <svg width="14.25" height="20" viewBox="0 0 14.25 20" fill="none" aria-hidden="true"><path d="M13.5 17V7H3.5M13.5 7L3.5 17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg></a>
+          <p className="landing-repeatability">{repeatability}</p>
+        </div>
         {failed && !reel.frameReady && <p className="landing-image-error" role="status">The scene image couldn’t load. <button onClick={()=>location.reload()}>Reload</button></p>}
       </div>
 
@@ -172,7 +175,8 @@ export default function LandingPage({active}: {active:boolean}) {
     </section>
 
     <footer className="landing-footer" data-frame-outside>
-      <span className="landing-caption">a product activation workspace</span>
+      <p className="landing-repeatability landing-repeatability-compact" aria-hidden={!aperture.open}>{repeatability}</p>
+      <span className="landing-caption">a reusable studio for product activation content</span>
       {reel.failed && <span className="landing-reel-status" role="status">Video unavailable. The still image is shown.</span>}
       <span className="landing-caption landing-credit">est. 2026</span>
     </footer>

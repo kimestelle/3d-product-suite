@@ -1,14 +1,12 @@
-import {useCallback, useLayoutEffect, useRef, useState, type RefObject} from 'react';
+import {useId, useLayoutEffect, useRef, type RefObject} from 'react';
 import {GlassineStudy,glassinePoster,type GlassineStudyHandle} from './GlassineStudy';
 import {FrameOutside,useFrameSource,useFrameInvalidation,useFrameTransitionShrink,type FrameVisual} from './DynamicFrame';
 import {frameBounds,framePath,roundedFrameNodes} from './frameGeometry';
 import {createPhilosophySequence,philosophySequenceNodes,philosophySequenceContour} from './philosophySequence';
 import {STATIC_MOTION_QUERY} from './motionPolicy';
 import {createContourQuery} from './philosophyContour';
+import {PHILOSOPHY_SCREENSHOTS} from './philosophyScreenshots';
 import {philosophyScrollProgress} from './philosophyMotion';
-import {createPhilosophyScroll} from './philosophyScroll';
-import {DEFAULT_SCROLL_TUNING,normalizeScrollTuning,type ScrollTuning} from './philosophyScrollPhysics';
-import PhilosophyScrollDebug,{type ScrollDebugSnapshot} from './PhilosophyScrollDebug';
 import {mountContourText,paintContourText,contourTextMoving,unmountContourText,resetContourText,type ContourTextBlock,type ContourTextCache} from './philosophyTextDom';
 import navArrow from './assets/gesso/about-arrow-up-right.svg';
 import './shape-light.css';
@@ -29,8 +27,15 @@ export const PHILOSOPHY_ROWS = [
 ] as const;
 
 function StaticShape({stage}:{stage:number}) {
+  const clipId=`${useId().replace(/:/g,'')}-screenshot`;
   const nodes=philosophySequenceNodes(1280,832,stage),bounds=frameBounds(nodes);
-  return <svg className="shape-light-mobile-specimen" viewBox={`${bounds.left} ${bounds.top} ${bounds.width} ${bounds.height}`} aria-hidden="true"><path d={framePath(nodes)}/></svg>;
+  const screenshot=PHILOSOPHY_SCREENSHOTS.find(image=>image.stage===stage)!;
+  const path=framePath(nodes);
+  return <svg className="shape-light-mobile-specimen" viewBox={`${bounds.left} ${bounds.top} ${bounds.width} ${bounds.height}`} aria-hidden="true">
+    <defs><clipPath id={clipId} clipPathUnits="userSpaceOnUse"><path d={path}/></clipPath></defs>
+    <path d={path}/>
+    <image href={screenshot.src} x={bounds.left} y={bounds.top} width={bounds.width} height={bounds.height} preserveAspectRatio={`${screenshot.alignment} slice`} clipPath={`url(#${clipId})`}/>
+  </svg>;
 }
 
 type FlowRect={left:number;top:number;width:number;height:number};
@@ -45,7 +50,7 @@ type FlowLayout={
 const FLOW_PROPERTIES=['left','width','right','margin-left','position','top','bottom','height'];
 function restoreFlowLayout(layout:FlowLayout){
   for(const block of layout.blocks){
-    unmountContourText(block.text);block.text=null;
+    unmountContourText(block.text);block.text=null;delete block.element.dataset.flowBlocked;
     for(const property of FLOW_PROPERTIES)block.element.style.removeProperty(property);
   }
 }
@@ -71,7 +76,7 @@ function measureFlowLayout(layout:FlowLayout,scroll:number){
       top:`${rect.top-section.top}px`,bottom:'auto',right:'auto',marginLeft:'0',width:`${rect.width}px`,height:`${rect.height}px`});
     // Offscreen chapters must remain complete for Find and assistive reading.
     // Only contour updates are visibility-gated; initial text never is.
-    const height=paintContourText(block.text,{left:rect.left,top:rect.top,right:section.right,side:block.side,query:()=>null});
+    const height=paintContourText(block.text,{left:rect.left,top:rect.top,right:section.right,laneLeft:section.left,side:block.side,query:()=>null});
     block.element.style.height=`${height}px`;
   }
 }
@@ -82,7 +87,9 @@ function flowAroundShape(layout:FlowLayout,scroll:number,animate:boolean,now:num
     const visible=block.sectionBottom-scroll>=0&&block.sectionTop-scroll<=layout.height;
     if(!visible&&!contourTextMoving(block.text))continue;
     const height=paintContourText(block.text,{left:block.base.left,top:block.base.top-scroll,
-      right:block.sectionRight,side:block.side,query:layout.query,animate:animate&&visible,now});
+      right:block.sectionRight,laneLeft:block.sectionLeft,side:block.side,query:layout.query,animate:animate&&visible,now});
+    const blocked=String(block.text.blockedLines);
+    if(block.element.dataset.flowBlocked!==blocked)block.element.dataset.flowBlocked=blocked;
     const value=`${height}px`;
     if(block.element.style.height!==value)block.element.style.height=value;
   }
@@ -91,9 +98,8 @@ function flowAroundShape(layout:FlowLayout,scroll:number,animate:boolean,now:num
 /** Scroll is the reversible playhead for the shared frame. Text stays native;
  * scrolling updates geometry without rebuilding the page.
  */
-function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|null>,tuning:RefObject<ScrollTuning>,shrink:number) {
+function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|null>,shrink:number) {
   const page = useRef<HTMLDivElement>(null);
-  const motion=useRef<ReturnType<typeof createPhilosophyScroll>|null>(null);
   const intro = useRef<HTMLElement>(null);
   const visual = useRef<FrameVisual|null>(null);
   const shrinkRef=useRef(shrink);shrinkRef.current=shrink;
@@ -112,13 +118,11 @@ function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|
     const sections=[first,...root.querySelectorAll<HTMLElement>('.shape-light-chapter')];
     let stops:number[]=[];
     let frame = 0, alive = true,initialHashRestored=false;
-    let scrollMotion:ReturnType<typeof createPhilosophyScroll>|null=null;
     let needsLayout=true,lastShown=NaN,lastScroll=NaN,lastShrink=NaN;
     let sample=createPhilosophySequence(layout.width,layout.height);
     const paint = () => {
       frame = 0;
       const now=performance.now();
-      if(scrollMotion?.advance(now))schedule();
       const scroll=root.scrollTop;
       if(needsLayout){
         measureFlowLayout(layout,scroll);
@@ -130,8 +134,8 @@ function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|
         root.dataset.textLayout=layout.width>900&&layout.textReady?'pretext-lines':'native';
       }
       const compact=layout.width<=900;
-      // The settling controller moves actual scrollTop. Text and contour use
-      // that same coordinate, never a second easing clock.
+      // The browser owns scrolling. Shape and text follow its actual offset;
+      // neither the old study controller nor saved tuning can change it.
       const progress=philosophyScrollProgress(scroll,stops);
       const shown = preference.matches||compact ? Math.round(progress) : progress;
       const geometryChanged=needsLayout||shown!==lastShown||shrinkRef.current!==lastShrink;
@@ -163,7 +167,6 @@ function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|
     refreshGeometry.current=schedule;
     const visibility=()=>{if(document.hidden){cancelAnimationFrame(frame);frame=0;}else if(active)schedule();};
     const resize = () => {
-      scrollMotion?.cancel();
       needsLayout=true;
       layout.width = root.clientWidth; layout.height = root.clientHeight;
       schedule();
@@ -171,7 +174,6 @@ function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|
     const followHash = () => {
       if(!active||!/^\/aperture\/?$/.test(location.pathname))return;
       if (!['#shape-light-content', '#shape-light-principles',...PHILOSOPHY_ROWS.map(row=>`#principle-${row.id}`)].includes(location.hash)) return;
-      scrollMotion?.cancel();
       const target = root.querySelector<HTMLElement>(location.hash);
       if (target) {
         target.focus({preventScroll:true});
@@ -179,27 +181,9 @@ function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|
       }
       schedule();
     };
-    // Handle our own anchor before the browser jumps, so the link and wheel
-    // use the same moving position. Initial hashes/history remain native.
-    const anchorClick=(event:MouseEvent)=>{
-      if(event.defaultPrevented||event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey||!scrollMotion?.snapshot().enabled)return;
-      const link=(event.target as Element)?.closest<HTMLAnchorElement>('a[href^="#"]');
-      const hash=link?.getAttribute('href');
-      if(!hash||!['#shape-light-content','#shape-light-principles',...PHILOSOPHY_ROWS.map(row=>`#principle-${row.id}`)].includes(hash))return;
-      const target=root.querySelector<HTMLElement>(hash);
-      if(!target)return;
-      const index=hash==='#shape-light-content'?0:sections.indexOf(target);
-      if(index<0)return;
-      event.preventDefault();
-      if(location.hash!==hash)history.pushState(history.state,'',hash);
-      target.focus({preventScroll:true});
-      scrollMotion.seek(index);schedule();
-    };
-    if(active)scrollMotion=createPhilosophyScroll(root,{stops:()=>stops,schedule,tuning:()=>tuning.current});
-    motion.current=scrollMotion;
     const observer = new ResizeObserver(resize);
     observer.observe(root); for(const section of sections)observer.observe(section);
-    if(active){root.addEventListener('scroll',schedule,{passive:true});root.addEventListener('click',anchorClick);}
+    if(active)root.addEventListener('scroll',schedule,{passive:true});
     document.addEventListener('visibilitychange',visibility);
     preference.addEventListener('change', schedule);
     window.addEventListener('hashchange', followHash);
@@ -213,40 +197,26 @@ function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|
     void document.fonts.ready.then(fontsLoaded);
     paint();
     return () => {
-      alive = false; refreshGeometry.current=null; cancelAnimationFrame(frame); scrollMotion?.dispose(); motion.current=null; observer.disconnect();
-      root.removeEventListener('scroll',schedule);root.removeEventListener('click',anchorClick);
+      alive = false; refreshGeometry.current=null; cancelAnimationFrame(frame); observer.disconnect();
+      root.removeEventListener('scroll',schedule);
       document.removeEventListener('visibilitychange',visibility);
       preference.removeEventListener('change', schedule);
       window.removeEventListener('hashchange', followHash);
       document.fonts.removeEventListener('loadingdone',fontsLoaded);
       restoreFlowLayout(layout);layout.textCache.clear();
     };
-  }, [active,invalidate,study,tuning]);
-  // A stationary intermediate frame must respond without resetting its scroll
-  // particle, rebuilding text, or replaying initial hash restoration.
+  }, [active,invalidate,study]);
+  // A stationary intermediate frame can change scale without rebuilding text
+  // or replaying initial hash restoration.
   useLayoutEffect(()=>refreshGeometry.current?.(),[shrink]);
-  const read=useCallback(():ScrollDebugSnapshot=>motion.current?.snapshot()??{
-    position:page.current?.scrollTop??0,velocity:0,force:0,target:null,stops:[],phase:'native',enabled:false,reason:'Measuring the page',
-  },[]);
-  const seek=useCallback((index:number)=>motion.current?.seek(index),[]);
-  return {page, intro,read,seek};
+  return {page, intro};
 }
 
 export default function ShapeLightPage({active=true}:{active?:boolean}) {
   const study=useRef<GlassineStudyHandle|null>(null);
-  const [shrink,setShrink]=useFrameTransitionShrink();
-  const [tuning,setTuning]=useState<ScrollTuning>(()=>{
-    try{return normalizeScrollTuning(JSON.parse(localStorage.getItem('gesso.philosophy-scroll.v1')??'{}')??{});}
-    catch{return {...DEFAULT_SCROLL_TUNING};}
-  });
-  const tuningRef=useRef(tuning);tuningRef.current=tuning;
-  const updateTuning=useCallback((next:ScrollTuning)=>{
-    const normalized=normalizeScrollTuning(next);tuningRef.current=normalized;setTuning(normalized);
-    try{localStorage.setItem('gesso.philosophy-scroll.v1',JSON.stringify(normalized));}catch{/* Local storage may be unavailable. */}
-  },[]);
-  const {page, intro,read,seek} = usePhilosophyFrames(active,study,tuningRef,shrink);
+  const [shrink]=useFrameTransitionShrink();
+  const {page, intro} = usePhilosophyFrames(active,study,shrink);
   return <div ref={page} className="gesso-shape-light" data-frame="ground" tabIndex={-1} inert={!active} aria-hidden={!active}>
-    <PhilosophyScrollDebug tuning={tuning} onChange={updateTuning} shrink={shrink} onShrink={setShrink} onSeek={seek} read={read} active={active}/>
     <GlassineStudy ref={study} active={active} page={page}/>
     <a data-frame-outside className="shape-light-skip" href="#shape-light-content">Skip to philosophy</a>
     <a data-frame-outside className="shape-light-skip" href="#shape-light-principles">Skip to principles</a>

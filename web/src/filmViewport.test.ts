@@ -1,7 +1,7 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import * as THREE from 'three';
 import {StudioViewport} from './viewport';
-import {filmGuideZoom, type FilmGuideProjection} from './filmGuides';
+import {filmGateRect, filmGuideZoom, type FilmGuideProjection} from './filmGuides';
 
 function viewport(capture = false) {
   const view = Object.create(StudioViewport.prototype) as any;
@@ -63,6 +63,16 @@ describe('Film viewport presentation', () => {
     expect(onFilmGuide.mock.calls[0][0]!.viewportHeight).toBe(400);
     expect(onFilmGuide.mock.calls[0][0]!.targetM).toEqual([0, 0, 0]);
     expect(events).toEqual(['render', 'guide']);
+  });
+  it('publishes the flat-content gate after drawing and clears the previous 3D gesture', async () => {
+    const {view,onFilmGuide,events}=viewport();view.setFilmGuides(true);
+    view.filmContent=true;view.filmClip={kind:'black'};
+    view.imageRenderer={draw:vi.fn(()=>events.push('image'))};
+    view.presentedFilm={camera:view.camera,target:new THREE.Vector3()};
+    await view.draw(false,1);
+    expect(events).toEqual(['image','guide']);
+    expect(onFilmGuide).toHaveBeenLastCalledWith({gate:filmGateRect(800,400,9/16),viewportWidth:800,viewportHeight:400});
+    expect(view.createCameraTargetGesture({clientX:410,clientY:220})).toBeNull();
   });
   it('leaves capture projection unchanged and emits no editing guides', async () => {
     const {view, camera, renderer, onFilmGuide} = viewport(true);

@@ -34,7 +34,10 @@ function entryFailed(error:unknown) {
   window.dispatchEvent(new Event('gesso:boot-error'));
 }
 
-const entry = /^\/curves\/?$/.test(location.pathname) ? import('./CurveDemo') : import('./App');
+const entry = /^\/curves\/?$/.test(location.pathname)
+  ? new URLSearchParams(location.search).get('study')==='logo' ? import('./LogoStudy')
+    : new URLSearchParams(location.search).get('compare')==='1' ? import('./CurveComparisonDemo') : import('./CurveDemo')
+  : import('./App');
 const fonts = Promise.all([loadStudioFonts(), loadInterfaceFonts()]).catch(error => console.warn(error));
 Promise.all([fonts, entry]).then(([, {default: App}]) => {
   createRoot(document.getElementById('root')!, {onUncaughtError:entryFailed})

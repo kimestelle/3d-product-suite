@@ -1,0 +1,5 @@
+/* The trigger shares the eye button's row footprint; popup surfaces reuse the material menu. */
+.gesso-part-row .gesso-part-menu-trigger{display:grid;place-items:center;flex:0 0 28px;width:28px;height:28px;min-height:28px;margin:0;padding:3px 5px;border:0;background:transparent;color:var(--gesso-text-secondary);box-shadow:none}
+.gesso-part-row .gesso-part-menu-trigger:hover,.gesso-part-row .gesso-part-menu-trigger[aria-expanded=true]{color:var(--gesso-text-primary);background:var(--gesso-surface-hover)}
+.gesso-part-menu .gesso-material-delete-actions{flex-wrap:wrap}
+.gesso-part-menu .gesso-material-delete-actions>button{flex:1 0 auto;width:auto}

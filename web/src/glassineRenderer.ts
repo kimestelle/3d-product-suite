@@ -1,15 +1,12 @@
 /**
- * A reduced glassine specimen renderer for the first Shape + Light chapter.
+ * A pressed-paper specimen for the first Form + Light chapter.
  *
  * Adapted from Estelle Kim's GlassineSurface material study:
  * softcopy-generative-materials/app/materials/GlassineSurface.tsx,
- * specifically sourceHigh, paperField, derivative normals, mipmapped scene
- * diffusion, Beer–Lambert transmission and the pearl-light response.
- * The actual glassine2.webp scan supplies both the relief and the density.
- * Botanical layers, procedural thickness noise and the controls UI are omitted.
- * Spectral hue accumulation, Gaussian swaths and the displaced RGB edge samples
- * are adapted from Estelle's softcopy.digital/studies/rainbow-canvas.html,
- * circleFragment. Here they respond to the sheet and light, not flight trails.
+ * specifically sourceHigh, paperField, derivative normals and mipmapped scene
+ * diffusion. The actual glassine2.webp scan supplies paper grain and the small
+ * surface variations that catch light along the spherical grid's relief.
+ * The grid is a fixed impression in one sheet; only its illumination moves.
  *
  * The owner controls readiness, animation, pointer smoothing and clipping.
  * This module never starts a render loop.
@@ -287,11 +284,6 @@ mat2 rotate2d(float angle) {
   return mat2(c, -s, s, c);
 }
 
-float roundedBox(vec2 p, vec2 halfSize, float radius) {
-  vec2 q = abs(p) - halfSize + radius;
-  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
-}
-
 vec2 sceneUv(vec2 uv) {
   float aspect = (uResolution.x * uSpecimen.z) / (uResolution.y * uSpecimen.w);
   vec2 crop = uv - 0.5;
@@ -300,35 +292,47 @@ vec2 sceneUv(vec2 uv) {
   return crop + 0.5;
 }
 
-vec3 underlay(vec2 uv, float lod) {
+vec3 underlay(vec2 uv) {
   if (uHasScene < 0.5) return vec3(0.78, 0.79, 0.80);
-  vec3 source = textureLod(uScene, sceneUv(uv), lod).rgb;
-  // A product still remains a product, softly diffused behind the sheet.
-  // Its warmth supplies the contrast to the page's violet field.
-  vec3 diffuse = mix(vec3(luma(source)), source, 0.72);
-  return mix(diffuse, vec3(0.82, 0.79, 0.82), 0.12);
+  vec3 source = textureLod(uScene, sceneUv(uv), 4.2).rgb;
+  return mix(vec3(luma(source)), source, 0.62);
 }
 
-// The rainbow-canvas study's hue model stays saturated when fields overlap.
-vec3 rainbow(float h) {
-  vec3 rgb = clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
-  return mix(vec3(1.0), rgb, 0.92);
+// Project longitude and latitude from a sphere larger than the opening.
+// Its tilted pole stays beyond the crop: we see curving quadrilateral cells,
+// not a small globe sitting on the sheet or a second silhouette inside it.
+vec2 sphericalGrid(vec2 p, float aspect) {
+  float radius = max(0.96, aspect * 0.78);
+  vec2 xy = (p - vec2(-aspect * 0.11, -0.20)) / radius;
+  vec3 sphere = vec3(xy, sqrt(max(0.035, 1.0 - dot(xy, xy))));
+  sphere = normalize(sphere);
+  sphere.xz = rotate2d(-0.22) * sphere.xz;
+  sphere.yz = rotate2d(0.48) * sphere.yz;
+  sphere.xy = rotate2d(0.16) * sphere.xy;
+  return vec2(atan(sphere.x, sphere.z), asin(clamp(sphere.y, -0.999, 0.999)))
+    * vec2(8.0, 8.5) + vec2(0.18, 0.34);
 }
 
-vec2 gaussianErf(vec2 x) {
-  vec2 a = abs(x), t = 1.0 / (1.0 + 0.3275911 * a);
-  vec2 poly = (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t;
-  return sign(x) * (1.0 - poly * exp(-a * a));
+// Convert angular distance into paper-space distance and its unit gradient.
+// Both line families keep the same pressed width as cells compress. Carry the
+// gradient forward so shading never differentiates a derivative expression.
+vec3 gridProfile(vec2 grid, float pixelHeight) {
+  vec2 cell = fract(grid + 0.5) - 0.5;
+  vec2 dx = dFdx(grid) * pixelHeight;
+  vec2 dy = dFdy(grid) * pixelHeight;
+  vec2 gradient = max(sqrt(dx * dx + dy * dy), vec2(0.0001));
+  vec2 distance = abs(cell) / gradient;
+  if (distance.x < distance.y) {
+    return vec3(distance.x, vec2(dx.x, dy.x) * sign(cell.x) / gradient.x);
+  }
+  return vec3(distance.y, vec2(dx.y, dy.y) * sign(cell.y) / gradient.y);
 }
 
-float softRectangle(vec2 p, vec2 halfSize, float sigma) {
-  vec2 coverage = 0.5 * (gaussianErf((p + halfSize) / (sigma * 1.41421356)) - gaussianErf((p - halfSize) / (sigma * 1.41421356)));
-  return max(0.0, coverage.x * coverage.y);
-}
-
-float sheetEdgeLight(vec2 q, vec2 halfSize) {
-  // Broad light scatters at the overlap. Its center remains transmissive.
-  return softRectangle(q, halfSize, 0.045) * (1.0 - softRectangle(q, halfSize - vec2(0.035), 0.035));
+// The known relief width supplies a normal-footprint estimate. Narrow lobes
+// lose energy before they become subpixel flicker at smaller buffer sizes.
+float reflection(vec3 normal, vec3 halfVector, float exponent, float footprint) {
+  float filtered = exponent / (1.0 + exponent * footprint * footprint);
+  return pow(max(dot(normal, halfVector), 0.0), filtered) * filtered / exponent;
 }
 
 void main() {
@@ -336,78 +340,63 @@ void main() {
   vec2 resolution = uResolution * uSpecimen.zw;
   float aspect = resolution.x / resolution.y;
   vec2 p = (uv - 0.5) * vec2(aspect, 1.0);
-  float aa = 1.5 / resolution.y;
-  vec3 color = underlay(uv, 2.8);
+  float pixel = 1.0 / resolution.y;
+  vec2 scanUv = (p + vec2(0.30, 0.12)) * 0.76 + 0.5;
+  float grain = sourceHigh(scanUv);
+  float field = paperField(scanUv);
+
+  vec3 grid = gridProfile(sphericalGrid(p, aspect), resolution.y);
+  float distance = grid.x;
+  float width = max(0.0042, pixel * 0.85);
+  float shoulderWidth = width * 0.68;
+  float channel = exp(-pow(distance / width, 2.0));
+  float shoulder = exp(-pow((distance - width * 1.65) / shoulderWidth, 2.0));
+  // Derivative of a 0.0016-deep channel with 0.00048-high compressed shoulders.
+  // The union has one depth at crossings, instead of stacking painted lines.
+  float channelSlope = channel * (-2.0 * distance / (width * width));
+  float shoulderSlope = shoulder * (-2.0 * (distance - width * 1.65) / (shoulderWidth * shoulderWidth));
+  float pressedSlope = -0.0016 * channelSlope + 0.00048 * shoulderSlope;
+  vec2 paperSlope = vec2(dFdx(field), dFdy(field)) * resolution.y * 0.00065;
+  vec2 slope = grid.yz * pressedSlope + paperSlope;
+  vec3 normal = normalize(vec3(-slope, 1.0));
+  vec3 paperNormal = normalize(vec3(-paperSlope, 1.0));
+  float normalFootprint = pixel / width * 0.15;
+
   vec2 lightXY = ((uLight - uSpecimen.xy) / uSpecimen.zw - uv) * vec2(aspect, 1.0);
-  vec3 lightDirection = normalize(vec3(lightXY, 0.28));
+  vec3 lightDirection = normalize(vec3(lightXY, 0.58));
   vec3 halfVector = normalize(lightDirection + vec3(0.0, 0.0, 1.0));
-  vec3 spectralEmission = vec3(0.0);
-  vec2 hueVector = vec2(0.0);
-  float spectralDensity = 0.0;
+  float diffuse = max(dot(normal, lightDirection), 0.0);
+  float broad = reflection(normal, halfVector, 24.0, normalFootprint);
+  float polished = reflection(normal, halfVector, 150.0, normalFootprint);
 
-  // Fixed overlapping sheets. Their edges cross the crop rather than form
-  // another miniature interface inside the page's own moving aperture.
-  for (int layer = 0; layer < 2; layer++) {
-    float index = float(layer);
-    vec2 center = layer == 0 ? vec2(-aspect * 0.14, 0.035) : vec2(aspect * 0.16, -0.16);
-    float angle = layer == 0 ? -0.075 : 0.10;
-    vec2 q = rotate2d(angle) * (p - center);
-    vec2 halfSize = vec2(aspect * 0.48, layer == 0 ? 0.62 : 0.40);
-    float distance = roundedBox(q, halfSize, 0.001);
-    float mask = 1.0 - smoothstep(-aa, aa, distance);
-    vec2 localUv = q / (halfSize * 2.0) + 0.5;
-    // Separate fixed crops of the actual scan; no animated procedural grain.
-    vec2 scanUv = localUv * vec2(0.82, 0.78) + vec2(0.08, 0.12) + index * vec2(0.21, 0.16);
-    float field = paperField(scanUv);
-    float height = field * 0.28;
-    vec2 slope = vec2(dFdx(height), dFdy(height)) * resolution.y;
-    vec3 normal = normalize(vec3(-slope * 0.045, 1.0));
+  // Leave the cells as quiet, fibrous paper. Reflective material is pressed
+  // into the groove and its shoulders, with a small contact shadow below it.
+  vec3 paper = mix(vec3(0.89, 0.88, 0.85), underlay(uv), 0.22);
+  paper += vec3(grain * 0.32 + field * 0.045);
+  vec3 color = paper * (0.89 + diffuse * 0.12);
+  color -= vec3(0.045, 0.044, 0.041) * channel;
+  float metal = max(channel * 0.74, shoulder);
+  color += vec3(0.014) * reflection(paperNormal, halfVector, 14.0, pixel * 7.0);
 
-    vec2 shadowOffset = rotate2d(angle) * vec2(-0.003, 0.004);
-    float shadow = 1.0 - smoothstep(-aa, aa * 6.0, roundedBox(q + shadowOffset, halfSize, 0.001));
-    color *= 1.0 - max(0.0, shadow - mask) * 0.055;
+  // A restrained pearl coating: changing normals shift the warm/cool balance
+  // within the impression. There are no full-sheet rainbow bands.
+  float facing = max(dot(normal, halfVector), 0.0);
+  vec3 pearl = vec3(0.90, 0.94, 1.0) + vec3(0.10, 0.055, -0.045)
+    * sin(facing * 12.0 + normal.x * 2.0 - normal.y * 1.5);
+  color += pearl * metal * (broad * 0.070 + polished * 0.16);
 
-    vec3 blurredScene = underlay(uv + normal.xy * 0.0012, 4.2 + index * 0.45);
-    vec3 under = mix(color, blurredScene, 0.16);
-    float density = max(0.0, 0.48 + field * 0.30);
-    float optical = exp(-density * mix(1.35, 0.18, 0.70));
-    vec3 paperTint = vec3(0.91, 0.90, 0.87);
-    vec3 sheet = mix(paperTint, under, optical);
+  // Existing fibers are stationary microfacets. They glisten only where the
+  // pressed coating, scan relief and light alignment all meet.
+  float facet = smoothstep(0.012, 0.047, abs(grain));
+  vec3 facetNormal = normalize(normal + vec3(-paperSlope * 2.4, 0.0));
+  float glint = reflection(facetNormal, halfVector, 280.0, normalFootprint) * facet * metal;
+  color += vec3(1.0, 0.98, 0.92) * glint * 0.23;
 
-    float diffuse = max(dot(normal, lightDirection), 0.0);
-    float specular = pow(max(dot(normal, halfVector), 0.0), 42.0);
-    float grazing = 1.0 - max(dot(lightDirection, vec3(0.0, 0.0, 1.0)), 0.0);
-    sheet *= 0.90 + diffuse * 0.12;
-    sheet += vec3(specular * 0.035);
-    // A thin physical edge, not an added decorative outline.
-    float edge = exp(-abs(distance) * resolution.y * 0.55) * mask;
-    sheet += vec3(0.025) * edge * diffuse;
-    color = mix(color, sheet, mask);
-
-    // Exactly the warm/base/cool sample separation used by rainbow-canvas.
-    // The fringes follow physical sheet boundaries, not the entire aperture.
-    vec2 fringe = vec2(0.007, 0.0047);
-    float base = sheetEdgeLight(q, halfSize);
-    float warm = sheetEdgeLight(q + fringe, halfSize);
-    float cool = sheetEdgeLight(q - fringe, halfSize);
-    vec3 edgeChannels = mix(vec3(base), vec3(warm, base, cool), 0.50);
-    // Low-frequency scan features, rather than noise, let a few real creases
-    // catch color within the sheet. Most of its center remains quiet.
-    float crease = smoothstep(0.018, 0.065, abs(luma(textureLod(uPaper, scanUv, 1.8).rgb) - luma(textureLod(uPaper, scanUv, 5.2).rgb)));
-    float illumination = exp(-dot(lightXY, lightXY) * 1.5) * (0.55 + diffuse * 0.45);
-    vec3 response = (edgeChannels * 2.4 + vec3(crease * 0.07 + specular * 0.045) * mask) * illumination;
-    float hue = fract(0.68 + index * 0.28 + lightXY.x * 0.25 - lightXY.y * 0.16 + normal.x * 0.025 + grazing * 0.08);
-    float weight = max(response.r, max(response.g, response.b));
-    spectralEmission += pow(rainbow(hue), vec3(2.2)) * response;
-    hueVector += vec2(cos(hue * 6.28318530718), sin(hue * 6.28318530718)) * weight;
-    spectralDensity += weight;
-  }
-  float coherence = length(hueVector) / max(spectralDensity, 0.000001);
-  float hue = atan(hueVector.y, hueVector.x) / 6.28318530718;
-  vec3 hueColor = mix(vec3(1.0), rainbow(fract(hue + 1.0)), smoothstep(0.0, 0.30, coherence));
-  vec3 separated = pow(spectralEmission / max(max(spectralEmission.r, max(spectralEmission.g, spectralEmission.b)), 0.000001), vec3(1.0 / 2.2));
-  vec3 spectralTint = mix(hueColor, separated, 0.35);
-  float spectralAmount = (1.0 - exp(-spectralDensity * 2.0)) * 0.82;
-  color = mix(color, mix(color, spectralTint, 0.72), spectralAmount);
+  // A single-pass scattering skirt around a lit ridge. It shares the same
+  // light response and stays local to the press, without another framebuffer
+  // or a screen-wide glow pass at the expense of the existing pixel budget.
+  float skirt = exp(-pow(distance / (width * 3.8), 2.0));
+  float softLight = reflection(paperNormal, halfVector, 38.0, pixel * 7.0);
+  color += pearl * skirt * softLight * 0.025;
   outColor = vec4(clamp(color, 0.0, 1.0), 1.0);
 }`;

@@ -65,11 +65,11 @@ For future changes, append a dated entry with a stable ID, **decision, reason, s
 
 ### D12 — Visible, consistent shortcuts
 
-**In code.** Category shortcuts use Option/Alt + number, shown after the label as superscripts; do not alternate modifier conventions across the same navigation. The current four categories use 1–4. G / R / S starts position, rotation and scale in the viewport, with axis constraints and cancel/confirm behavior, rather than merely focusing a numeric field. Preserve text-input editing and familiar undo/redo shortcuts. See [navigation](../web/src/navigation.ts), [EditorNavigation](../web/src/EditorNavigation.tsx) and [TransformShortcuts](../web/src/TransformShortcuts.tsx).
+**In code.** Category shortcuts use Option/Alt + number, shown after the label as superscripts; do not alternate modifier conventions across the same navigation. The original four categories used 1–4; D118 supersedes that mapping with three categories on 1–3. G / R / S starts position, rotation and scale in the viewport, with axis constraints and cancel/confirm behavior, rather than merely focusing a numeric field. Preserve text-input editing and familiar undo/redo shortcuts. See [navigation](../web/src/navigation.ts), [EditorNavigation](../web/src/EditorNavigation.tsx) and [TransformShortcuts](../web/src/TransformShortcuts.tsx).
 
 ### D13 — Four primary workspaces
 
-**In code.** The final top level is **Product / Material / World / Film**. Camera belongs in Film, with Still / Video mode. Product is for structure and mechanisms; Material gets finishes and decals. Static placement and object animation live in Film. Earlier Product placement/animation tabs, a separate Camera category and the two-row top-bar experiment were superseded. Old deep links resolve to the replacement locations. See [navigation.ts](../web/src/navigation.ts).
+**Superseded by D118.** The earlier top level was **Product / Material / World / Film**. Camera belongs in Film, with Still / Video mode. Product is for structure and mechanisms; Material gets finishes and decals. Static placement and object animation live in Film. Earlier Product placement/animation tabs, a separate Camera category and the two-row top-bar experiment were superseded. Old deep links resolve to the replacement locations. See [navigation.ts](../web/src/navigation.ts).
 
 ### D14 — Controls follow the active layer
 
@@ -133,7 +133,7 @@ For future changes, append a dated entry with a stable ID, **decision, reason, s
 
 ### D28 — Camera information belongs where the image is composed
 
-**In code / direction.** Show camera frame/aspect, target and focus-related controls in the viewport, following the original prototype. “Focus radius” means optical depth of field, not only a decorative target circle. Keep numerical controls and actual optical preview behavior connected. See [FilmViewportControls](../web/src/FilmViewportControls.tsx), [camera framing](../web/src/cameraFraming.ts) and [DepthOfFieldPreview](../web/src/DepthOfFieldPreview.ts).
+**Viewport settings placement superseded by D136; optical behavior retained.** Show camera frame/aspect, target and focus-related controls in the viewport, following the original prototype. “Focus radius” means optical depth of field, not only a decorative target circle. Keep numerical controls and actual optical preview behavior connected. See [FilmViewportControls](../web/src/FilmViewportControls.tsx), [camera framing](../web/src/cameraFraming.ts) and [DepthOfFieldPreview](../web/src/DepthOfFieldPreview.ts).
 
 ### D29 — A compact timeline that enters with the frame
 
@@ -191,6 +191,8 @@ For future changes, append a dated entry with a stable ID, **decision, reason, s
 
 ### D42 — Text makes room for the moving contour
 
+**Reflow behavior superseded by D116.** Pretext now wraps fixed lines on font/width changes; scrolling moves whole lines horizontally.
+
 **In code / direction.** Use Pretext to measure and lay out real HTML text around the current shape. Keep intended left/right reading placement and outer padding, and enlarge/centralize shapes enough to meaningfully affect the composition. Shift the cover rectangle right to prevent an isolated “g”/broken title. Preserve stable line identity and motion between layouts instead of repeatedly replacing whole text blocks. See [philosophy text](../web/src/philosophyText.ts), [line layout](../web/src/philosophyLineLayout.ts), [text motion](../web/src/philosophyTextMotion.ts) and [sequence](../web/src/philosophySequence.ts).
 
 ### D43 — Scroll should settle without stopping twice
@@ -199,7 +201,7 @@ For future changes, append a dated entry with a stable ID, **decision, reason, s
 
 ### D44 — Glassine is the opening material study
 
-**In code / direction.** Use an interactive glassine specimen with iridescent aberration for the first philosophy opening. Reuse Estelle's scan and glassine work, with spectral behavior informed by the [rainbow canvas study](https://softcopy.digital/studies/rainbow-canvas.html). Other sections may use product screenshots rather than separate WebGL studies. The implementation includes a deterministic still for compact screens/fallback; no claim is made that all later screenshot assets are complete. See [GlassineStudy](../web/src/GlassineStudy.tsx), [glassine renderer](../web/src/glassineRenderer.ts) and [asset provenance](../web/src/assets/gesso/ASSETS.md).
+**In code / direction; opening material treatment superseded by [D147](#2026-10-21--d147--press-the-grid-into-the-paper).** Use an interactive glassine specimen with iridescent aberration for the first philosophy opening. Reuse Estelle's scan and glassine work, with spectral behavior informed by the [rainbow canvas study](https://softcopy.digital/studies/rainbow-canvas.html). Other sections may use product screenshots rather than separate WebGL studies. The implementation includes a deterministic still for compact screens/fallback; no claim is made that all later screenshot assets are complete. See [GlassineStudy](../web/src/GlassineStudy.tsx), [glassine renderer](../web/src/glassineRenderer.ts) and [asset provenance](../web/src/assets/gesso/ASSETS.md).
 
 ### D45 — Form-preserving morphs, not a universal circle detour
 
@@ -459,7 +461,7 @@ Verification for D76: production build and 87 focused renderer, halo and loader 
 
 ### 2026-10-19 — D77 — Movie duration, black gaps and image shots
 
-**In code; black gaps, editable start times and independent empty duration superseded by D79.** The Film timeline has an editable total duration in seconds, rounded to whole frames. `render.durationFrames` owns the movie clock; legacy scenes derive it from their last shot. Start times place clips explicitly. Trim and delete leave black time; insertion shifts following clips, while reordering retains the intervening gap. Reject overlaps and shortening the movie past existing clips, shared movement or keys. Preserve authored motion timing unless Stretch is chosen.
+**In code; black gaps, editable start times and independent empty duration superseded by D79; the separate Add image entry superseded by D135.** The Film timeline has an editable total duration in seconds, rounded to whole frames. `render.durationFrames` owns the movie clock; legacy scenes derive it from their last shot. Start times place clips explicitly. Trim and delete leave black time; insertion shifts following clips, while reordering retains the intervening gap. Reject overlaps and shortening the movie past existing clips, shared movement or keys. Preserve authored motion timing unless Stretch is chosen.
 
 Show black intervals on the same timeline row as scene and image clips. The single playhead travels through occupied and empty intervals. Selecting a gap shows Black rather than another scene’s controls. Add image accepts PNG, JPEG and WebP from the local computer; it fills up to three seconds at the current gap, or appends after existing content. Image clips have a thumbnail, name, start, duration and Fit image / Fill frame. Image selection replaces object/camera controls with image controls; playback still keeps the editing selection stable.
 
@@ -583,6 +585,58 @@ Verification: all 26 native Blender import tests passed, including scene-plane e
 
 Pre-push checks: 944 web tests passed with two workers; the default highly parallel run had timed out in two exhaustive geometry tests. The Python suite ran 397 tests with 31 optional integrations skipped, and the native import suite ran separately. Production build, nine capture-script tests and whitespace checks passed. Compared all retained bottle triangles against the prior conversion: geometry is unchanged apart from recentering and float rounding. Also fixed empty legacy Film recovery and publishing the updated movie duration when creating a scene.
 
+### 2026-10-20 — D88 — Edit a light preview; render a still on demand
+
+The Blender-backed viewport still below is superseded by D89. Its preview pixel budget and resource-lifetime fixes remain.
+
+**In code.** Bound the live editor to one pixel per CSS pixel, at most 1280 pixels on its longest edge and 921,600 pixels total. Preview shadows use 512px maps. Resize owned imported bitmap textures sequentially to a 2048px longest edge before publishing the browser scene; retain original files for Blender and capture. Product and Material defer imported room meshes and splats until World or Film needs them; the product's lighting stays available. Empty/hidden material swatches do not initialize WebGL. Preserve one presentation-camera identity so Three's transmission buffers are reused across frames.
+
+Put **Render still** at the viewport's top right. It sends an immutable snapshot of the current camera and film frame to the existing local Blender queue, renders a PNG with a 2048px long edge and 64 samples, and displays that image in the same window. Pause live drawing while the still is displayed. **Back to preview** resumes editing; changing the scene, workspace, frame or inspection angle invalidates pending stills. Keep cancel, failure and retry states visible. Resolve material/transform drafts first; comparison and image clips retain their existing export flows.
+
+Reason: editing should not require continuously paying for output quality. A still uses the real scene renderer outside the browser, while the original model, textures, film cameras and export settings remain unchanged. Product/Material stills use a white inspection stage; a physically rendered image can differ from the WebGL approximation.
+
+Scope: browser resource lifetime, preview resolution, viewport still workflow and temporary render snapshots. Sources: `viewport.ts`, `previewResolution.ts`, `previewTextures.ts`, `MaterialSwatches.tsx`, `ViewportStillOverlay.tsx`, `viewportStill.ts`, `film/scene.py`, `scripts/blender_scene.py`.
+
+Verification: a real-browser transmission check reproduced texture growth from 1 to 12 over 12 camera clones. Reusing the camera held texture counts steady across 120 frames of both the lamp and glass bottle. The lamp check also confirmed that Product/Material did not load the hidden 104.8 MiB room.
+
+Validation: the web suite covered 1,000 tests (995 passed in the full run; the four stale fixture expectations and one added buffer-budget case passed in the focused rerun). All 44 Python scene/lighting/still tests passed. Production build and whitespace checks passed. In the live app, a 2048 × 1932 lamp still completed, decoded in place, and returned to the preview; opening World then loaded and displayed the room successfully.
+
+### 2026-10-20 — D89 — A viewport still is one high-resolution viewport frame
+
+Use the same live WebGL renderer, scene, camera, materials and optical preview for **Render still**. Draw once at a 2048px longest edge, copy the pixels before clearing the buffer, then restore the low-resolution buffer and release temporary resources. Display a decoded local PNG in place; pause drawing while it is visible. **Back to preview** resumes the live view. Material drafts and hidden parts remain visible exactly as they are being edited. No render queue, polling, second WebGL context or asset reload.
+
+Reason: D88 sent an inspection image through CPU Cycles; the lamp test took four minutes and changed the appearance from the browser draft. The viewport button should inspect the current work at a higher pixel resolution. **Export** remains the separate physically rendered output path, using original assets and its existing settings. The inline still retains the loaded preview textures and shadow quality; it does not claim Cycles equivalence.
+
+Only one capture runs at a time. Wait for a complete scene/material frame; cancel stale captures when the view changes. Restore the preview on abort or failure, retain retry and cancel actions, and revoke temporary image URLs when leaving the still. Scope: `viewport.ts`, `ViewportStillOverlay.tsx`, `App.tsx`, and their focused tests. Removed the unused temporary Blender-stage/request path introduced by D88.
+
+Verification: 140 focused viewport/capture and overlay tests passed, including cancellation, stale scene/material changes, restored buffer budgets and image URL cleanup. Production build and whitespace checks passed. In the live browser, the lamp still appeared in 427 ms in Material and 402 ms in World, including the UI handoff; these are individual measurements, not a latency guarantee. The World PNG measured 1784 × 2048 while the live canvas returned to 610 × 700. Navigation cleared the still and restored editing, with no new Blender render job. Hidden viewport controls are inert while the still is shown.
+
+
+### 2026-10-20 — D90 — One bottle, one label asset, one sampled part pose
+
+**In code.** Derive imported part identities, parent relationships, bounds and source matrices from the verified GLB. Store editable motion separately from those immutable source transforms. Apply a parent-space move/rotation/scale around the measured center or an explicit pivot. Film controls, camera targets, custom keys and G/R/S use the same stable IDs and saved names. Physical source children inherit motion; editorial tree grouping does not change the mechanics. No joints are inferred.
+
+Replace label artwork on one selected source mesh using its original UV0. Default to **Plain label**, removing old color and printed finish maps only on that surface. Offer **Keep original finish** and **Restore original artwork**. Decode uploaded PNG/JPEG/WebP locally, normalize profile/orientation once, and save a bounded hash-addressed PNG. Rasterize new decal text once using the packaged Studio Sans face. Save and bundle that same image for browser and Blender. Existing legacy text stays compatible until explicitly reapplied.
+
+Both renderers consume the same sampled node matrices. Blender keeps a separate motion parent so multiplying a delta by a nonuniform source transform does not lose shear. Split projected decals by their actual source mesh so independently moving descendants retain their artwork. Address UV0 explicitly for new artwork without disturbing baked original finish maps on UV1. Keep shared sibling materials intact and dispose replaced GPU resources only when no live surface uses them. Delay focus translucency until canonical artwork is installed.
+
+Reason: make one real bottle workflow reliable before adding another editing model. Preserve the current Halyard/grid interface, original product files and low-resolution browser budget. Consistency means the same parts, pixels, UVs, pivots and timing; browser optical shading still differs from Cycles. Unsupported or missing UVs remain an explicit limit.
+
+Verification: focused API checks cover image import, recovery, save/reopen and asset bundling. Native Blender checks reopen the exported scene and compare parent/child matrices, packed image hashes, UV0/UV1 bindings, unmodified siblings and restoration. Final checks: 1,032 web tests passed; 418 backend tests ran with 35 optional integrations skipped. Nine native Blender tests passed separately. The actual filtered perfume bottle also reopened with all ten source-node matrices matching across three frames (maximum error 4.23e-7), and exact packed Sticker artwork. A rendered four-quadrant image confirms orientation. Production build and whitespace checks passed. Live browser checks passed in a separate QA campaign: Sticker image upload, finish switching, save/reopen, restore/undo, and independent Cap movement in Film. The local video exporter currently reports FFmpeg 7.1.5 missing; native Blender parity remains verified.
+
+
+### 2026-10-20 — D91 — A fixed part inspector beneath the tree
+
+**Partially superseded by D121:** keep the fixed identity block; remove the optional Organize and File details views.
+
+**In code at the time.** Keep the selected **Object** name, measured dimensions and **Parent** in one stable area beneath the independently scrolling Product tree. Opening **Organize…** or **File details…** reveals optional controls below that identity block, with its own scrolling region. Organize contains parent editing, fixture grouping and source-hierarchy recovery; File details retains original names, parents, node paths and material evidence, and switches the tree to its explicitly labelled source view. Keep the selected alias visible while inspecting the file.
+
+Reason: implement the selected Fixed inspector comparison without moving details into individual tree rows or replacing the name and dimensions when an action opens. Editorial grouping changes the list, not motion; state this beside the parent control. Preserve D16’s **Part details / Parent / Object** labels, Halyard/grid styles, current part identities, renaming and visibility. Do not restore the removed Product **Show assembly / Frame** buttons. Cancel, successful parent changes and Escape return focus to the disclosure control; closed content is hidden and inert. Existing cabinet transitions remain, with reduced-motion and mobile fallbacks.
+
+Scope: [ProductPanel](../web/src/ProductPanel.tsx), [condensed editor styles](../web/src/condensed-editor.css), and [panel tests](../web/src/ProductPanel.test.tsx). The hierarchy and renderer are unchanged. A recoverable pre-change copy is saved in the task workspace under `work/gesso/inspector-baseline`.
+
+Verification: 40 focused panel, hierarchy and disclosure tests passed, covering saved aliases, source metadata, closed controls, preserved recovery and existing Material/Film boundaries. Live browser checks passed for F2 renaming, source metadata with the alias retained, parent apply/recovery, and Escape focus return. The name field stayed at the same measured vertical position when opening disclosures and when selecting the final node in the 39-part lamp tree. Optional details scroll below the fixed identity block.
+
 
 ### 2026-10-20 — D92 — Compose a pattern in the curve demo
 
@@ -659,6 +713,8 @@ Reason: the user judged the vertex-coloured collider too blurry as the visible r
 
 ### 2026-10-21 — D102 — Form + light shows the studio's own films inside the opening
 
+**Superseded for Form + Light by D115.** The original decision below records the earlier film treatment.
+
 **In code.** After the glassine cover, each principle chapter fills the shared window with a loop rendered by Gesso (watch, stained-glass lamp, sunglasses, candle holder, barn lamp), positioned to the live contour bounds like the glassine still and switched by the scroll sequence stage. Loops are muted, preload only metadata, play only while their stage is current on wide layouts, and the glassine canvas keeps the cover. Media comes from the same `public/media/gallery` loops as About (D99).
 
 Reason: the user asked that the opening show what the tool makes, not a grey specimen. Scope: [GlassineStudy](../web/src/GlassineStudy.tsx) and [Form + light styles](../web/src/shape-light.css); shapes, text flow and scroll behaviour are unchanged. Verification: production build; a browser scroll to chapter 02 showed the sunglasses loop playing inside the arch with the glassine hidden.
@@ -681,6 +737,508 @@ Reason: the user asked for surreal colour backgrounds alongside real rooms, in t
 
 ### 2026-10-21 — D104 — The showcase is five products, one setting each
 
+**Form + Light media superseded by D115; the About gallery remains as described below.**
+
 **In code.** The About gallery (`PRODUCT_GALLERY`) and the Form + light loops show only the five Blendswap products — the chronograph in the velvet jewel-box, the Ambre bottle in the brutalist atrium, the Sasha ring in the flooded marble hall, the rangefinder camera in a blue field, the Theo teapot in an orange field — rather than the earlier mix of eleven. No product repeats a setting, so the row reads as five different films instead of variations on three rooms.
 
 Reason: the user asked for the five models they supplied, each in a different environment, and judged the Khronos sample set redundant once a real chronograph was in. Scope: `web/src/productDescription.ts` (list and note), gallery media under `web/public/media/gallery/`; the Khronos campaigns stay in the workspace but are not shown. Verification: `npm run build --prefix web`; the About row renders five tiles with their credits; Form + light stages 1–5 play the same five loops.
+
+
+The following four entries retain their original dates. Their IDs were renumbered during branch integration because D93–D96 were also used on the teammate branch.
+
+### 2026-10-20 — D105 — Keep curve handles consistent with the moving edge
+
+**In code.** Rectangle → star and star → plus revealed small scallops between the intended corners. Moving anchors while independently blending handle angles and lengths created extra changes of curvature. For contours sampled on matching radial rays, recover each tangent's angular derivative, interpolate that derivative, then restore the interpolated handle shortening. Check correspondence before using this path; semantic windows and other freeform contours retain their existing interpolation.
+
+Reason: fix the contour itself without hiding the problem behind timing or a circle detour. Keep all 64 anchors, exact finished shapes, reverse playback, and the 30% midpoint contraction. The ray origin comes from intersecting opposite rays, so asymmetric polygons do not acquire a false center. Scope: [shared morph](../web/src/frameMorph.ts) and [regressions](../web/src/frameMorph.test.ts).
+
+Verification: 69 focused tests passed, including all 256 ordered catalog pairs, curvature-reversal limits for both reported transitions, endpoint continuity, reverse symmetry and 70% midpoint bounds. Production build and whitespace checks passed. Browser inspection covered the intermediate contours and reverse playback in the five-shape pattern; no console errors were reported. A recoverable baseline remains in the task workspace under `work/gesso/morph-baseline`.
+
+### 2026-10-20 — D106 — Compare whole-contour interpolation before changing the live frame
+
+**Experimental comparison, not a replacement.** Add `/curves?compare=1` for rectangle → star and star → plus. Show the current production morph beside two alternatives: a blended signed-distance field and blended radial distances. Both alternatives receive the same intermediate-only angular smoothing. They retain exact endpoint curves and use the same timing, 64-anchor output, coordinate scale and separate 30% size envelope. There is no landmark correspondence solver in this experiment. Intermediate areas may differ; they are not secretly normalized to match.
+
+Flatten the actual authored Béziers for the distance fields, recover their blended zero contour on 64 rays, and reconstruct a cubic outline. The 0.08-unit flattening tolerance is not a guarantee on the final 64-anchor fit. Precompute 33 states per pair, interpolate them with shared temporal derivatives, and restore authored endpoint handles smoothly. All three views use one animation clock; checkpoints at 0 / 25 / 50 / 75 / 100% are inspection controls, not pauses along the path. Cache the two compiled pairs and leave the production renderer untouched.
+
+Keep the Halyard/editor chrome, two-pair rail, equal specimen windows and fixed playback dock. Select a method to inspect it larger. Include endpoint and anchor guides, forward/reverse playback, optional back-and-forth repeat, keyboard scrubbing, and URL recovery. Mobile and reduced-motion preferences retain scrubbing with playback disabled. Return to the original pattern and position through the Pattern link.
+
+Reason: D105 reduced small handle ripples, but did not decide how source features should disappear as destination features emerge. Compare a whole-outline rule against the lighter radial alternative before choosing a new shared motion model. Scope: [comparison UI](../web/src/CurveComparisonDemo.tsx), [experimental geometry](../web/src/curveComparison.ts), [tests](../web/src/curveComparison.test.ts), and the curve-study entry link.
+
+Verification: 80 focused geometry, pattern and comparison tests passed, including endpoint identity and continuity, finite non-crossing samples, symmetry, reverse paths, 70% midpoint bounds and continuous checkpoint velocity. Production build passed. Browser inspection confirmed distinct intermediate contours, identical endpoint SVG paths, forward/reverse playback and fixed shared progress. A recoverable UI/renderer baseline is in the task workspace under `work/gesso/comparison-baseline`.
+
+### 2026-10-20 — D107 — Give each comparison frame a controllable surface
+
+Superseded by D108 after Estelle clarified that the effect belongs to the object itself. The image overlay implementation was removed; the recoverable baseline remains in the task workspace.
+
+**Experimental study.** Place the existing leveled Nessino scene render inside each live comparison contour. Each frame owns Clear, Translucent, or Burned mesh settings. The selected frame's rail exposes surface opacity, opening, and cell size; Reset clears that frame, while Apply to all frames restores a controlled comparison. Keep the 64-anchor paths, common clock, exact endpoints, and 30% midpoint contraction. Product toggles the image and original silhouette; editing a surface brings its image back. Save independent settings in the URL with bounded recovery from malformed values.
+
+Reason: inspect how a surface obscures and reveals the product while its boundary changes. Estelle specified a translucent perforated surface with singed edges, rather than the product's 3D wireframe. This is an image-layer study, not a reconstruction of hidden product geometry or a new editor material. The shared photograph/crop stays fixed so content changes do not obscure the morph comparison.
+
+Use one existing image asset, native SVG clipping, static diffusion, and deterministic tiled openings with thin, dark edges. No new WebGL contexts, video decoders, or animation loops. Zero opacity returns the clean image. Decode before showing it; retain silhouette and Retry if loading fails. Keep native keyboard sliders, pause morph playback while adjusting a value, and preserve the existing compact-screen / reduced-motion policy.
+
+Scope: [comparison](../web/src/CurveComparisonDemo.tsx), the former `curveSurface.ts`, `CurveSurfaceLayer.tsx`, and their focused tests. Existing render credit remains in the asset manifest. A recoverable baseline is in the task workspace under `work/gesso/effects-baseline`.
+
+Verification: 87 focused surface, geometry, comparison, and pattern tests passed; the 18 surface/comparison checks passed again after the membrane refinement. Production build passed. Browser checks covered mouse/keyboard sliders, zero-opacity recovery, independent treatments, Apply to all, per-frame Reset, reload recovery, playback, and identical endpoint contours. No console errors were reported.
+
+### 2026-10-20 — D108 — Reveal the product's own mesh
+
+Replace D107's perforated image overlay with the actual Nessino geometry. Each comparison frame has Solid, Translucent and Wireframe views, with independent object opacity, edge opacity and back-edge visibility. Drag the product or use Turn to rotate all views together; Reset affects the selected frame and Apply to all restores a matched comparison. Keep settings in the URL. Old surface links recover their mode without reinterpreting perforation size as a physical mesh property.
+
+Reason: Estelle clarified that the effect should expose the object itself. Use its real triangles and imported transforms, not a texture suggesting hidden structure. Radial smoothing is now the comparison's default after the visual comparison; the live website's morph remains unchanged. Preserve the 64 anchors, exact endpoints, common clock and 30% midpoint shrink.
+
+Load only the verified local product GLB (about 2.2 MB, 38 meshes), without the room. One 750 × 450 WebGL buffer draws the visible views on demand, then copies them into cached canvases; morph playback changes only their SVG clips. Original geometry and materials remain intact, inspection materials are reusable, and teardown releases shared buffers once. Default edge opacity is 12% so dense triangles do not overwhelm the object. Loading, missing assets and context loss have explicit status and retry. This study uses the source GLB finish, not later campaign material/artwork edits, and requires the local Nessino campaign. Skinned, instanced and morph-target meshes are explicitly unsupported here.
+
+Scope: [comparison UI](../web/src/CurveComparisonDemo.tsx), [product loader](../web/src/curveProductAsset.ts), [object renderer](../web/src/curveProductRenderer.ts), [settings](../web/src/curveProductSettings.ts), and their focused tests. The previous image study is recoverable in the task workspace under `work/gesso/mesh-study-baseline`.
+
+Verification: 96 focused geometry, pattern, asset, renderer and settings tests passed; production build and whitespace checks passed. Browser checks covered the real lamp, independent frame modes, object/edge opacity, back edges, drag rotation, keyboard editing, Apply to all, Reset, product/silhouette switching, morph playback and URL reload recovery. No console errors were reported.
+
+### 2026-10-21 — D109 — Import parts and dimensions through one product handoff
+
+**In code.** STEP/STP, IGES/IGS and STL/OBJ join GLB and Blender in the existing product import. All paths produce the same validated, hashed GLB and source-part catalog used by preview, animation and export. OpenCascade preserves available CAD assembly names, surface shells and display colours; its tessellation tolerance is recorded. Native CAD features and mechanical constraints are not inferred. Failed conversions publish nothing.
+
+Reason: a product designer should not need an external conversion step for common interchange files, but importing must not silently change size, drop surface-only parts or invent material/assembly information. Nessino proved why reading only solids was insufficient: 30 of its 38 selectable parts are surface shells.
+
+Units stay explicit. STEP/IGES read their documents. STL/OBJ require a choice. Blender uses file units with an optional override, because the actual perfume file declares none. Import can use a newer Blender while exports retain the reference 4.3.2 renderer. Unsupported shaders/resources initially returned preparation instructions; **D111 supersedes that blocking material policy**. Unused material slots no longer block otherwise supported geometry. Dense products report their vertex cost instead of silently losing detail.
+
+The teammate integration preserves audio, moving lights, shadow colliders and gallery films alongside local artwork, part animation, low-resolution preview and curve studies. Contact checks also restore D93's intended behavior: when the plinth is hidden in an authored studio, the floor meets its support height in both renderers.
+
+Scope: `film/products.py`, `film/cad_import.py`, `film/blend_import.py`, import worker scripts, Product import controls, CLI/server options and [compatibility evidence](import-compatibility.md). Existing campaigns and source files are preserved; this is support for the documented formats and tested cases, not a claim that every Blender or native CAD file can be represented.
+
+### 2026-10-21 — D110 — Fit the product inside the world's projected bounds
+
+**In code.** Selecting an imported world fits the product once into that world's projected bounding rectangle, inset 10% on each edge. **Fit product to scene** repeats the operation for the current shot. A dotted box shows the target. Use the saved shot camera and output aspect ratio, so changing the sidebar width cannot change the fit.
+
+Reason: product files and generated worlds arrive at independent scales. Keep the imported dimensions as source data; use one uniform placement scale to compose the product within the scene. The fit keeps the support pivot, camera, world, proportions, materials and part coordinates intact. It enters undo history and saves with the campaign. Absolute product scale keys receive the same multiplier; relative Film motions keep their values. The canonical evaluator supplies the animated pivot and scale, rather than estimating them from the viewport.
+
+This is a composition fit, not a claim about a generated room's physical dimensions or a collision-free placement. Measure loaded mesh geometry, or a Gaussian world's collider. Missing bounds, off-screen support and out-of-range scales produce a recoverable error. Existing campaigns are not refitted on open. Both sides of an A/B comparison use one shared scale.
+
+Scope: `web/src/productWorldFit.ts`, `viewport.ts`, `WorldPanel.tsx`, `ProductFitGuide.tsx`, `App.tsx`, and the opt-in placement sample in `film/scene.py` / `film/server.py`.
+
+### 2026-10-21 — D111 — A material failure must not discard the product
+
+**In code.** If a Blender material cannot be converted, use an opaque neutral surface for that material and continue importing. Keep supported materials, geometry, part assignments, UVs and source dimensions. Preserve working Glass/Mix conversions and static map baking; isolate failures by material. The source file stays untouched. The fallback lives in the imported GLB, so preview and export receive the same material.
+
+Reason: a node group such as `Metal / Group.003` should not prevent someone from working with their model. Requiring a Blender repair before opening the product makes material fidelity a gate for every other task. Show one import warning and retain names, affected objects, causes and optional repair steps in a collapsed **Import notes** disclosure in Product and Material. Explain how to keep the original finish by fixing the source and reimporting; users can also assign replacements in the material library. These notes describe the import, not whether the user has since edited the finish.
+
+This supersedes D109's blocking policy for material graphs/resources. Invalid geometry, unreadable files, unsafe external scene dependencies, process failure and global limits still stop incomplete imports. No claim is made that an unsupported shader's appearance survives the fallback.
+
+Scope: `scripts/import_blend_product.py`, the bounded report reader in `film/blend_import.py`, `web/src/ProductImportNotes.tsx`, `ProductPanel.tsx`, `productImport.ts`, and the Blender import regressions.
+
+Verification: actual Blender 5.1.1 imports and focused 4.3.2 regressions cover unsupported groups, shared materials, missing images, bake failures, optional repairs and unchanged geometry/UVs/source files. The larger warning report passes the atomic import wrapper. Twenty-five frontend checks and the production build pass. Browser import of a mixed-material fixture succeeds, preserves the supported blue-gray/red surfaces, renders the neutral replacement, and keeps repair notes after reload. Detailed notes are bounded and report omitted counts for large files.
+
+### 2026-10-21 — D112 — Explain the reusable setup on the cover
+
+**Expanded copy and action superseded by [D146](#2026-10-21--d146--one-studio-entrance-and-one-mobile-navigation-row); footer line retained.** Estelle's cover line is **“a reusable studio for product activation content.”** The expanded window adds **“Set up your product once. Change the finish, setting, or camera for the next image.”** Its action is **“make a still or film”;** navigation keeps **“enter studio.”** Both enter the existing resumable editor.
+
+Reason: name repeatability on the cover, explain what gets reused on contact, and name the output in the action. The copy does not promise instant generation or a new project on each visit. Keep Halyard, the site grid, centered wordmark, shared morph and video lifecycle. Compact screens move the helper into a reserved footer row so it cannot collide with the video or side labels. The collapsed entrance is inert; keyboard and touch reveal the same content.
+
+Scope: `web/src/LandingPage.tsx`, `web/src/landing.css`. Original files remain in the task workspace under `work/gesso/cover-copy-baseline`. Production build and whitespace checks pass; browser checks confirm the expanded copy, keyboard reveal, regular text weight and compact layouts at 433px and 356px CSS widths.
+
+### 2026-10-21 — D114 — Let the browser own scrolling
+
+**In code.** Remove Form + Light's scroll debugger, its shortcut and its experimental scroll controller from the public page. Saved study settings cannot re-enable custom scrolling. Native scroll position still drives the shared shape and text flow; retain the 30% default midpoint shrink and native section links. The study modules remain in source for reference.
+
+Reason: the page should follow the person's scroll, without a second controller waiting for or redirecting the gesture. About now accepts native scrolling across the full page, including the header and margins. Its navigation and shared window remain fixed while the content scrolls through them.
+
+Scope: `ShapeLightPage.tsx`, `shape-light.css`, `AboutPage.tsx`, `about.css`. Recoverable baselines are in the task workspace under `work/gesso/native-scroll-baseline`. Production build and whitespace checks pass. Browser verification covers the removed debugger and shortcut, native scrolling, principle links, and About scrolling over its margin and header.
+
+### 2026-10-21 — D115 — Show the editor behind each principle
+
+**In code.** Replace the five Form + Light video loops with static captures of the actual editor: Film and its timeline, still export, the parts tree, material controls, and bottle label controls. Each image fills the existing moving contour with a crop chosen for that section. Keep the glassine cover, copy, shared shape renderer, native scrolling, and 30% midpoint shrink.
+
+Reason: the principles describe how the workspace behaves. Relevant interface details show that work directly. An initial fit that kept every screenshot edge inside the shape made the controls too small; full-bleed crops preserve useful scale. Desktop waits for an image to decode before replacing the previous capture; compact layouts use the same assets in their static shapes. Five separate lossless WebP files total 669 KB. About's video gallery is unchanged.
+
+Scope: `GlassineStudy.tsx`, `ShapeLightPage.tsx` static specimens, `philosophyScreenshots.ts`, `shape-light.css`, and `assets/gesso/editor-stills/`. Asset sources and capture limits are recorded in `assets/gesso/ASSETS.md`. The task workspace retains the full browser captures and implementation baseline.
+
+Verification: production build, 23 existing sequence/motion/text regressions, and whitespace checks pass. Browser checks cover all five sections, reverse scroll, cover handoff, and the compact layout at 433px CSS width. All five captures decode, Form + Light contains no video elements, and the glassine renderer stops outside its cover. No console errors were reported.
+
+### 2026-10-21 — D116 — Keep the reading lines, move them around the shape
+
+**In code.** Form + Light's scrolling compositions stay inside columns 2–6. The outer columns carry no moving text or shape geometry. Reduce and reposition the windows to leave two columns for reading and up to three for the specimen; retain the fixed navigation, different silhouettes, screenshots, glassine cover, and 30% contraction between shapes.
+
+Reason: the earlier flow kept recalculating line breaks, then moving words between rows. Smoothing those moves still made the copy jump. Pretext now measures complete lines only when fonts or viewport width change. Scrolling moves each line horizontally against the actual contour; its words, baseline, and paragraph height remain fixed. A 64px vertical approach/release range softens the response to a flat shape edge without adding a second animation clock. Text is bounded by the inner columns. Shapes must leave enough room for the widest line and its 24px clearance. Concentrate horizontal shape travel around the contracted midpoint, after the outgoing copy has cleared; use a common centered vertical composition for the chapters.
+
+Scope: `ShapeLightPage.tsx`, `shape-light.css`, `philosophySequence.ts`, and `philosophyTextDom.ts`. Compact screens retain native text and static shapes. Baselines remain in the task workspace under `work/gesso/centered-line-flow-baseline`.
+
+Verification: production build and 31 focused tests pass, covering fixed line content/baselines/heights, selectable node cleanup, no warm-path text/layout measurements, reversible contact, smooth crossing boundaries, inner-column shape bounds, grid-aligned endpoints, 64 anchors, and 30% midpoint shrink. Browser checks confirm centered desktop/narrow-desktop compositions and unchanged line breaks through forward/reverse scroll. Sampled transitions at 1422px and 1000px CSS widths report no blocked line lanes or outer-column overflow; the 433px compact layout retains native text. No console errors were reported.
+
+### 2026-10-21 — D117 — Align the left copy toward the window
+
+**In code.** Right-align Form + Light's left-side headings, body, section labels and contents links. The right-side copy remains left-aligned. Each measured line begins from its aligned position before the contour applies clearance; scrolling still preserves its words and baseline. Contents links keep 24px clearance from the specimen lane, and compact text boxes share a right edge.
+
+Reason: the left copy should face the central window without changing its reading order or rewrapping during movement. Scope: `philosophyTextDom.ts` and `shape-light.css`. Production build and nine existing text-flow tests pass. Desktop and compact browser checks confirm the alignment; forward/reverse scrolling retains line content and baselines.
+
+### 2026-10-21 — D118 — Three tabs, one continuous editor surface
+
+**In code.** Use **Product / Stage / Film**, following Figma frame `313:8359` and Estelle's confirmed naming. Product owns Model, Materials and Decals, kept visible in a fixed sidebar row. Each material view has one static section heading rather than a second set of selectors. Stage retains the existing world controls; Film retains Still / Video.
+
+The tab labels start on columns 2–4 of the seven-column grid. Keep Halyard, trailing Option shortcuts, the current application menu icons and save states. The top bar is pure black. A single #131313 tab surface has rounded top corners and concave joins into the editor; a 16px strip of editor ground keeps that join intact above the viewport. Its broad neutral halo travels with it, confined to the black top bar. The halo follows only the tab’s exposed edge and is clipped at the editor join, so the tab and editor remain uniformly #131313. Animate only the shared surface's horizontal transform over 380ms, so another selection redirects the same moving object. Labels stay in place. Reduced motion removes this transition.
+
+Reason: Product, the set, and the film are the three main decisions. Finishes belong to the product; navigation should show which part of the same workspace is active. This implements the three-tab direction without adding the still-discussed dice or generation flow. Old Material URLs normalize to Product; existing world/film links and history remain valid. Option/Alt 1–3 selects a main tab; 5 onward selects its controls. Materials still shows the whole product at full opacity; Decals retains its UV overlay and part focus.
+
+Scope: `EditorNavigation.tsx`, `navigation.ts`, `App.tsx`, `ProductPanel.tsx`, `interface-system.css`, and `condensed-editor.css`. The exact 10px Figma Option export is local; the older Instrument Sans and text Undo/Redo header in the reference do not replace the established Halyard/Lucide system. Baselines remain under the task workspace's `work/gesso/tabbar-baseline`. Production build and 119 focused navigation/history/panel/material/decal/frame tests pass. Browser checks at 1280px and 1000px verify the three tabs, exact black/#131313 surfaces, local 10px shortcut assets, Materials/Decals access, Option shortcuts, Back navigation and legacy Material links. Leaving Model clears stale import-file state when its file input unmounts.
+
+Halo correction: production build and browser checks across Product, Stage and Film pass; the glow remains above the editor join while the shared surface translates. No browser errors were reported.
+
+### 2026-10-21 — D119 — Inspect the editor’s layout columns
+
+**In code.** View → Column guides toggles seven full-height columns using the editor’s existing pitch, 40px outer margins and 20px gutters. Show both edges with a faint fill; keep menus and header controls above the guides. The overlay cannot intercept clicks or enter the keyboard/accessibility tree. It is off by default and remembers the preference locally.
+
+Reason: inspect alignment against the actual editorial grid without moving the interface or adding guides to scene state, undo history, renders or exports. The overlay is seven DOM spans with CSS sizing; no renderer or animation loop is added. Scope: `App.tsx` and `interface-system.css`.
+
+Verification: production build and whitespace checks pass. Browser checks cover pointer and Space-key toggling, focus return to View, unchanged playback, reload persistence, and exact column bounds at 1280px and 1000px. Menus remain above the guides; no browser errors were reported.
+
+### 2026-10-21 — D120 — Remove parts from the scene, retain the source
+
+**In code.** Product → Model places a three-dot menu beside each object: Rename and Remove part. A group shows the affected count and confirms removal of its children. After removal, focus moves to a surviving part; removing everything leaves an Import action and an Undo instruction. Existing Undo/Redo restores the exact scene revision. The temporary eye control keeps its separate preview-only role.
+
+Reason: someone cleaning an imported product should be able to remove unwanted geometry without returning to CAD or accidentally exporting hidden parts. Store removal as stable IDs in `product.removedPartIds`; keep source geometry, materials, motion and labels intact. Resolve editorial children when the command runs, and always include native source descendants. The sampled removal list drives both the live renderer and Blender, including labels and decals attached to removed objects. Other parts keep their transforms; existing motion and camera references remain valid. Removed objects disappear from part/material assignment and new motion/target choices; reusable finishes remain in the library.
+
+Scope: `PartOptionsMenu.tsx`, `ProductPanel.tsx`, `App.tsx`, `partRemoval.ts`, `partTargets.ts`, `filmMotion.ts`, `keyframes.ts`, `CameraPanel.tsx`, `viewport.ts`, `film/part_visibility.py`, `film/scene.py`, and `scripts/blender_scene.py`. The menu uses the existing material-menu surface and keyboard behavior; it clears scroll clipping without changing row height. Baselines are in the task workspace under `work/gesso/part-removal-baseline`.
+
+Verification: production build, 244 focused frontend tests, 22 Python checks and two native Blender build/reopen checks pass. Coverage includes imported subtrees, procedural parts, attached artwork, all-parts removal, full Undo/Redo restoration, saved revisions, export digest changes, deep source graphs and retained motions through subsequent Film edits. In the browser, a lamp part removes cleanly (39 → 38), full-product removal leaves an empty live viewport, Undo returns all 39 parts, and the campaign returns to Saved. No source asset is rewritten. The local server remains running with the new sampler.
+
+### 2026-10-21 — D121 — Edit the parent where it is named
+
+**In code.** Put the objects tree on the existing lighter gray field surface (#242424), with 8px inset and rounded corners. Keep selection, visibility and three-dot actions within each row. Replace the static Parent value with a dropdown that changes grouping immediately. Remove Organize…, File details… and their secondary views.
+
+Reason: the person should select a part and change its parent in place, without opening another editing mode or applying the same choice twice. Invalid parents (the object itself or its descendants) are excluded. Reveal a collapsed destination so the selected part remains visible. Undo restores the previous grouping. The original source graph, geometry and motion remain intact; this dropdown organizes the list. Keep the name and measured dimensions in the fixed Part details block. This supersedes D91’s extra inspector views.
+
+Scope: `ProductPanel.tsx`, `condensed-editor.css`, and `ProductPanel.test.tsx`. Baselines remain under `work/gesso/direct-parent-baseline` in the task workspace.
+
+Verification: production build and 28 focused panel/hierarchy checks pass. Browser checks confirm the #242424 tree surface, direct parent selection, Undo restoring the original grouping, and the three-dot menu remaining accessible. Source metadata and motion are unchanged; the dev server stays running.
+
+### 2026-10-21 — D122 — Put the thing being edited above its controls
+
+**In code.** Each editing task begins with a visual asset. Model shows a wireframe of the loaded product; hovering or keyboard-focusing a tree row fills that part's faces. Materials begins with red plastic, satin metal and clear glass. A starter opens an unassigned draft, keeping existing finishes intact. Decals begins with the selected artwork and Wordmark, Label and Serial starters. Each adds an editable decal to the selected UV-enabled part through the existing artwork pipeline.
+
+Stage uses small PNG covers of the actual sets. Large worlds reuse the loaded viewport for their first cover rather than downloading a second copy. Film uses compact motion diagrams above the controls and inside action buttons; hover or keyboard focus demonstrates the camera, object or light movement without changing the film.
+
+Reason: the visual should explain what a control acts on before the person reads a list of settings. A material sample, part outline, stage image and movement diagram carry different information; they should not all be another live scene. The outline shares loaded geometry and the existing renderer, caches its small PNGs and updates on contact. World covers render on demand with bounded downloads and texture sizes. Film previews pause offscreen, when unfocused, and under reduced motion or data saving. Failed or stale captures must never label a different part as the hovered one.
+
+Scope: `ModelOutlinePreview.tsx`, `modelOutline.ts`, `ProductPanel.tsx`, `MaterialLibrary.tsx`, `DecalEditor.tsx`, `WorldCovers.tsx`, `worldCover.ts`, `FilmMotionPreview.tsx`, `FilmWorkspace.tsx`, `NewFrameFlow.tsx`, `viewport.ts`, and their styles. Baselines are under `work/gesso/visual-assets-baseline` in the task workspace. Existing source assets, hierarchy, saved finishes and film motion remain the source of truth.
+
+Verification: production build and 244 focused tests pass. Browser checks cover actual lamp geometry and part highlights, material draft/cancel, UV availability, adding a bottle decal and undoing it, stage PNG covers, and Film animation starting/stopping with keyboard focus. Testing the imported bottle exposed its off-center UV island: new decals now validate their suggested center against mapped triangles and reduce their initial footprint to fit sampled UV coverage. This is a useful starting placement, not a UV packing tool. Preview capture also preserves physical target dimensions at low/high renderer pixel ratios, rejects stale highlights, and retries temporary still-render conflicts. The dev server remains running.
+
+### 2026-10-21 — D123 — Lift the editor ground slightly
+
+**In code.** Lighten the shared editor/tab surface from #131313 to #181818 and the top bar from black to #080808. Raise the tab halo opacity from 18% to 24%, retaining its 24px blur and spread. This updates D118's ground values without changing the continuous tab join or motion. Material and prop preview backdrops read the editor ground, and the shared frame's startup fallback matches it.
+
+Reason: give the editor a slight lift while retaining its dark setting and quieter field contrast. The rendered product, marketing-page colors, typography and layout stay intact. Scope: `interface-system.css`, `App.tsx`, `DynamicFrame.tsx`, `MaterialSwatches.tsx`, `WorldObjectPreviews.tsx`, and `world-object-previews.css`. Baseline: `work/gesso/lighter-editor-baseline` in the task workspace.
+
+Verification: production build and whitespace checks pass. Browser inspection confirms #181818 for both the shared ground token and active tab, #080808 for the top bar, and 24% halo opacity.
+
+### 2026-10-21 — D124 — Align Product with File
+
+**In code.** Start Product’s text at File’s left edge. Both rows use the same 160px identity column and 16px gap; the tab surface begins 10px before its text. Stage and Film retain their existing column interval, with the moving tab and halo following the row. This updates D118’s independent second-column start: the application menu is now the alignment reference. Scope: `interface-system.css` and `style.css`. Baseline: `work/gesso/file-product-alignment-baseline`.
+
+Verification: production build and whitespace checks pass. Browser measurements at wide and narrow desktop sizes place File and Product’s text at the same x coordinate (216px), while preserving tab spacing.
+
+### 2026-10-21 — D125 — One lit edge for the tab and editor
+
+**In code.** Extend the existing halo contour along the horizontal editor edge on both sides of the tab. Increase its blur and stroke from 24px to 32px at the same 24% opacity. The halo follows the shoulders as the tab moves, while the unchanged opaque fill and bottom clip preserve one #181818 editor surface. Keep application-menu text and popups above the glow.
+
+Reason: a halo confined to the tab made it read as a separate object. One continuous contour connects it to the editor ledge without overlapping two glows at the join. Motion remains the existing interruptible transform, with no per-frame geometry work; reduced motion stays immediate. This updates D118/D123’s tab-only halo. Scope: `EditorNavigation.tsx` and `interface-system.css`. Baseline: `work/gesso/continuous-tab-halo-baseline`.
+
+Verification: production build and whitespace checks pass. Browser checks confirm the continuous glow in Product and Film, retained menu stacking, and the unchanged opaque editor surface.
+
+
+### 2026-10-21 — D126 — More room inside the main tabs
+
+**In code.** Increase Product / Stage / Film from 36px to 44px high, with 8px top, 10px bottom and 16px side padding. Move the tab surface 6px left to keep Product’s text aligned with File; retain the existing column pitch, type size and continuous halo. The header grows by 8px, and the SVG shoulders retain their original curve sizes.
+
+Reason: give each label more breathing room without enlarging the text or breaking the shared editor edge. This updates D124’s 10px text inset. Baseline: `work/gesso/larger-tabs-baseline`.
+
+Verification: production build passes. Browser checks at wide and narrow desktop sizes confirm 44px tab height, Product/File text alignment at 216px, and matching tab/header bottom edges. Film’s format controls follow the new height. Dev server remains running.
+
+
+### 2026-10-21 — D127 — Same studio, scaled product
+
+**In code and local defaults.** Starter campaigns use a fixed studio reference and a 320 mm longest-side product envelope, matching Nessino’s existing display size. Store the fit in placement.scale; retain source dimensions, geometry, material assignments, artwork and part-local movement. The authored sweep, default lights, shadow coverage, new light/prop defaults and world-cover renderer all read the same environment.studioSizeM value. Imported room transforms remain unchanged. The implicit rig anchors to the plinth support, so repositioning or recentering a product does not move the studio lights.
+
+Reason: legacy imports resized the support, camera and studio from raw file dimensions. The local unitless watch therefore received an 839 m camera; changing only its product scale could never repair the composition. Rescale starter cameras, whole-product movement, explicit rig/near-field coordinates and absolute scale keys together. The first normalization exposed a second issue: the older watch and bottle imports still contained studio planes, so their full source bounds were not product bounds. After inspecting those nodes, remove only the identified ground/light geometry through the existing recoverable removedPartIds state, recenter the retained object, and fit its bounds into the envelope. Original GLB bytes and source catalogs remain unchanged. Part and relative motion scale limits stay unchanged; whole-product scale accepts smaller factors so large source-unit imports remain editable. Both A/B worlds share the studio reference. This extends D110’s explicit composition fit to default setup; selecting a generated world still uses its projected fit.
+
+Applied to MORA, Nessino, statue, esteban perfume bottle and watch as new revisions. The two legacy imports additionally retain a documented product-only repair manifest (excluded node names, placement scale, fitted dimensions and revision IDs). Prior revisions and source files remain recoverable; QA campaigns were left intact. New default and imported campaigns use the same rule. Opening or duplicating an existing campaign does not trigger a resize. Older scenes without studioSizeM retain their original rendering. Baseline and per-campaign before/after manifests are in the task workspace under work/gesso/campaign-scale-baseline and work/gesso/campaign-scale-migration.
+
+Scope: film/campaign_defaults.py, product import and store defaults; canonical scale validation and controls; viewport and Cycles environment builders; light/prop defaults, covers and comparison state. Verification: focused sizing/import/API tests, frontend scale/renderer tests, production build, and a native Blender 4.3.2 check of fixed sweep geometry and lighting across differently sized sources. Final regression checks also confirm removed source subtrees stay out of subsequent world fitting, temporary eye-hidden parts still count, and undo restores their contribution. The rebuilt editor was checked with the saved campaign defaults; the dev server remains running.
+
+
+### 2026-10-21 — D128 — Space below the material library heading
+
+**In code.** Add 16px between the Library heading and its three starter swatches. The heading previously met the library with no gap. Scope: the Materials cabinet’s library wrapper in `material-library.css`; swatch sizes, internal spacing and preset controls remain unchanged. Baseline: `work/gesso/material-header-spacing-baseline` in the task workspace.
+
+Verification: production build and whitespace checks pass. Browser measurements confirm a 16px gap below Library, with all three starter swatches visible.
+
+
+### 2026-10-21 — D129 — Give feedback its own text color
+
+**In code.** Use muted green (#a8d5b5) for saved/completed states and warm orange (#e8ad79) for notes, guidance and pending work. Keep control labels in the neutral interface palette and measurements/counts muted; failures keep the existing error color. Text still names the state, so color is not the only signal. This updates D11’s yellow pending state to orange.
+
+Reason: messages such as “Saved with this campaign” looked like controls. Explicit feedback tones distinguish an action from its result, including success and failure messages that share one status area. Scope: material library/assignments; Product, Stage and Film notes; import notes; header/footer, loading and export feedback; shared interface tokens. Layout, copy, starter presets and interactions stay intact. Baselines: `work/gesso/message-colors-baseline` in the task workspace.
+
+Verification: focused panel, material and export/still tests pass, as do the production build and whitespace check. Browser measurements confirm green saved/Live messages, orange material guidance, white Add new, and unchanged muted part counts. Toasts now carry explicit tones too, so confirmed saves/opening results cannot be confused with pending import guidance or a failure.
+
+
+### 2026-10-21 — D130 — One gray surface for selection collections
+
+**In code.** Give asset libraries and object-selection collections the Objects box treatment: the existing #242424 field surface, 8px corners and 8px inner padding. Keep headers and surrounding controls on the editor ground. The material library retains its 16px separation below its heading. Material/prop preview backdrops inherit the collection surface; actual world images retain their scene backgrounds.
+
+Reason: the container should identify a set of things to choose from before the person reads every item. Apply the same surface to material and decal libraries, Stage collections and Film target lists; existing gray motion tiles stay intact. Status colors, button padding, selection behavior and assignment flow remain unchanged. Scope: shared `gesso-selection-surface`, collection roots and preview backdrops. Baseline: `work/gesso/selection-surfaces-baseline` in the task workspace.
+
+Verification: production build and whitespace checks pass. Browser inspection confirms #242424, 8px padding/corners and matching inherited preview backgrounds in Materials; Materials and Decals have no horizontal overflow.
+
+
+### 2026-10-21 — D131 — Export becomes an editor state
+
+**In code; light Export surface superseded by [D145](#2026-10-21--d145--export-joins-the-dark-editor-dice-remains-separate).** Move Still / Video into pinned tabs at the top of Film’s right sidebar. Place one white Export button after Product / Stage / Film, with the same 44px height and upper contour, separated by the existing 20px gap. Selecting it opens the canonical Film / Output destination; its lower corners morph into joined tab shoulders and the editor surface becomes white with dark controls. The left rail and editing timeline leave the layout. Export settings occupy the only visible sidebar, on the right, with persistent render/download actions below its scrolling body.
+
+Reason: the final image should remain the focal object while choosing its delivery format. Export no longer covers the editor with a modal. Keep the existing canvas instances and camera sampler; mask overscan with the renderer’s own film gate, disable inspection, show the whole product, and provide one preview scrubber. Paired exports display both worlds without changing Stage’s remembered comparison view. The live preview stays at its existing pixel budget; opening Export does not start a high-resolution render.
+
+Preserve PNG/JPEG/WebP stills, MP4/ProRes/PNG-frame video formats, actual job progress/downloads/cancel/resume, missing-tool validation, and the existing composition/frame-rate/sound controls. Still / Video uses one URL mode, including keyboard navigation and browser history. Film remembers its last editing layer rather than returning to Export; close returns to the prior workspace. Format changes retain filename, scale and sample settings. The same Halyard styles, gray collection surfaces, dotted section rules and signal colors are inverted for contrast. Main navigation and the outer header retain their dark ground. Reduced motion removes contour transitions. This supersedes the separate export dialog and Film’s top-bar mode controls.
+
+Scope: App, EditorNavigation, FilmModeTabs, ExportPanel, ExportPreview, FilmPanel’s shared output-only controls, navigation history and scoped export styles. Baseline: work/gesso/export-workspace-baseline in the task workspace. Verification: focused export, keyboard, navigation/history, camera-gate and Film tests pass; production build passes. Browser checks cover Product → Export, Still/Video switching and playback, return to Film, close/Back, retained sound controls, one visible sidebar, and no horizontal overflow at wide and narrow desktop sizes. The local server currently lacks FFmpeg 7.1.5, so encoded video formats correctly remain disabled; no final render was submitted for this UI pass. Dev server remains running.
+
+
+### 2026-10-21 — D132 — Dropdowns share one text edge
+
+**In code.** Align popup options with the closed select value; align File / Edit / View menu text with the active navbar label. Use black popup surfaces with square corners, no border, and a quiet white shadow. Hover brightens text without filling the row or trigger. Keyboard focus retains an underline; icon-only triggers get a small bottom rule. Disabled and destructive states remain distinct. History stays against the header’s right margin.
+
+Reason: the previous menus mixed gray surfaces, filled hover states and unrelated left offsets. Keep the existing Halyard, field hierarchy, menu animation and scene state. Apply the treatment to application, material, part and scene menus and desktop select pickers. Export’s closed controls retain dark text on white; its open pickers use the same black surface. The real select element remains the source of value, keyboard operation and form behavior. Desktop browsers supporting `appearance: base-select` receive the styled picker; touch and unsupported browsers retain their native picker. This follows the [browser’s customizable select API](https://developer.chrome.com/blog/a-customizable-select).
+
+Native picker Escape closes the picker before its enclosing menu or Export; picker keystrokes do not trigger viewport shortcuts. Scope: dropdown-system.css, EditorMenu positioning, App keyboard filtering, ExportPanel and FilmShotStrip Escape handling. Baseline: work/gesso/dropdown-system-baseline in the task workspace.
+
+Verification: production build and focused Export/Film tests pass, including an Escape regression. Browser checks confirm aligned File/View/Campaign text, black borderless popups, part action colors, keyboard select/restore, nested Escape, and readable menus in the inverted Export workspace. Dev server remains running.
+
+
+### 2026-10-21 — D133 — Lighter inactive workspace tabs
+
+**In code.** Product / Stage / Film use Halyard Text Regular (400) when unselected and retain SemiBold (600) when selected. The weight now reinforces the active workspace without adding another visual marker. Keep the existing type size, fixed grid columns, padding, colors and Export action. The smaller layer and Still / Video controls already use Regular and remain unchanged.
+
+Scope: interface-system.css. Baseline: work/gesso/tab-weight-baseline in the task workspace. Verification: production build passes; browser inspection confirms the active/inactive weights and unchanged tab dimensions.
+
+
+### 2026-10-21 — D134 — Film controls show their action and position
+
+**In code.** Replace the small Play/time text in the timeline's left corner with start, play/pause and end icons in 40px targets. Use the same controls in Export preview. Put a downward-pointing pentagon above the existing playhead line; a 24px grab area preserves the pointer's contact offset, while clicking elsewhere on the ruler seeks immediately. Selected scenes use a white background with dark text and controls. Playback position and the scene being edited remain separate states.
+
+Reason: playback, scrubbing and scene selection need distinct visible forms. Keep one film clock and one native range for keyboard and pointer input. Reordering, trimming and scene menus retain their existing controls. The ruler grows by 8px and the dock by 20px to fit the handle and larger transport without adding scrolling. No extra animation or playback state.
+
+Scope: FilmTransport, FilmTimeline, FilmShotStrip, ExportPreview and their styles. Baseline: work/gesso/film-transport-baseline in the task workspace. Verification: 44 focused transport, timeline, scrubbing and reorder tests pass; production build and whitespace checks pass. Browser checks cover play/pause, start/end, dragging across a cut, Home/End/Shift-arrow scrubbing, selected-scene contrast, the final-frame handle, and Export transport at narrower desktop width. Dev server remains running.
+
+
+### 2026-10-21 — D135 — Choose the content after New scene
+
+**In code.** Film has one creation button: New scene. Its right-sidebar chooser offers Product shot or Static image / text. Product shot continues through the existing Objects → Camera setup. The static branch accepts an image or a Halyard text card, shows a preview and duration, then inserts it after the selected scene. Name it from the file or first text line; rename it in the timeline. Keep the preview, heading and Back/Add actions mounted while the controls scroll when space is limited.
+
+Reason: a scene is the thing being added; image versus product is a decision within that flow. Opening the chooser or drafting static content does not add a timeline item. Back, Cancel and import failure retain the existing film. Abort cancelled imports and reject a stale film version before committing. Product setup keeps its existing discard behavior. Text scenes can reopen with Edit text; image scenes offer Replace image.
+
+Text remains editable metadata beside a canonical PNG. Measure and rasterize it in Halyard Regular after the font loads; preview and export consume that same stored image. This preserves the existing image renderer, film clock, asset verification and export path. No second text renderer or new shot kind. This replaces D77's separate Add image action.
+
+Scope: NewSceneFlow, filmTextCard, staticScene, App, FilmTimeline, FilmClipDetails and content labels. Baseline: work/gesso/new-scene-baseline in the task workspace. Verification: 79 focused web tests and 14 image-pipeline Python tests pass, including metadata save/reload and exported pixel parity. Browser checks cover both branches, image and text insertion, reopening, cancellation, undo, and Product → Objects → Camera → Discard. Test scenes were undone. Dev server stays running.
+
+
+### 2026-10-21 — D136 — Read the frame; edit the camera in one place
+
+**In code.** Film shows four white corner marks, dotted center axes, a center crosshair and a small target/focus circle. Remove the frame label, floating numeric controls and repeated shot/time caption. Keep the measured frame when selecting objects, playing the film, inspecting the scene or showing a static image. Export uses its own per-pane crop marks. Return to shot appears only after inspecting; inspection still does not change the saved camera.
+
+Reason: framing and camera settings were divided between a label, a floating strip and the right sidebar. The image now carries composition guides and target dragging. The sidebar owns aspect, lens, target and depth of field. Exact coordinates and path operations sit in closed disclosures; new motion choices open through Add motion. **[D144](#2026-10-21--d144--choose-camera-movement-before-framing) supersedes Add motion for the camera only.** Remove the redundant idle camera diagram. Keep the source camera, endpoint rules, motion ownership and canonical output dimensions. This supersedes D28’s viewport setting controls.
+
+The focus circle has a fixed screen size; it is not a blur-radius control. With optical depth of field enabled it marks the actual projected focus point. Manual distance remains editable in the sidebar; follow-target focus retains pointer and keyboard aiming. Publish guides after their matching render, and publish only the frame for flat image/text content. Guides remain DOM overlays and cannot enter exported pixels.
+
+Scope: FilmViewportControls, CameraPanel, FilmWorkspace, filmGuides, viewport presentation, App and ExportPreview. Baseline: work/gesso/film-guides-baseline in the task workspace. Verification: focused framing, optical projection, static-image, Film workflow and Export tests pass; production build passes. Browser verification covers persistent guides during object editing and playback, compact sidebar controls, and reversible camera edits. Dev server remains running.
+
+
+### 2026-10-21 — D137 — Random setup is a separate export candidate
+
+**In code.** Export gains a left rail with Current scene / Random setup tabs. A white dice button immediately before Export opens that rail without generating anything. Keep / Fill gaps / Randomize defines what each category may change; expandable pools define the allowed stages, lighting, views, camera movements and material types. Duration, shot count and screen ratio belong to framing. Generate creates one candidate; changing its settings requires generating again before export.
+
+Reason: a finished result must be reachable from any workspace without giving up the product or decisions already made. Fill gaps is the default. An existing static camera, imported finish and implicit studio lighting count as decisions, not missing values. Material replacement requires selected objects. Geometry, dimensions, artwork and authored part movement stay intact; full-film duration changes use the existing retiming rules. Reject incompatible timing instead of silently dropping animation.
+
+The candidate is bound to the exact original revision and project. It stays outside history and saving, uses the real camera sampler/viewport/exporter, and is invalidated when the original changes. Current scene restores the original; leaving Export restores its playhead even when the candidate is shorter. Disable original-history Undo/Redo while viewing Random setup. Ignore delayed edits or render responses from an older candidate. Report the actual generated changes and retain the candidate while switching tabs. Export format/resolution/sample controls remain on the right.
+
+Scope: randomSetup, exportDraft, ExportSetupPanel, EditorNavigation, App and ExportPanel/Preview. This supersedes D131's single-sidebar Export layout. Baseline: work/gesso/random-export-baseline in the task workspace. Limits: local preset/library stages rather than remote world generation; material randomization targets complete product objects, not individual imported source faces; selecting a library world retains the existing support and placement rather than inferring a new floor.
+
+Verification: engine tests validate generated bottle/glass scenes through the Python export validator; draft tests verify source isolation and stale revision rejection; UI tests cover tabs, defaults, explicit material targets and late export responses. Production build passes. Browser checks confirm dice → settings → generation, square three-shot/six-second variation, Current scene returning to the original 16:9/two-shot/ten-second film, and restoring the original frame 240 after scrubbing a shorter candidate. No final render was submitted. Dev server stays running.
+
+
+### 2026-10-21 — D138 — One scene count; loop beside playback
+
+**In code.** The timeline says “2 scenes” once above the shot row. Remove the separate Scenes label and duplicate count. Put a native Loop checkbox directly below the transport icons, using the existing ruler row so the bottom dock stays the same height.
+
+Reason: the count identifies the collection; repeating its label adds no information. Loop belongs to preview playback. It wraps the shared frame/audio clock through the inclusive playback range and preserves the selected editing scene. Turning it off restores stopping at the final frame. The preference stays local to Film playback; it does not change the saved scene, movie duration or export.
+
+Scope: FilmTimeline, FilmWorkspace props, App playback and filmPlayback. Baseline: work/gesso/film-loop-baseline in the task workspace. Verification: 42 playback, playhead, transport and timeline tests pass; production build passes. Browser checks: frame 239 wraps to frame 4 with Loop on and stops at 240 with Loop off; Space toggles the checkbox without starting playback. Dev server remains running.
+
+
+### 2026-10-21 — D139 — Shorter Export and dice controls
+
+**In code.** Export and the dice button are 36px high, down from 44px, and sit on the navigation's lower edge. Dice is 36px square. Retain the main tabs' 10px top corner geometry, Export's white fill and its joined selected state. Shorten the SVG itself so the corners do not flatten. This refines D131/D137's action sizing: the controls need not align at the top of the larger workspace tabs. Scope: EditorNavigation and export-navigation.css. Baseline: work/gesso/export-button-baseline in the task workspace.
+
+
+### 2026-10-21 — D140 — Floating export pair and a natural narrow-screen lockup
+
+**Joined pair superseded by [D145](#2026-10-21--d145--export-joins-the-dark-editor-dice-remains-separate); narrow-screen lockup retained.** Export and dice form a floating pair, 4px above the editor. Retain their 36px height and 10px corners; move the pair up so Export's text shares the workspace labels' baseline. Reduce the space between buttons from 20px to 8px and bridge it with a rounded, tapered neck. A single SVG surface supplies the join and a quiet warm/cool gradient that fades in over 180ms on hover or keyboard focus. The two native buttons retain separate actions; the join does not activate either. Reduced motion removes the fade. This supersedes D139's lower-edge alignment and D131's selected Export shoulder morph; both actions stay floating when Export is open.
+
+The narrow-window notice now measures gesso + studio as one baseline-aligned lockup with an 8px gap. Its formerly absolute studio label overlapped the centered wordmark. Keep the desktop lockup unchanged. Scope: EditorNavigation, export-navigation.css, narrow-screen styles. Baseline: work/gesso/floating-actions-baseline in the task workspace. Verification: navigation interaction tests and production build pass; browser checks cover the floating geometry, hover fade and the narrow-screen notice.
+
+
+### 2026-10-21 — D141 — Scroll inside the About window
+
+**In code.** Keep the About frame stationary and scroll its content inside the shared contour. The old full-page scroll moved the clip host; JavaScript corrected its position a frame later, letting content briefly escape the border. A fixed-height frame and native inner scrollport remove that correction. Preserve the navbar, halo, copy, grid and shared route transitions.
+
+This supersedes D114's full-page scroll hit area: the content scrolls when the pointer is inside the window, while the blue margin stays still. No wheel interception. Scope: AboutPage and about.css. Baseline: work/gesso/about-scroll-clip-baseline in the task workspace. Verification: production build passes; desktop and narrow-screen scrolling stay clipped, keyboard End reaches the footer, and the About anchor returns to the title with the frame still fixed.
+
+
+### 2026-10-21 — D142 — Stage layers use the same fixed row as Product
+
+**In code.** Environment / Objects / Lighting sit above the Stage preview, using the same Halyard row and Option/Alt 5–7 annotations as Model / Materials / Decals. Remove the repeated Stage heading and three stacked cabinet selectors. Show one control body at a time; its controls scroll beneath the pinned preview and tabs. Keep the existing cabinet entrance and reduced-motion behavior.
+
+Reason: environment, props and lighting are separate editing tasks; displaying all their headings in the control rail made them compete with the active task. Preserve the scene, selected object, selected light, right-side object editor and existing Environment / Props / Lights URL keys. Keyboard layer changes move focus to the corresponding fixed button before its previous controls disappear. This extends D118's Product layer row to Stage and replaces its stacked selectors.
+
+Scope: EditorNavigation, App, WorldPanel, interface-system.css and condensed-editor.css. Baseline: work/gesso/stage-layer-tabs-baseline in the task workspace. Verification: 64 navigation/history/panel tests and production build pass. Browser checks cover all three layers, Option/Alt switching and focus, retained object/light selection, the object inspector, fixed tabs/preview during scrolling, and the 900px desktop boundary. No scene values were changed.
+
+
+### 2026-10-21 — D143 — Choose Current or Random, then what can change
+
+**In code.** Replace Export's source tabs with one Setup dropdown: Current / Random. Random reveals a second dropdown, Randomize, defaulting to Everything. It can target Stage, Lighting, Colors, Framing + shots, Camera movement or Materials individually; Custom allows combinations. Keep duration, screen size and shot count visible when framing can change. Move the allowed pools and material targets into Refine choices. Source and scope remain fixed above the scrolling options, with Generate at the bottom.
+
+Everything opts all six categories and eligible product objects into the separate preview. This supersedes D137's Fill gaps default and per-category policy dropdowns. Selecting Random or changing an option does not generate, save or replace the original. Current restores it; changed settings require generating again before export. The existing engine still supports explicit Fill behavior for callers.
+
+Add four authored palette presets: Neutral, Clay, Coastal and Orchid, with visible swatches. Seeded generation chooses a palette, a background color and different swatches for newly randomized finishes. Store the real linear color values in the shared preview/export scene and report the palette and hex values. Colors alone keeps existing materials; it does not recolor imported room textures. Material replacement can replace source texture artwork, while separately placed artwork and decals remain. Keep the source recoverable.
+
+Scope: ExportSetupPanel, export-setup.css, randomSetup and their tests. Baseline: work/gesso/random-dropdown-baseline in the task workspace. Verification: 44 focused UI, generator and export-isolation checks pass, including Python export validation, deterministic palette choices, source immutability and category isolation; production build passes. Browser checks cover Everything generation, palette choices, custom Stage + Colors with the original finish, and Current restoring the original lamp and room. No final render or campaign save was submitted.
+
+
+### 2026-10-21 — D144 — Choose camera movement before framing
+
+**In code.** Selecting Camera on the left exposes Still / Orbit / Push in at the pinned top of the right sidebar. Selected motion settings precede framing. Existing endpoint paths remain Custom until explicitly replaced; selecting the active preset preserves its parameters and keys. This supersedes [D136](#2026-10-21--d136--read-the-frame-edit-the-camera-in-one-place)'s closed camera Add motion library.
+
+Still holds the evaluated image, including its lens, with a one-frame camera source. Retain disabled local curves and optics; mask inherited camera movement with a local zero-distance orbit understood by the existing sampler. Preset changes preserve the current view, reuse the local owner's timing and keys, and leave other scenes, shared motions and other targets intact. Bound Push in before the target/focus plane and validate the final state atomically.
+
+Reason: camera movement is a primary composition choice, and Still must stop both endpoint and inherited motion. Scope: FilmWorkspace, cameraMotionPresets, CameraPanel, useFilmCamera, App and film-rails.css. Baseline: work/gesso/camera-motion-top-baseline. Verification: nine helper tests include Python validator/sampler parity for shared custom curves; browser checks cover camera switching and Undo restoring the source.
+
+
+### 2026-10-21 — D145 — Export joins the dark editor; dice remains separate
+
+**In code.** Export uses the editor's dark surface and control tokens. Its white inactive button becomes dark and joins the editor contour when selected. Keep dice as a separate transparent icon button; remove the connecting neck and gradient. Dice opens Setup: Random with Randomize: Everything, without generating or changing the source. Generate remains the explicit action.
+
+Reason: output preparation belongs to the same editor, while dice and Export perform separate actions. This supersedes [D131](#2026-10-21--d131--export-becomes-an-editor-state)'s light surface and [D140](#2026-10-21--d140--floating-export-pair-and-a-natural-narrow-screen-lockup)'s joined floating pair. Preserve D143's candidate isolation, format controls, preview and export workflow. Scope: EditorNavigation, App, export-navigation.css, export-workspace.css, export.css and export-setup.css. Baseline: work/gesso/dark-export-baseline. Verification: browser checks confirm the dark workspace and dice opening Random / Everything without generation.
+
+
+### 2026-10-21 — D146 — One studio entrance and one mobile navigation row
+
+**In code.** The landing action is **“enter studio”** on white with orange text and arrow. Its helper reads exactly **“Set up your product once. Generate infinite worlds and content.”** Both the action and navigation resume the existing editor. This supersedes [D112](#2026-10-21--d112--explain-the-reusable-setup-on-the-cover)'s expanded copy and action; retain the footer line.
+
+Mobile navigation distributes the visible links, including the home wordmark where present, across one row on Landing, About and Form + Light. Remove the second-baseline studio link. Keep desktop's seven-column grid, Halyard, the shared morph, loader and reel. The favicon is a perspective ellipse running from top left to bottom right, with light/dark contrast variants.
+
+Reason: one action name identifies the same destination, and mobile links need equal spacing without a detached final action. Scope: LandingPage.tsx, landing.css, site-grid.css, web/index.html and web/public/favicon.svg. Baselines: work/gesso/cover-mobile-baseline and work/gesso/favicon-oval-baseline. Verification: desktop keyboard activation reveals the white/orange action and exact helper copy. At the browser's measured 355px mobile width, all links share one row with equal 24px gaps where the wordmark is present; Landing distributes its three links across the same margins. About and Form + Light have no horizontal overflow. The served HTML references the new SVG favicon. Scoped whitespace checks and the final production build pass.
+
+
+### 2026-10-21 — D147 — Press the grid into the paper
+
+**In code.** Replace the opening glassine treatment with a spherical grid pressed into the existing paper scan. Curved cells fill the aperture; grooves and compressed shoulders share one relief field. Paper fibers remain stationary. Small glints appear where that relief meets the moving light, with filtered highlights at smaller render sizes. Pointer movement changes illumination, not the sheet or grid.
+
+Reason: the pattern should read as an impression in one material. This supersedes [D44](#d44--glassine-is-the-opening-material-study)'s broad iridescent treatment while retaining Estelle Kim's scan and adapted GlassineSurface renderer. Use the same renderer for the deterministic fallback capture. Preserve the shared aperture, pixel budget, offscreen pausing, reduced-motion policy and failure fallback. Scope: glassineRenderer.ts, GlassineStudy.tsx and glassine-still.jpg; baseline: work/gesso/glassine-grid-baseline.
+
+Verification: browser checks confirm light response and clean WebGL logs. The 900 × 900 fallback was recaptured from the final renderer at light (0.68, 0.28), installed and documented in [asset provenance](../web/src/assets/gesso/ASSETS.md); temporary capture files were removed. Latest completed batch checks: 50 focused tests and the production build pass.
+
+
+### 2026-10-21 — D148 — The mobile home mark is the perspective oval
+
+**In code.** Use the diagonal oval from the favicon for the mobile home link on Landing, About and Form + Light. Reuse the SVG as a currentColor mask, so the page supplies white rather than the browser color scheme. Keep its native link, accessible name and focus ring. A 32px mark in a 32 × 40px link aligns with the single-row navigation; links keep equal gaps.
+
+Reason: the smaller mark gives the mobile links more room and connects the browser tab to the page. Desktop keeps the wordmark; Landing keeps its central wordmark at every size. This extends D146's mobile header. Scope: site-grid.css and LandingPage.tsx. Baseline: work/gesso/mobile-oval-baseline in the task workspace. Verification: production build passes; mobile browser checks confirm the mark on all three pages, equal gaps without horizontal overflow and the home link returning to Landing.
+
+
+### 2026-10-21 — D149 — Compare the X as an outline mark
+
+**Exploration implemented; identity choice pending.** Add Logo study inside the curve editor at `/curves?study=logo`. Keep the production X contour and compare Fine / Balanced / Bold strokes at 1.5 / 2 / 2.5px when shown at 32px. Show matched large marks, real 16/24/32px samples, a wordmark pairing, browser-tab sample and reversed color. Balanced is the proposed starting point.
+
+Reason: first establish whether the existing window can work as a mark. Holding shape and size fixed makes weight legible as the decision. Reuse `studio-cross`, its 64 cubic anchors and the shared path/transform functions; do not redraw the geometry. Ground and selection persist in the URL. Shortlist records a draft choice there, and Export SVG saves the selected editable outline. The live favicon, mobile oval and public pages remain unchanged while the choice is open.
+
+Scope: LogoStudy.tsx, logo-study.css, main.tsx and the CurveDemo link. Baseline: work/gesso/logo-study-baseline in the task workspace. Verification: production build passes; browser checks cover selection, both grounds and URL shortlist state; the downloaded SVG contains 64 closed cubic segments, no fill and the selected stroke.
+
+
+### 2026-10-21 — D150 — Compare a blob against the outlined X
+
+**Exploration implemented; identity choice pending.** Add a Blob direction to Logo study alongside the existing X weights. Compare Soft X (four broad shoulders with shallow indentations) and Pebble (three broad curves), both outlined at 2px when shown at 32px. Keep the original X visible as a reference. Soft X is the proposed starting point because its contour retains a connection to the landing window.
+
+Reason: test a less literal mark without changing stroke, scale or presentation at the same time. Both new contours use 64 cubic anchors, periodic curves with analytic tangents, and the shared frame bounds/path renderer. Keep selection, shortlist, grounds and SVG export in the existing study; no public identity change.
+
+Scope: LogoStudy.tsx and logo-study.css. Baseline: work/gesso/blob-logo-baseline in the task workspace. Verification: production build passes; browser checks cover both contours, keyboard selection, reversed ground, URL state and a 400px layout without horizontal overflow. Exported Pebble SVG has 64 closed cubic segments and the selected stroke.
+
+
+### 2026-10-21 — D151 — Return to the oval and its halo
+
+Superseded by D152: the center is hollow, and the halo is circular.
+
+**Exploration implemented; public identity unchanged.** Replace the two blob studies with one Halo oval direction. Reuse the favicon's 18:7.5 proportions and 45° diagonal through the shared circle/transform functions. Show a sharp filled oval over one broad blurred copy. Keep the solid silhouette at 16/24/32px. Existing X comparisons remain accessible. Old blob URLs resolve to the oval on Ink. This supersedes D150's blob proposal.
+
+Reason: the circle seen in perspective already connects the favicon, mobile mark and studio loader. It can carry light without introducing another shape vocabulary. Use the shared contour-local halo bounds so the blur is not cut off; the exported SVG includes those full bounds. No animation loop or WebGL context is needed for this static study.
+
+Scope: LogoStudy.tsx and logo-study.css. Baseline: work/gesso/halo-oval-logo-baseline in the task workspace. Verification: production build passes; browser verifies the old blob link resolves to Halo oval, responsive width has no overflow at 400px, and SVG export contains the 64-segment oval plus its measured halo region.
+
+
+### 2026-10-21 — D152 — A hollow oval inside circular light
+
+Superseded by D153: remove the separate outline and make the light opaque at the cutout.
+
+**Exploration implemented; public identity unchanged.** Make the Halo oval contour 32% smaller, retain its 45° perspective, and leave the center transparent. The halo is circular and centered independently of the oval; mask its light out of the interior. Keep the ring open at 16/24/32px with a minimum one-pixel stroke. This supersedes D151's filled oval and contour-shaped glow.
+
+Reason: the mark should read as an opening, while its surrounding light stays round. Reuse the 64-anchor geometry and shared halo bounds. The study and SVG export use the same ring, circle, blur and hollow-center mask. Scope: LogoStudy.tsx. Baseline: work/gesso/hollow-oval-baseline in the task workspace. Verification: production build passes; browser checks show the smaller open ring on Ink and Chalk, including small-size specimens. The exported SVG preserves the transparent center and complete circular filter bounds.
+
+
+### 2026-10-21 — D153 — Cut the oval out of the halo
+
+Superseded by D154: the halo follows the oval instead of a circle.
+
+**Exploration implemented; public identity unchanged.** Remove the oval stroke. The smaller diagonal oval is a transparent hole in the light itself. Keep the inner edge fully opaque, then fade radially outward to a circular boundary. This supersedes D152's separate ring.
+
+Reason: the edge belongs to the halo, not to an additional drawn outline. A masked SVG radial gradient supplies the opaque core and soft outside without a blur filter or render loop. Reuse the 64-anchor oval for the cutout and the same gradient in SVG export. Scope: LogoStudy.tsx. Baseline: work/gesso/halo-cutout-baseline in the task workspace. Verification: production build and browser visual check pass; the exported SVG has zero strokes, an opaque gradient core and the 64-segment transparent mask.
+
+
+### 2026-10-21 — D154 — Keep the halo close to the oval
+
+Applied to the website in D157.
+
+**Exploration implemented; public identity unchanged.** Make the halo follow the oval, with 12% extra horizontal spread and a short outward fade. Retain the hollow center, opaque inner edge and absence of a separate stroke. This supersedes D153's large circular halo.
+
+Reason: the light should describe the small oval rather than becoming a second dominant shape. Blur an expanded copy of the shared contour, strengthen its alpha at the inner edge, then cut out the original oval. Scope: LogoStudy.tsx; baseline: work/gesso/narrow-oval-halo-baseline. Verification: production build passes, browser proof shows the close halo, and SVG export has two 64-segment paths (mask and light), no strokes, and a 3-unit blur.
+
+
+### 2026-10-21 — D155 — Compose editable interface crops for Form + light
+
+Applied to the site in D158.
+
+**In Figma; not applied to the site.** Create five separate window compositions from current editor controls: scene/camera/sequence, setup/export, parts/material, framing/timeline, and material/revision. Reuse the page's actual 64-anchor window masks. Rearrange related controls into distinct grids and crop peripheral content at the edges, while keeping each main decision readable.
+
+Reason: the visuals should show the product's working controls in a composition suited to each window. Halyard text, fields, icons and control instances remain editable; only product and material renders are images. Original screens, copy and raw process are preserved. Target: section “09 / Form + light — interface compositions”, review frame 342:8486 in the gesso Figma file. Native source and repair scripts: work/gesso/form-light-visuals-plugin in the task workspace. Verification: five frames, 128 visible editable Halyard text nodes, 23 instances and 130 vectors; seven image layers contain product/material renders only. Final visual review checked masks, dropdown icons, title visibility and control spacing.
+
+
+### 2026-10-21 — D156 — Give random reels a shot grammar
+
+**In code.** Random framing starts with a full-product view and a close-up; two product shots is the minimum. Keep at least one full view and Close-up enabled, or explain the missing choice before generation. The remaining shots use the selected pool.
+
+Reason: independent random choices could produce several similar views and no clear introduction to the object. Fit full views using the same 36mm vertical sensor as preview/export, with room for the camera move. Close-ups use a deliberate crop. Bounds include placement, static part edits and removed imported nodes.
+
+Each generated camera shot has one movement owner. Hold the camera while an authored object, mechanism or light moves; remove the old camera endpoint path when generating a new move so an orbit cannot accidentally include a zoom. Use a 32° orbit or an 18% push, then sample the actual camera path. If the projected product edges travel less than 4% of an output dimension, or the camera crosses the near/focus plane, use a still shot rather than a tiny or clipped move.
+
+Limits: Keep categories remain authored. Existing mixed product/light animation is retained and reported, not silently rewritten. Framing covers static product bounds and generated camera travel, not arbitrary authored object animation. The required close-up is geometric coverage, not automatic recognition of a useful product detail.
+
+The candidate still shares one scene between preview and export; Current restores the original. Scope: randomSetup, randomSetupFraming, randomSetupMovement and ExportSetupPanel, with focused tests. Baseline: work/gesso/random-generation-rules-baseline in the task workspace. Verification: 64 tests and production build pass, including native exporter validation and Python part-transform parity. Browser checks cover generating the pair, missing-view recovery, both lamp views and restoration of Current. Final video rendering was not run; this machine reports Blender 5.1.1 while the exporter requires 4.3.2. The dev server remains on port 8787.
+
+
+### 2026-10-21 — D157 — Apply the halo oval to the website
+
+**In code.** Adopt D154’s hollow diagonal oval for the browser tab and mobile home link on Landing, About and Form + Light. Replace D146/D148’s filled oval. Keep the study’s 128 × 128 canvas, 3-unit blur, opaque inner edge and 12% sideways spread; the center stays transparent and there is no stroke. Desktop and centered landing wordmarks retain Halyard.
+
+Reason: use the selected mark at its tested optical size. One SVG supplies adaptive light/dark browser color and a page-colored alpha mask for mobile navigation. Version the asset URL to replace cached icons. Logo study now identifies the oval as in use. Scope: favicon.svg, index.html, site-grid.css and LogoStudy.tsx. Baseline: work/gesso/website-halo-logo-baseline; exact vector export: work/gesso/export-website-logo.ts in the task workspace. Verification: production build passes; mobile browser review confirms the hollow mark, shared navigation and home-link return. The SVG retains two closed 64-anchor contours and no stroke. No animation loop is added.
+
+
+### 2026-10-21 — D158 — Use the Figma compositions in Form + Light
+
+**In code.** Replace the five editor screenshots with D155's editable Figma compositions: principles, result, product, interface and person. Export their rectangular content at 1.5×, center each image and let the existing website aperture crop it once. Keep the opening shader, page copy, shared frame renderer and motion.
+
+Reason: the controls were composed for these windows in Figma; those edits should appear on the website. Static images retain that composition without adding renderers. Lossless WebP conversion preserves every exported pixel. Figma sources remain editable. Scope: philosophyScreenshots.ts, five editor-stills assets and asset provenance. Source content nodes: 342:8924, 342:9036, 342:9125, 342:9347 and 342:9459 in file yeSSVUrYYw45JLkN7mnv52. Baseline: work/gesso/figma-form-light-baseline in the task workspace.
+
+Verification: all five images decode at their exported dimensions. Browser review covers every desktop composition and the mobile product view, with no horizontal overflow or console errors. The 1,406-test UI suite and production build pass.

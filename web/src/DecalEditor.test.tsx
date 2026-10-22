@@ -1,11 +1,11 @@
 import {renderToStaticMarkup} from 'react-dom/server';
 import {describe, expect, it} from 'vitest';
 import fixture from '../../examples/bottle.scene.json';
-import {DecalControls, UvDecalOverlay, decalForPart, newDecal, uvPointFromClient, decalDragOffset} from './DecalEditor';
-import type {ProductDecal, UvLayout} from './decals';
+import {DecalControls, UvDecalOverlay, decalForPart, decalStarters, newDecal, newDecalFromStarter, uvPointFromClient, decalDragOffset} from './DecalEditor';
+import {uvBarycentricWeights, type ProductDecal, type UvLayout} from './decals';
 
 const noop = () => {};
-const layout: UvLayout = {partId: 'cap', triangles: [[0, 0, 1, 0, 1, 1]], triangleCount: 1,
+const layout: UvLayout = {partId: 'cap', triangles: [[0, 0, 1, 0, 1, 1], [0, 0, 1, 1, 0, 1]], triangleCount: 2,
   missingUv: false, overlap: false, truncated: false, suggestedCenterUv: [.3, .7], suggestedSizeUv: [.25, .15]};
 const decal: ProductDecal = {id: 'cap-mark', componentId: 'cap', partId: 'cap', text: 'MORA', subtitle: 'BOTANICAL',
   centerUv: [.25, .75], sizeUv: [.4, .3], rotationDeg: -15, heightM: .0004, bevelM: .00015};
@@ -24,6 +24,45 @@ function expectMeasuredInput(html: string, name: string, value: string, unit: st
 }
 
 describe('Decal selection and creation', () => {
+  it('places a new bottle label on its offset UV island instead of the unmapped default center', () => {
+    const offset: UvLayout = {...layout, suggestedCenterUv: [.5, .5], suggestedSizeUv: [.3, .2],
+      triangles: [[.6, .1, .8, .1, .8, .3], [.6, .1, .8, .3, .6, .3]]};
+    for (const created of [newDecal({product: {}}, 'cap', 'cap', offset), ...decalStarters.map(item => newDecalFromStarter({product: {}}, 'cap', 'cap', offset, item.id))]) {
+      expect(created.centerUv[0]).toBeCloseTo(.7);
+      expect(created.centerUv[1]).toBeCloseTo(.2);
+      for (const u of [-.5, 0, .5]) for (const v of [-.5, 0, .5]) {
+        const point: [number, number] = [created.centerUv[0] + created.sizeUv[0] * u, created.centerUv[1] + created.sizeUv[1] * v];
+        expect(offset.triangles.some(triangle => uvBarycentricWeights(triangle, point))).toBe(true);
+      }
+    }
+  });
+
+  it('uses a mapped triangle when the bounds center falls between disconnected islands', () => {
+    const separated: UvLayout = {...layout, suggestedCenterUv: [.5, .5],
+      triangles: [[.1, .1, .3, .1, .1, .3], [.8, .8, .9, .8, .8, .9]]};
+    const created = newDecal({product: {}}, 'cap', 'cap', separated);
+    expect(uvBarycentricWeights(separated.triangles[0], created.centerUv)).not.toBeNull();
+    expect(created.centerUv[0]).toBeCloseTo(1 / 6);
+    expect(created.centerUv[1]).toBeCloseTo(1 / 6);
+  });
+  it('creates distinct starter decals inside the suggested UV region while preserving existing artwork', () => {
+    const source: any = structuredClone(fixture);
+    source.product.decals = [structuredClone(decal)];
+    source.product.artwork = [{partId: 'cap', componentId: 'cap', finish: 'original', asset: {path: 'original.png'}}];
+    const before = structuredClone(source);
+    const created = decalStarters.map(starter => newDecalFromStarter(source, 'cap', 'cap', layout, starter.id));
+    expect(created.map(item => item.text)).toEqual(['gesso', 'OBJECT', '01']);
+    expect(created.map(item => item.sizeUv)).toEqual([[.25, .075], [.25, .15], [.125, .15]]);
+    expect(new Set(created.map(item => item.id)).size).toBe(3);
+    for (const item of created) {
+      expect(item.centerUv).toEqual(layout.suggestedCenterUv);
+      expect(item.partId).toBe('cap');
+      expect(item.componentId).toBe('cap');
+      expect(item.bevelM).toBeLessThanOrEqual(item.heightM / 2);
+    }
+    expect(source).toEqual(before);
+    expect(() => newDecalFromStarter(source, 'cap', 'cap', layout, 'missing')).toThrow('Choose a decal');
+  });
   it('keeps a selected decal within its part and recovers when that decal is removed', () => {
     const other = {...decal, id: 'body-mark', componentId: 'bottle-body', partId: 'bottle-body'};
     const second = {...decal, id: 'cap-second'};
@@ -63,6 +102,26 @@ describe('Decal selection and creation', () => {
 });
 
 describe('Decal controls', () => {
+  it('puts the applied artwork and three usable starter buttons before editing controls', () => {
+    const artwork = {format: 'png' as const, path: `assets/${'a'.repeat(64)}.png`, sha256: 'a'.repeat(64), width: 1024, height: 1024};
+    const applied = {...decal, artwork};
+    const html = renderToStaticMarkup(<DecalControls scene={{product: {components: [{id: 'cap', shape: 'cylinder'}], decals: [applied]}}}
+      partId="cap" decal={applied} layout={layout} onSelect={noop} onAdd={noop} onChange={noop}/>);
+    expect(html.indexOf('Applied decal artwork')).toBeLessThan(html.indexOf('aria-label="Replace label image"'));
+    expect(html.indexOf('Starting decals')).toBeLessThan(html.indexOf('aria-label="Decal text"'));
+    for (const label of ['wordmark', 'label', 'serial']) {
+      const button = html.match(new RegExp(`<button[^>]*aria-label="Add ${label} decal"[^>]*>`))?.[0];
+      expect(button).toBeDefined();
+      expect(button).not.toContain('disabled');
+    }
+  });
+
+  it('keeps starter previews visible but unavailable at the product decal limit', () => {
+    const html = renderToStaticMarkup(<DecalControls scene={{product: {components: [{id: 'cap', shape: 'cylinder'}], decals: Array.from({length: 32}, (_, i) => ({...decal, id: `decal-${i}`}))}}}
+      partId="cap" layout={layout} onSelect={noop} onAdd={noop} onChange={noop}/>);
+    expect(html).toContain('32 decals in this product. Remove one to add another.');
+    expect(html.match(/<button[^>]*aria-label="Add wordmark decal"[^>]*>/)?.[0]).toContain('disabled=""');
+  });
   it('distinguishes UV percentages from physical relief and exposes their units', () => {
     const html = renderToStaticMarkup(<DecalControls scene={{product: {decals: [decal]}}} partId="cap"
       decal={decal} layout={layout} onSelect={noop} onAdd={noop} onChange={noop}/>);

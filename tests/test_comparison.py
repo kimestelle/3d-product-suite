@@ -36,6 +36,7 @@ class ComparisonTests(unittest.TestCase):
         self.scene["environment"] = copy.deepcopy(self.left["environment"])
         self.scene["environment"]["plinth"] = {"id": "plinth", "sizeM": [0.48, 0.08, 0.48], "translationM": [0, -0.04, 0]}
         self.scene["environment"]["worldColor"] = [0.21, 0.22, 0.23]
+        self.scene["environment"]["studioSizeM"] = .32
         self.scene["environment"]["props"] = [{"id": "occluder", "shape": "box", "sizeM": [0.02, 0.04, 0.01],
             "translationM": [0.1, 0.02, 0.04], "rotationXyzw": [0, 0, 0, 1],
             "material": {"baseColor": [0.2, 0.2, 0.2, 1], "roughness": 0.6, "metallic": 0}}]
@@ -48,7 +49,7 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual(payload["alignmentStatus"], "draft")
         for key in ("product", "actions", "evidence", "placement", "shots", "render", "coordinates", "sceneId"):
             self.assertEqual(payload["a"][key], payload["b"][key])
-        for key in ("plinth", "props", "worldColor"):
+        for key in ("plinth", "props", "worldColor", "studioSizeM"):
             self.assertEqual(payload["a"]["environment"][key], payload["b"]["environment"][key])
             self.assertEqual(payload["b"]["environment"][key], self.scene["environment"][key])
         for side in ("a", "b"):
@@ -63,7 +64,7 @@ class ComparisonTests(unittest.TestCase):
 
     def test_world_selection_discards_library_nearfield_and_preserves_primary_plinth(self):
         alternative = self.scene["comparison"]["alternative"]
-        self.assertFalse({"plinth", "props", "worldColor"} & set(alternative))
+        self.assertFalse({"plinth", "props", "worldColor", "studioSizeM"} & set(alternative))
         self.assertEqual(self.scene["environment"]["plinth"]["sizeM"], [0.48, 0.08, 0.48])
         self.assertEqual(comparison.materialize(self.scene, "b")["environment"]["plinth"]["sizeM"], [0.48, 0.08, 0.48])
         self.assertIn("plinth", self.right["environment"])
@@ -80,6 +81,7 @@ class ComparisonTests(unittest.TestCase):
             lambda s: s["shots"][0]["camera"]["from"].update(focalLengthMm=51),
             lambda s: s["render"].update(samples=16),
             lambda s: s["environment"].update(worldColor=[0.3, 0.3, 0.3]),
+            lambda s: s["environment"].update(studioSizeM=.64),
             lambda s: s["environment"]["props"][0]["translationM"].__setitem__(0, 0.2),
         ]
         for index, edit in enumerate(variants):
@@ -112,6 +114,7 @@ class ComparisonTests(unittest.TestCase):
             lambda s: s["comparison"]["alternative"].update(kind="splat"),
             lambda s: s["comparison"]["alternative"].update(plinth=copy.deepcopy(s["environment"]["plinth"])),
             lambda s: s["comparison"]["alternative"].update(props=[]),
+            lambda s: s["comparison"]["alternative"].update(studioSizeM=.64),
             lambda s: s["comparison"]["alternative"].update(worldColor=[0.2, 0.2, 0.2]),
             lambda s: s["comparison"]["alternative"]["provenance"].update(owner=""),
             lambda s: s["comparison"]["alternative"]["provenance"].update(providerWorldId=42),

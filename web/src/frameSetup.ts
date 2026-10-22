@@ -1,3 +1,4 @@
+import {partTargetIds} from './partTargets';
 import {cameraTarget, editCamera} from './camera';
 import {addMotion, availableMotionKinds, cameraBaseForSharedMotion, filmCameraPoseAtFrame, updateMotion, validateFilmMotions, type FilmMotion, type MotionKind} from './filmMotion';
 import {addShot} from './sequence';
@@ -35,7 +36,7 @@ function objectTargets(scene: any, targets: string[]): string[] {
   const selected = [...new Set(targets)];
   // Lights sit beside the product selection: they never compete with parts.
   fail(!selected.includes('$product') || selected.every(target => target === '$product' || isLightTarget(target)), 'Choose Whole product or individual parts, not both.');
-  fail(selected.every(target => target === '$product' || isLightTarget(target) || scene.product.components.some((part: any) => part.id === target)), 'An object is no longer in this product.');
+  fail(selected.every(target => target === '$product' || isLightTarget(target) || partTargetIds(scene).includes(target)), 'An object is no longer in this product.');
   fail(selected.every(target => !isLightTarget(target) || availableMotionKinds(scene, target).length > 0), 'A light is no longer in this rig.');
   return selected;
 }

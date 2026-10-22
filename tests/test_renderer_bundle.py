@@ -37,6 +37,8 @@ mathutils.Quaternion = lambda *args: None
 sys.modules["mathutils"] = mathutils
 renderer = runpy.run_path(sys.argv[1])
 geometry = renderer["decal_geometry"]()
+images = renderer["renderer_helper"]("material_assets")
+assert pathlib.Path(images.__file__).resolve().parent == pathlib.Path(sys.argv[1]).resolve().parent
 assert pathlib.Path(geometry.__file__).resolve().parent == pathlib.Path(sys.argv[1]).resolve().parent
 assert "film" not in sys.modules
 triangles = list(geometry.primitive_triangles({"shape":"box","sizeM":[.06,.1,.04]}))

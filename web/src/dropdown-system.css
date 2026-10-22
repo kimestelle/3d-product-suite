@@ -1,0 +1,104 @@
+/* One quiet popup surface. Explicit dark tokens also cover body portals and
+   menus opened from the inverted Export workspace. */
+:is(.gesso-menu,.gesso-material-menu,.gesso-scene-menu){
+  --gesso-menu-inset:12px;
+  --gesso-text-primary:#fff;
+  --gesso-text-secondary:#aaa9a7;
+  --gesso-text-muted:#858585;
+  --gesso-text-disabled:#626262;
+  --gesso-surface-field:#181818;
+  --gesso-signal-error:#ff968b;
+  color-scheme:dark;
+  color:var(--gesso-text-primary);
+  background:#000;
+  border:0;
+  border-radius:0;
+  box-shadow:0 4px 24px rgb(255 255 255 / 12%);
+}
+
+/* Menu labels share a text origin, including the fields inside File / View. */
+.gesso-studio .gesso-menu-content{padding:8px var(--gesso-menu-inset)}
+.gesso-studio .gesso-menu-content>:is(button,a,.gesso-menu-heading,.field){padding-inline:0}
+.gesso-studio .gesso-menu-content .gesso-note{margin-inline:0}
+.gesso-studio .gesso-menu-content .project-switch .text-button{padding-inline:0}
+.gesso-material-menu{padding:4px 12px}
+.gesso-material-menu>:is(button,strong,p){padding-inline:0}
+.gesso-material-menu [role=separator]{margin-inline:0}
+.gesso-scene-menu .film-scene-menu-actions>button{padding-inline:0}
+
+/* Hover brightens the label, never paints a second surface. */
+.gesso-studio :is(.gesso-appmenus button,.gesso-header-icon[aria-expanded],.gesso-material-menu-trigger,.gesso-part-menu-trigger,.film-scene-menu-trigger),
+.gesso-studio .gesso-menu-content :is(button,a),
+:is(.gesso-material-menu,.gesso-scene-menu) button{
+  background:transparent;
+  color:var(--gesso-text-secondary);
+  text-align:left;
+  transition:color 160ms ease;
+}
+.gesso-studio :is(.gesso-appmenus button,.gesso-header-icon[aria-expanded],.gesso-material-menu-trigger,.gesso-part-menu-trigger,.film-scene-menu-trigger):is(:hover,:active,:focus-visible,[aria-expanded=true]):not(:disabled),
+.gesso-studio .gesso-menu-content :is(button,a):is(:hover,:active,:focus-visible):not(:disabled),
+:is(.gesso-material-menu,.gesso-scene-menu) button:is(:hover,:active,:focus-visible):not(:disabled){
+  color:#fff;background:transparent;border-color:transparent;outline:0;box-shadow:none;
+}
+.gesso-studio :is(.gesso-appmenus button,.gesso-header-icon[aria-expanded],.gesso-material-menu-trigger,.gesso-part-menu-trigger,.film-scene-menu-trigger):focus-visible:not(:disabled),
+.gesso-studio .gesso-menu-content :is(button,a):focus-visible:not(:disabled),
+:is(.gesso-material-menu,.gesso-scene-menu) button:focus-visible:not(:disabled){
+  text-decoration:underline;text-underline-offset:4px;text-decoration-thickness:1px;
+}
+/* Icon-only triggers need a visible keyboard cue without a filled button. */
+.gesso-studio :is(.gesso-header-icon[aria-expanded],.gesso-material-menu-trigger,.gesso-part-menu-trigger,.film-scene-menu-trigger):focus-visible:not(:disabled){box-shadow:0 1px 0 currentColor}
+:is(.gesso-material-menu,.gesso-scene-menu) button.is-destructive{color:var(--gesso-signal-error)}
+:is(.gesso-material-menu,.gesso-scene-menu) button.is-destructive:is(:hover,:focus-visible){color:#ffb9b1}
+.gesso-studio .gesso-menu-content button:disabled,
+:is(.gesso-material-menu,.gesso-scene-menu) button:disabled{color:var(--gesso-text-disabled);opacity:1}
+
+/* Closed selects keep their native behavior and the existing label/value grid. */
+:is(.gesso-studio,.gesso-aperture-editor,.gesso-scene-menu) select:not([multiple]):not([size]){
+  --gesso-select-text-inset:0px;
+  padding-left:0;
+  text-align:left;text-align-last:left;border:0;border-radius:0;
+  background-color:transparent;box-shadow:none;color:var(--gesso-text-secondary);
+  transition:color 160ms ease;
+}
+.gesso-studio .gesso-panel .gesso-field:has(>select){border:0;box-shadow:none;background:transparent;outline:0}
+:is(.gesso-studio,.gesso-aperture-editor,.gesso-scene-menu) select:not([multiple]):not([size]):disabled{color:var(--gesso-text-disabled);cursor:default}
+:is(.gesso-studio,.gesso-aperture-editor,.gesso-scene-menu) select:not([multiple]):not([size]):is(:hover,:focus-visible,:open):not(:disabled){color:var(--gesso-text-primary);background-color:transparent;outline:0}
+.gesso-studio :is(.gesso-field,.field):has(>select:is(:hover,:focus-visible,:open):not(:disabled))>span{color:var(--gesso-text-primary)}
+:is(.gesso-studio,.gesso-aperture-editor,.gesso-scene-menu) select:focus-visible{text-decoration:underline;text-underline-offset:4px}
+
+/* Enhance the real select on desktop; unsupported browsers and touch retain
+   their native picker. No duplicate state, focus loop, or document listeners. */
+@supports (appearance:base-select){
+  @media (hover:hover) and (pointer:fine) and (forced-colors:none){
+    :is(.gesso-studio,.gesso-aperture-editor,.gesso-scene-menu) select:not([multiple]):not([size]),
+    :is(.gesso-studio,.gesso-aperture-editor,.gesso-scene-menu) select:not([multiple]):not([size])::picker(select){appearance:base-select}
+    :is(.gesso-studio,.gesso-aperture-editor,.gesso-scene-menu) select:not([multiple]):not([size]){align-items:center}
+    :is(.gesso-studio,.gesso-aperture-editor,.gesso-scene-menu) select::picker-icon{display:none}
+    :is(.gesso-studio,.gesso-aperture-editor,.gesso-scene-menu) select::picker(select){
+      color-scheme:dark;background:#000;color:#aaa9a7;
+      border:0;border-radius:0;box-shadow:0 4px 24px rgb(255 255 255 / 12%);
+      padding:4px 0;margin:4px 0;
+      min-width:max(anchor-size(width),160px);max-width:calc(100vw - 16px);
+      max-height:min(320px,calc(100dvh - 16px));
+      left:calc(anchor(left) + var(--gesso-select-text-inset,0px) - 12px);
+      font:400 13px/18px var(--gesso-font-text,'Halyard Text',sans-serif);
+      scrollbar-width:thin;overscroll-behavior:contain;
+    }
+    :is(.gesso-studio,.gesso-aperture-editor,.gesso-scene-menu) select option{
+      position:relative;display:flex;align-items:center;min-height:32px;
+      padding:3px 32px 5px 12px;gap:0;white-space:normal;overflow-wrap:anywhere;
+      border:0;background:transparent;color:#aaa9a7;font:inherit;
+    }
+    :is(.gesso-studio,.gesso-aperture-editor,.gesso-scene-menu) select option:is(:hover,:focus,:checked){color:#fff;background:transparent;outline:0}
+    :is(.gesso-studio,.gesso-aperture-editor,.gesso-scene-menu) select option:focus-visible{text-decoration:underline;text-underline-offset:4px}
+    :is(.gesso-studio,.gesso-aperture-editor,.gesso-scene-menu) select option:disabled{color:#626262}
+    :is(.gesso-studio,.gesso-aperture-editor,.gesso-scene-menu) select option::checkmark{position:absolute;right:12px;order:1;margin:0;color:#fff}
+  }
+}
+@media(prefers-reduced-motion:reduce){
+  .gesso-studio .gesso-menu-content :is(button,a),
+  :is(.gesso-studio,.gesso-aperture-editor,.gesso-scene-menu) select{transition:none}
+}
+@media(forced-colors:active){
+  :is(.gesso-menu,.gesso-material-menu,.gesso-scene-menu){border:1px solid CanvasText;box-shadow:none}
+}

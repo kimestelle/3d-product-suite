@@ -27,7 +27,13 @@ const cornerRadii=(width:number,height:number,radii:WindowSpec['radii']):FrameRa
     typeof radii==='number'?radii:radii[key]??0))])) as FrameRadii;
 };
 
-type GridLane={left:number;right:number;maxLeft?:number;minRight?:number};
+type GridLane={left:number;right:number};
+
+/** Leave columns one and seven empty in the scrolling compositions. */
+export function philosophyReadingBounds(width:number){
+  const w=dimension(width),pitch=(w-60)/7;
+  return w>900?{left:40+pitch,right:w-40-pitch,pitch}:{left:Math.min(40,w/2),right:Math.max(Math.min(40,w/2),w-40),pitch};
+}
 
 /** The guide uses true cubic extrema, so fit those same extrema to column
  * starts/ends. One uniform transform preserves pose, corners and all 64 anchors.
@@ -41,8 +47,7 @@ function snapEndpoint(endpoint:SequenceEndpoint,w:number,h:number,lane:GridLane)
   const centerX=(bounds.left+bounds.right)/2,centerY=(bounds.top+bounds.bottom)/2;
   let best:{left:number;top:number;scale:number;score:number}|null=null;
   for(const left of edges)for(const right of edges){
-    if(right<=left||left<lane.left-1e-7||right>lane.right+1e-7
-      ||left>=(lane.maxLeft??Infinity)||right<=(lane.minRight??-Infinity))continue;
+    if(right<=left||left<lane.left-1e-7||right>lane.right+1e-7)continue;
     const scale=(right-left)/bounds.width,newHeight=bounds.height*scale;
     const lastTop=Math.floor((h-40-newHeight)/4)*4;
     if(lastTop<96)continue;
@@ -67,21 +72,23 @@ function sequenceEndpoint(width:number,height:number,index:number):SequenceEndpo
   if(index===0) {
     const g=philosophyGeometry(width,height,0);
     const endpoint={nodes:philosophyFrameNodes(width,height,0),geometry:{...g,radii:cornerRadii(g.width,g.height,g.radius)}};
-    // Never move the cover's left edge back into the definition title.
-    return snapEndpoint(endpoint,dimension(width),dimension(height),{left:frameBounds(endpoint.nodes).left,right:dimension(width)-40});
+    if(width<=900)return endpoint;
+    const {left,right,pitch}=philosophyReadingBounds(width);
+    // The definition keeps two inner columns. Its tilted window fits the
+    // remaining three, rather than borrowing the empty outside column.
+    return snapEndpoint(endpoint,dimension(width),dimension(height),{left:left+2*pitch,right});
   }
   const w=dimension(width),h=dimension(height);
-  const left=Math.min(40,w/2),right=Math.max(left,w-40);
+  const {left,right,pitch:columnPitch}=philosophyReadingBounds(w);
   const top=Math.min(96,h),bottom=Math.max(top,h-40);
   const innerWidth=right-left,innerHeight=bottom-top;
-  const columnPitch=(innerWidth+20)/7;
   const readingWidth=Math.min(240,innerWidth*.24);
   const gap=Math.min(24,innerWidth*.1);
-  const circle=Math.min(w*.43,h*.70);
-  const square=Math.min(w*.49,h*.75);
-  const archWidth=w*.40,archHeight=h*.80;
-  const wideWidth=w*.58,wideHeight=h*.56;
-  const pillWidth=w*.56,pillHeight=h*.36;
+  const circle=Math.min(w*.31,h*.56);
+  const square=Math.min(w*.36,h*.64);
+  const archWidth=w*.34,archHeight=h*.70;
+  const wideWidth=w*.43,wideHeight=h*.42;
+  const pillWidth=w*.44,pillHeight=h*.25;
   const specs:WindowSpec[]=[
     {side:'right',width:circle,height:circle,radii:circle/2,rotation:0,vertical:.46},
     {side:'left',width:square,height:square,radii:square*.20,rotation:0,vertical:.56},
@@ -96,8 +103,9 @@ function sequenceEndpoint(width:number,height:number,index:number):SequenceEndpo
       rotation:-27,vertical:.57},
   ];
   const spec=specs[index-1];
-  const laneLeft=spec.side==='right'?Math.min(right,left+columnPitch+readingWidth+gap):left;
-  const laneRight=spec.side==='left'?Math.max(left,right-readingWidth-gap):right;
+  const reserve=w>900?2*columnPitch:readingWidth+gap;
+  const laneLeft=spec.side==='right'?Math.min(right,left+reserve):left;
+  const laneRight=spec.side==='left'?Math.max(left,right-reserve):right;
   const laneWidth=Math.max(0,laneRight-laneLeft);
   const local=transformFrameNodes(roundedFrameNodes({left:-spec.width/2,top:-spec.height/2,
     right:spec.width/2,bottom:spec.height/2},spec.radii),{rotation:spec.rotation});
@@ -120,8 +128,7 @@ function sequenceEndpoint(width:number,height:number,index:number):SequenceEndpo
     geometry:{x:cx,y:cy,width:spec.width*scale,height:spec.height*scale,rotation:spec.rotation,
       radii:Object.fromEntries(CORNERS.map(key=>[key,radii[key]*scale])) as FrameRadii},
   };
-  return snapEndpoint(endpoint,w,h,{left:laneLeft,right:laneRight,
-    ...(spec.side==='right'?{maxLeft:20+4*columnPitch}:{minRight:40+4*columnPitch})});
+  return snapEndpoint(endpoint,w,h,{left:laneLeft,right:laneRight});
 }
 
 /** Exact ideal rounded-rectangle bounds need just four corner arcs. This
@@ -164,10 +171,14 @@ function morphGeometry(from:WindowGeometry,to:WindowGeometry,t:number,width:numb
   const radii=Object.fromEntries(CORNERS.map(key=>[key,cap*mix(fromCap?from.radii[key]/fromCap:0,
     toCap?to.radii[key]/toCap:0,t)])) as FrameRadii;
   const rotationDelta=((to.rotation-from.rotation+540)%360)-180;
-  const geometry:WindowGeometry={x:mix(from.x,to.x,t),y:mix(from.y,to.y,t),width:nextWidth,height:nextHeight,
+  // Cross the reading lanes near the smallest contour, after the outgoing
+  // copy has risen clear and before the next paragraph enters. This uses the
+  // same reversible scroll playhead, not a delayed animation clock.
+  const crossing=smoothstep(Math.max(0,Math.min(1,(t-.25)/.5)));
+  const geometry:WindowGeometry={x:mix(from.x,to.x,crossing),y:mix(from.y,to.y,t),width:nextWidth,height:nextHeight,
     rotation:from.rotation+rotationDelta*t,radii};
   const bounds=geometryBounds(geometry);
-  const left=Math.min(40,w/2),right=Math.max(left,w-40);
+  const {left,right}=philosophyReadingBounds(w);
   const top=Math.min(96,h),bottom=Math.max(top,h-40);
   const boundWidth=bounds.right-bounds.left,boundHeight=bounds.bottom-bounds.top;
   const scale=Math.min(1,boundWidth>0?(right-left)/boundWidth:1,boundHeight>0?(bottom-top)/boundHeight:1);

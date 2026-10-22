@@ -211,12 +211,62 @@ function circlePose(circle:Cross):Pose {
     radii:{topLeft:radius,topRight:radius,bottomRight:radius,bottomLeft:radius}};
 }
 
+type RadialTangent={derivative:Point;before:number;after:number};
+type RadialContour={angle:number;tangents:RadialTangent[]};
+const crossProduct=(a:Point,b:Point)=>a.x*b.y-a.y*b.x;
+
+/** Radially authored contours share an angle parameter, but their constructors
+ * shorten handles by different amounts. Recover dp/d(angle) independently of
+ * that shortening so moving anchors and tangents describe the same edge.
+ * Semantic windows have another sampling scheme and must not enter this path.
+ */
+function radialContour(nodes:FrameNodes):RadialContour|null {
+  const count=nodes.length,half=count/2,quarter=count/4;
+  const p=nodes[0].point,q=nodes[quarter].point;
+  const horizontal=subtract(nodes[half].point,p),vertical=subtract(nodes[quarter+half].point,q);
+  const determinant=crossProduct(horizontal,vertical);
+  if(Math.abs(determinant)<1e-9)return null;
+  // Intersect opposite rays: the pole need not be the contour's bounding center
+  // (for example, a triangle or pentagon).
+  const distance=crossProduct(subtract(q,p),vertical)/determinant;
+  const pole={x:p.x+horizontal.x*distance,y:p.y+horizontal.y*distance};
+  const angle=Math.atan2(p.y-pole.y,p.x-pole.x),step=2*Math.PI/count;
+  const tangents:RadialTangent[]=[];
+  for(let i=0;i<count;i++) {
+    const node=nodes[i],radius=subtract(node.point,pole),r=length(radius);
+    if(r<1e-7||Math.abs(deltaAngle(angle+i*step,Math.atan2(radius.y,radius.x)))>1e-7)return null;
+    const incoming=subtract(node.point,node.in),outgoing=subtract(node.out,node.point);
+    const before=crossProduct(radius,incoming)/(r*r),after=crossProduct(radius,outgoing)/(r*r);
+    if(before<1e-9||after<1e-9)return null;
+    const derivative={x:outgoing.x/after,y:outgoing.y/after};
+    // Preserve deliberate corners and zero handles through the general path.
+    if(Math.hypot(incoming.x/before-derivative.x,incoming.y/before-derivative.y)>length(derivative)*1e-7)return null;
+    tangents.push({derivative,before,after});
+  }
+  return {angle,tangents};
+}
+
+function radialMorph(from:FrameNodes,to:FrameNodes):((t:number)=>FrameNodes)|null {
+  const a=radialContour(from),b=radialContour(to);
+  if(!a||!b||Math.abs(deltaAngle(a.angle,b.angle))>1e-7)return null;
+  return t=>from.map((node,i)=>{
+    const point={x:mix(node.point.x,to[i].point.x,t),y:mix(node.point.y,to[i].point.y,t)};
+    const start=a.tangents[i],end=b.tangents[i];
+    const dx=mix(start.derivative.x,end.derivative.x,t),dy=mix(start.derivative.y,end.derivative.y,t);
+    const before=mix(start.before,end.before,t),after=mix(start.after,end.after,t);
+    return {point,in:{x:point.x-dx*before,y:point.y-dy*before},
+      out:{x:point.x+dx*after,y:point.y+dy*after}};
+  });
+}
+
 /** When no named window geometry fits, preserve each node's shared tangent.
  * Independent handle-vector lerps can turn an originally smooth join into a
  * kink when the two handles have different lengths. Direction and length are
  * interpolated separately, retaining deliberately sharp endpoint corners.
  */
 function freeformMorph(from:FrameNodes,to:FrameNodes):(t:number)=>FrameNodes {
+  const radial=radialMorph(from,to);
+  if(radial)return radial;
   const tangents=(nodes:FrameNodes,index:number)=>{
     const node=nodes[index],incoming=subtract(node.point,node.in),outgoing=subtract(node.out,node.point);
     const before=length(incoming),after=length(outgoing);

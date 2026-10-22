@@ -124,9 +124,28 @@ def primitive_triangles(component):
             yield (points[c], points[d], points[b])
 
 
-def imported_triangles(payload, part_id, component_id):
+# Kept self-contained: this file is frozen into an export job and loaded by Blender.
+# Source GLBs have already passed products.inspect_product_glb before bundling.
+_IDENTITY = ((1.,0.,0.,0.), (0.,1.,0.,0.), (0.,0.,1.,0.), (0.,0.,0.,1.))
+
+def _multiply(left, right):
+    return tuple(tuple(sum(left[row][k] * right[k][column] for k in range(4))
+                       for column in range(4)) for row in range(4))
+
+def _node_matrix(node):
+    if "matrix" in node:
+        return tuple(tuple(node["matrix"][column * 4 + row] for column in range(4)) for row in range(4))
+    t, s = node.get("translation", [0,0,0]), node.get("scale", [1,1,1])
+    x,y,z,w = node.get("rotation", [0,0,0,1])
+    rotation = ((1-2*y*y-2*z*z, 2*x*y-2*z*w, 2*x*z+2*y*w),
+                (2*x*y+2*z*w, 1-2*x*x-2*z*z, 2*y*z-2*x*w),
+                (2*x*z-2*y*w, 2*y*z+2*x*w, 1-2*x*x-2*y*y))
+    return tuple(tuple(rotation[row][column] * s[column] for column in range(3)) + (t[row],)
+                 for row in range(3)) + (_IDENTITY[3],)
+
+
+def imported_triangles(payload, part_id, component_id, *, descendants=True):
     """Read the exact source node (plus descendants), including UV seams."""
-    from .products import _IDENTITY, _multiply, _node_matrix
     json_size = struct.unpack_from("<I", payload, 12)[0]
     document = json.loads(payload[20:20+json_size])
     offset = 20+json_size
@@ -173,7 +192,7 @@ def imported_triangles(payload, part_id, component_id):
         index, parent, inside = stack.pop()
         node = nodes[index]
         matrix = _multiply(parent, _node_matrix(node))
-        inside = inside or index == selected
+        inside = (inside or index == selected) if descendants else index == selected
         stack += [(child, matrix, inside) for child in node.get("children", [])]
         if not inside or "mesh" not in node:
             continue

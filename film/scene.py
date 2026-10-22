@@ -10,6 +10,13 @@ from .worlds import validate_asset_record, validate_product_asset_record
 from .material_assets import validate_material_textures, validate_hdri_asset
 from .film_images import validate_film_image_asset
 from .audio import validate_scene_audio
+from .artwork import validate_product_artwork
+from .part_motion import source_targets, base_pose, validate_source_nodes, evaluate_parts
+from .part_visibility import validate_removed_parts, removed_part_ids
+
+
+PRODUCT_SCALE_MIN = 1e-6
+PRODUCT_SCALE_MAX = 1e6
 
 
 def scene_digest(scene):
@@ -101,7 +108,9 @@ def _validate_animation(animation, component_ids, moving, motion_parents, total_
             _require(type(frame) is int and previous < frame <= total_frames,
                      "Animation key frames must be sorted, unique and within the reel")
             previous = frame
-            minimum, maximum = (.01, 100) if prop == "scale" else (-100, 100) if prop == "motion" else (None, None)
+            minimum, maximum = (-100, 100) if prop == "motion" else (None, None)
+            if prop == "scale":
+                minimum, maximum = (PRODUCT_SCALE_MIN, PRODUCT_SCALE_MAX) if target == "$product" else (.01, 100)
             _number(key.get("value"), f"Animation {prop} value", minimum=minimum, maximum=maximum)
             _require(key.get("interpolation") in ("linear", "ease", "hold"), "Animation key interpolation is unsupported")
 
@@ -254,6 +263,7 @@ def _motion_progress(motion, frame):
 def _film_values(scene, shot, frame, animated):
     """Evaluate authored actions into the same canonical component channels."""
     components = {part['id']: part for part in scene['product']['components']}
+    source_parts = source_targets(scene)
     for motion, local in _effective_motions(scene, shot):
         target = motion['target']
         if target == '$camera' or _is_light_target(target):
@@ -261,7 +271,8 @@ def _film_values(scene, shot, frame, animated):
         clock = frame - shot['startFrame'] + 1 if local else frame
         progress = _motion_progress(motion, clock)
         value, kind, axis = motion['amount'] * progress, motion['kind'], motion['axis']
-        pose = scene['placement'] if target == '$product' else components[target]['assembly']
+        pose = (scene['placement'] if target == '$product' else base_pose(*source_parts[target])
+                if target in source_parts else components[target]['assembly'])
         values = animated.setdefault(target, {})
         if kind in ('move', 'rotate') and any(action['componentId'] == target for action in scene['actions']):
             # An explicit spatial owner must not secretly resume the legacy
@@ -385,6 +396,7 @@ def validate_scene(scene):
             _vector(q, "assembly quaternion", 4)
             _require(abs(sum(x*x for x in q) - 1) < 1e-6, "Assembly quaternion must be normalized")
             _material(c["material"])
+            validate_source_nodes(c)
             if "materialPresetId" in c:
                 preset_id = c["materialPresetId"]
                 _require(isinstance(preset_id, str) and preset_id in presets_by_id,
@@ -410,6 +422,7 @@ def validate_scene(scene):
                     _require(isinstance(preset_id, str) and preset_id in presets_by_id,
                              "Material section preset does not exist")
             _number(c.get("bevelM", 0), "bevelM", minimum=0, maximum=min(c["sizeM"])/2)
+        validate_removed_parts(scene)
         if "label" in p:
             _require(p["label"]["componentId"] in ids, "Label component does not exist")
             _require(next(c for c in p["components"] if c["id"] == p["label"]["componentId"])["shape"] != "mesh",
@@ -442,7 +455,10 @@ def validate_scene(scene):
             _number(decal.get("rotationDeg"), "Decal rotation", minimum=-180, maximum=180)
             _number(decal.get("heightM"), "Decal height", minimum=0, maximum=.01)
             _number(decal.get("bevelM"), "Decal bevel", minimum=0, maximum=decal["heightM"] / 2)
+        validate_product_artwork(scene)
         env = scene["environment"]
+        if "studioSizeM" in env:
+            _number(env["studioSizeM"], "studio size", minimum=1e-6, maximum=1e6)
         _require(env["kind"] in ("authored", "mesh", "splat") and isinstance(env["revisionId"], str) and env["revisionId"].strip(), "Environment kind and revision are required")
         if env["kind"] != "authored":
             validate_asset_record(env.get("asset"), kind=env["kind"])
@@ -523,7 +539,7 @@ def validate_scene(scene):
                     _number(light["blend"], "spot blend", minimum=0, maximum=1)
         _require(scene["placement"]["restsOn"] == env["plinth"]["id"], "Unknown contact surface")
         _vector(scene["placement"]["translationM"], "product placement")
-        _number(scene["placement"].get("scale", 1), "product scale", minimum=.01, maximum=100)
+        _number(scene["placement"].get("scale", 1), "product scale", minimum=PRODUCT_SCALE_MIN, maximum=PRODUCT_SCALE_MAX)
         _require(isinstance(scene["evidence"], list), "Evidence list is required")
         evidence_ids = [x["id"] for x in scene["evidence"]]
         _require(len(evidence_ids) == len(set(evidence_ids)), "Evidence IDs must be unique")
@@ -596,10 +612,13 @@ def validate_scene(scene):
         _require(total >= next_frame - 1, "Movie duration must include every shot")
         for a in scene["actions"]:
             _require(a["startSeconds"] + a["durationSeconds"] <= (total-1)/r["fps"], "Action must finish within the reel")
+        source_ids = set(source_targets(scene))
+        _require(not ids & source_ids, "Component ID conflicts with a source part ID")
+        motion_ids = ids | source_ids
         if "animation" in scene:
-            _validate_animation(scene["animation"], ids, moving,
+            _validate_animation(scene["animation"], motion_ids, moving,
                                 {action["relativeTo"] for action in scene["actions"]}, total)
-        _validate_film_motions(scene, ids, moving, {action['relativeTo'] for action in scene['actions']})
+        _validate_film_motions(scene, motion_ids, moving, {action['relativeTo'] for action in scene['actions']})
         if "comparison" in scene:
             from .comparison import validate_comparison
             validate_comparison(scene)
@@ -678,7 +697,7 @@ def film_duration(scene):
     return scene["render"].get("durationFrames", max((shot["endFrame"] for shot in scene["shots"]), default=1))
 
 
-def evaluate(scene, frame):
+def evaluate(scene, frame, *, include_placement=False):
     """Evaluate a validated scene without mutable playback or accumulated deltas.
 
     Uniform placement scale expands the assembly around the support origin;
@@ -744,6 +763,7 @@ def evaluate(scene, frame):
         offset = [(p-r+x*distance) * pose["scale"] for p,r,x in zip(a["pivotM"],rotated_pivot,a["axis"])]
         pose["translationM"] = _add(pose["translationM"], _rotate(pose["rotationXyzw"],offset))
         pose["rotationXyzw"] = _mul(pose["rotationXyzw"],q)
+    parts = evaluate_parts(scene, components, animated, _euler_xyz_degrees, _quaternion_from_xyz_degrees)
     camera_duration = shot['camera'].get('durationFrames', shot['endFrame'] - shot['startFrame'] + 1)
     u = _smooth((frame-shot["startFrame"])/(camera_duration-1)) if camera_duration > 1 else 0.
     before, after = shot["camera"]["from"], shot["camera"]["to"]
@@ -758,10 +778,17 @@ def evaluate(scene, frame):
     }
     clip = {"kind": "black"} if selected is None else ({"kind": "image", **selected["image"]} if selected.get("kind") == "image" else {"kind": "scene"})
     sample = {"frame":frame,"timeSeconds":t,"shotId":selected["id"] if selected else None,
-              "clip":clip,"components":components,"camera":camera}
+              "clip":clip,"components":components,**({"parts":parts} if parts else {}),"camera":camera}
+    removed = removed_part_ids(scene)
+    if removed:
+        sample["removedPartIds"] = removed
     if _has_light_motions(scene):
         # Scenes without light motions keep their byte-identical samples.
         sample["lights"] = _film_lights(scene, shot, frame)
+    if include_placement:
+        # Product fitting needs the actual animated support pivot and uniform
+        # scale, rather than trying to recover them from a moving part.
+        sample["productPlacement"] = {"translationM": placement, "scale": product_scale}
     return sample
 
 

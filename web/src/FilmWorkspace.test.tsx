@@ -57,6 +57,17 @@ describe('Film workspace ownership and editing context', () => {
     expect(props.scene).toEqual(before);
   });
 
+  it.each(['lift','screw'])('mounts the selected %s diagram above scrolling controls without changing film ownership', mechanism => {
+    const props=context();props.selectedTarget='cap';props.scene.actions.find((action:any)=>action.componentId==='cap').type=mechanism;
+    props.selectedMotionId=addMotion(props.scene,props.scene.shots[0].id,'cap','mechanical');
+    const before=structuredClone(props.scene),html=renderToStaticMarkup(<FilmInspector {...props}/>);
+    expect(html.indexOf('class="film-motion-preview"')).toBeLessThan(html.indexOf('class="film-rail-scroll"'));
+    expect(html).toContain(`data-motion-mechanism="${mechanism}"`);
+    expect(html.match(/class="film-motion-choice"/g)).toHaveLength(4);
+    expect(html).toContain(`>${mechanism==='screw'?'Unscrew':'Lift'}</span>`);expect(html).toContain('Motion amount');
+    expect(props.scene).toEqual(before);
+  });
+
   it('retains existing film-wide animation and makes its scope explicit', () => {
     const props = context(); props.selectedTarget = props.scene.actions[0].componentId;
     const before = structuredClone(props.scene), html = renderToStaticMarkup(<FilmInspector {...props}/>);
@@ -123,21 +134,38 @@ describe('Film workspace ownership and editing context', () => {
     const objects = renderToStaticMarkup(<FilmObjects {...props}/>);
     const inspector = renderToStaticMarkup(<FilmInspector {...props}/>);
     expect(header).toContain(`Scene 01: ${editing.name}`);
-    expect(objects).toContain('1 motion');
+    expect(objects).toContain('>orbit</small>');
     expect(inspector).toContain('aria-label="Motion amount"');
     expect(inspector).toContain('aria-label="Camera motions"');
     expect(renderToStaticMarkup(<FilmInspector {...props} editingFrame={playing.startFrame}/>)).not.toContain('aria-label="Motion amount"');
   });
 
-  it('keeps pose controls mounted under a native disclosure while motion settings are selected', () => {
+  it('pins Still and camera presets above their settings and framing', () => {
     const props = context();
     props.selectedMotionId = addMotion(props.scene, props.scene.shots[0].id, '$camera', 'orbit');
-    const html = renderToStaticMarkup(<FilmInspector {...props}><div>Camera coordinates</div></FilmInspector>);
-    expect(html).toContain('Camera coordinates');
-    expect(html).toContain('film-pose-disclosure');
-    expect(html).not.toContain('film-pose-disclosure" open');
-    expect(html.indexOf('Motion amount')).toBeLessThan(html.indexOf('Camera coordinates'));
-    expect(renderToStaticMarkup(<FilmInspector {...props} selectedMotionId={null}/>)).toContain('film-pose-disclosure" open');
+    const before = structuredClone(props.scene);
+    const html = renderToStaticMarkup(<FilmInspector {...props}><div>Camera controls</div></FilmInspector>);
+    expect(html).toContain('aria-label="Camera motion"');
+    for (const label of ['Still', 'Orbit', 'Push in']) expect(html).toContain(`>${label}</span>`);
+    expect(html.indexOf('aria-label="Camera motion"')).toBeLessThan(html.indexOf('class="film-rail-scroll"'));
+    expect(html.indexOf('Motion amount')).toBeLessThan(html.indexOf('Camera controls'));
+    expect(html).not.toContain('film-add-motion');
+    expect(html).not.toContain('film-pose-disclosure');
+    expect(html).not.toContain('class="film-motion-preview"');
+    const unselected = renderToStaticMarkup(<FilmInspector {...props} selectedMotionId={null}/>);
+    expect(unselected).toContain('aria-label="Motion amount"');
+    expect(unselected).toContain('film-camera-framing');
+    expect(props.scene).toEqual(before);
+  });
+
+  it('does not call an authored endpoint path Still or expose motion controls in still output mode', () => {
+    const props = context();
+    const html = renderToStaticMarkup(<FilmInspector {...props}/>);
+    expect(html).toContain('Custom camera path');
+    expect(html.match(/class="film-motion-choice"[^>]*aria-pressed="true"/g)).toBeNull();
+    const still = renderToStaticMarkup(<FilmInspector {...props} mode="still"/>);
+    expect(still).not.toContain('aria-label="Camera motion"');
+    expect(still).toContain('film-camera-framing');
   });
 
   it('distinguishes film absolute time from shot-relative time when displaying blocks', () => {

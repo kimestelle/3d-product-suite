@@ -59,12 +59,44 @@ class BlendImportTests(unittest.TestCase):
         with patch.object(blend_import.subprocess, "run", side_effect=self.converted_process) as run:
             report = blend_import.convert_blend_product(self.source, self.output, blender="/configured/blender")
         self.assertEqual(run.call_args.args[0][0], "/configured/blender")
+        self.assertNotIn("--source-units", run.call_args.args[0])
         for key, value in REPORT.items():
             self.assertEqual(report[key], value)
         self.assertEqual(self.output.read_bytes(), product_glb())
         self.assertEqual(self.source.read_bytes(), before)
         self.assertEqual(report["sourceSha256"], hashlib.sha256(before).hexdigest())
         self.assert_cleaned()
+
+    def test_structured_material_warning_report_larger_than_64k_keeps_successful_import(self):
+        expected = {**REPORT, "materialFallbackCount": 150, "materialFallbacks": [
+            {"name": f"Surface {index}", "reason": "Unsupported shader input. " * 20,
+             "fix": "Bake this surface to image textures and use Principled BSDF. " * 10,
+             "objects": [f"Part {index}"]}
+            for index in range(150)
+        ]}
+        encoded = json.dumps(expected)
+        self.assertGreater(len(encoded.encode()), 64 * 1024)
+        self.assertLess(len(encoded.encode()), 1024 * 1024)
+        def converted_with_warnings(command, **kwargs):
+            result = self.converted_process(command, **kwargs)
+            Path(command[command.index("--report") + 1]).write_text(encoded)
+            return result
+        with patch.object(blend_import.subprocess, "run", side_effect=converted_with_warnings):
+            report = blend_import.convert_blend_product(self.source, self.output)
+        self.assertEqual(report["materialFallbacks"], expected["materialFallbacks"])
+        self.assertEqual(self.output.read_bytes(), product_glb())
+        self.assert_cleaned()
+
+    def test_units_override_is_explicit_and_validated_before_launch(self):
+        with patch.object(blend_import.subprocess, "run", side_effect=self.converted_process) as run:
+            blend_import.convert_blend_product(self.source, self.output, source_units="cm")
+        command = run.call_args.args[0]
+        self.assertEqual(command[command.index("--source-units") + 1], "cm")
+        for invalid in ("auto", "CM", "", 1, []):
+            with self.subTest(units=invalid), patch.object(blend_import.subprocess, "run") as run:
+                with self.assertRaisesRegex(ValueError, "units override"):
+                    blend_import.convert_blend_product(self.source, self.output, source_units=invalid)
+                run.assert_not_called()
 
     def test_missing_blender_is_actionable_and_keeps_existing_output(self):
         self.output.write_bytes(b"existing output")
@@ -103,10 +135,10 @@ class BlendImportTests(unittest.TestCase):
         def failed(command, **kwargs):
             self.converted_process(command, **kwargs)
             report = Path(command[command.index("--report") + 1])
-            report.write_text(json.dumps({"error": "Pack external textures into the .blend file before import."}))
+            report.write_text(json.dumps({"error": "Blender product contains nonfinite geometry."}))
             return subprocess.CompletedProcess(command, 1, stdout="conversion failed", stderr="")
         with patch.object(blend_import.subprocess, "run", side_effect=failed):
-            with self.assertRaisesRegex(ValueError, "Pack external textures"):
+            with self.assertRaisesRegex(ValueError, "nonfinite geometry"):
                 blend_import.convert_blend_product(self.source, self.output)
         self.assertFalse(self.output.exists())
         self.assert_cleaned()
@@ -201,7 +233,7 @@ if mode != 'empty':
             obj.keyframe_insert(data_path='location',frame=1)
             obj.location.x=10
             obj.keyframe_insert(data_path='location',frame=7)
-        if mode in {'unpacked','packed'} and name=='Cap':
+        if mode in {'unpacked','packed','missing'} and name=='Cap':
             image=bpy.data.images.new('External label',width=2,height=2)
             image.filepath_raw=str(output.parent/'unpacked-label.png')
             image.file_format='PNG'
@@ -210,6 +242,8 @@ if mode != 'empty':
             if mode=='packed':
                 image.pack()
             image.filepath='//unpacked-label.png'
+            if mode=='missing':
+                image.filepath='//missing-label.png'
             texture=material.node_tree.nodes.new('ShaderNodeTexImage')
             texture.image=image
             material.node_tree.links.new(texture.outputs['Color'],shader.inputs['Base Color'])
@@ -289,7 +323,28 @@ if mode != 'empty':
         for name in ('Body','Cap'):
             bpy.data.objects[name].data.materials.clear()
             bpy.data.objects[name].data.materials.append(material)
-    if mode in {'mixed_surfaces','procedural'}:
+    if mode in {'group_surface', 'group_shared'}:
+        material=bpy.data.materials.new('Metal')
+        material.use_nodes=True
+        tree=bpy.data.node_groups.new('Group.003','ShaderNodeTree')
+        tree.interface.new_socket(name='Shader',in_out='OUTPUT',socket_type='NodeSocketShader')
+        output_node=tree.nodes.new('NodeGroupOutput')
+        shader=tree.nodes.new('ShaderNodeBsdfPrincipled')
+        shader.inputs['Metallic'].default_value=1
+        tree.links.new(shader.outputs[0],output_node.inputs['Shader'])
+        group=material.node_tree.nodes.new('ShaderNodeGroup')
+        group.name='Group.003'
+        group.node_tree=tree
+        material.node_tree.links.new(group.outputs['Shader'],material.node_tree.nodes.get('Material Output').inputs['Surface'])
+        body=bpy.data.objects['Body']
+        body.data.materials.append(material)
+        for polygon in body.data.polygons:
+            polygon.material_index=polygon.index % 2
+        if mode=='group_shared':
+            cap=bpy.data.objects['Cap']
+            cap.data.materials.clear()
+            cap.data.materials.append(material)
+    if mode in {'mixed_surfaces','procedural','bake_failure','bake_failure_shared'}:
         def surface_material(name):
             material=bpy.data.materials.new(name)
             material.use_nodes=True
@@ -365,6 +420,71 @@ if mode != 'empty':
             obj=bpy.data.objects['Body']
             obj.data.materials.clear()
             obj.data.materials.append(material)
+            if mode=='bake_failure':
+                obj.data.materials.append(bpy.data.materials['Body finish'])
+                for polygon in obj.data.polygons:
+                    polygon.material_index=polygon.index % 2
+            if mode=='bake_failure_shared':
+                cap=bpy.data.objects['Cap']
+                cap.data.materials.clear()
+                cap.data.materials.append(material)
+    if mode in {'principled_ior_value', 'principled_ior_varying'}:
+        material=bpy.data.materials['Body finish']
+        nodes,links=material.node_tree.nodes,material.node_tree.links
+        shader=nodes.get('Principled BSDF')
+        shader.inputs['Transmission Weight'].default_value=.8
+        if mode=='principled_ior_value':
+            ior=nodes.new('ShaderNodeValue')
+            ior.outputs[0].default_value=1.333
+            ior.outputs[0].keyframe_insert(data_path='default_value',frame=1)
+            ior.outputs[0].default_value=1.47
+            ior.outputs[0].keyframe_insert(data_path='default_value',frame=7)
+            ior_output=ior.outputs[0]
+        else:
+            ior_output=nodes.new('ShaderNodeTexNoise').outputs['Fac']
+        reroute=nodes.new('NodeReroute')
+        links.new(ior_output,reroute.inputs[0])
+        links.new(reroute.outputs[0],shader.inputs['IOR'])
+    if mode=='static_color_math':
+        material=bpy.data.materials['Body finish']
+        nodes,links=material.node_tree.nodes,material.node_tree.links
+        shader=nodes.get('Principled BSDF')
+        coords=nodes.new('ShaderNodeTexCoord')
+        noise=nodes.new('ShaderNodeTexWhiteNoise')
+        remap=nodes.new('ShaderNodeMapRange')
+        remap.inputs['To Min'].default_value=.2
+        remap.inputs['To Max'].default_value=.8
+        clamp=nodes.new('ShaderNodeClamp')
+        invert=nodes.new('ShaderNodeInvert')
+        gamma=nodes.new('ShaderNodeGamma')
+        gamma.inputs['Gamma'].default_value=1.5
+        hue=nodes.new('ShaderNodeHueSaturation')
+        rgb_to_bw=nodes.new('ShaderNodeRGBToBW')
+        links.new(coords.outputs['Generated'],noise.inputs['Vector'])
+        links.new(noise.outputs['Value'],remap.inputs['Value'])
+        links.new(remap.outputs['Result'],clamp.inputs['Value'])
+        links.new(clamp.outputs['Result'],invert.inputs['Color'])
+        links.new(invert.outputs['Color'],gamma.inputs['Color'])
+        links.new(gamma.outputs['Color'],hue.inputs['Color'])
+        links.new(hue.outputs['Color'],shader.inputs['Base Color'])
+        links.new(hue.outputs['Color'],rgb_to_bw.inputs['Color'])
+        links.new(rgb_to_bw.outputs['Val'],shader.inputs['Roughness'])
+    if mode=='unused_material':
+        material=bpy.data.materials.new('Unused draft material')
+        material.use_nodes=True
+        nodes,links=material.node_tree.nodes,material.node_tree.links
+        texture=nodes.new('ShaderNodeTexImage')
+        links.new(texture.outputs['Color'],nodes.get('Principled BSDF').inputs['Base Color'])
+        volume=nodes.new('ShaderNodeVolumeAbsorption')
+        links.new(volume.outputs['Volume'],nodes.get('Material Output').inputs['Volume'])
+        for name in ('Body','Cap'):
+            obj=bpy.data.objects[name]
+            active=obj.data.materials[0]
+            obj.data.materials.clear()
+            obj.data.materials.append(material)
+            obj.data.materials.append(active)
+            for polygon in obj.data.polygons:
+                polygon.material_index=1
     if mode=='real_instance':
         instance_source=bpy.data.collections.new('Real instance source')
         instance_source.objects.link(bpy.data.objects['Cap'])
@@ -512,12 +632,79 @@ def linear_rgb(pixel):
                      "Set RUN_BLENDER_TESTS=1 to exercise real Blender conversion")
 class BlendImportBlenderTests(unittest.TestCase):
     def setUp(self):
-        self.assertIsNotNone(shutil.which(BLENDER), "Blender 4.3.2 must be installed")
+        self.assertIsNotNone(shutil.which(BLENDER), "A supported Blender executable must be installed")
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.source = self.root / "synthetic-product.blend"
         self.output = self.root / "converted.glb"
+
+    def assert_fallback_material(self, document, report, name, reason):
+        entries = [entry for entry in report["materialFallbacks"] if entry["name"] == name]
+        self.assertEqual(len(entries), 1, "Shared materials should produce one warning record")
+        self.assertRegex(entries[0]["reason"], reason)
+        self.assertTrue(entries[0]["fix"].strip())
+        self.assertTrue(entries[0]["objects"])
+        self.assertTrue(any(name in warning for warning in report["warnings"]))
+        materials = [material for material in document["materials"] if material["name"] == name]
+        self.assertEqual(len(materials), 1)
+        material = materials[0]
+        pbr = material["pbrMetallicRoughness"]
+        for actual, expected in zip(pbr.get("baseColorFactor", [1, 1, 1, 1]), [.5, .5, .5, 1]):
+            self.assertAlmostEqual(actual, expected, places=6)
+        self.assertEqual(pbr.get("metallicFactor", 1), 0)
+        self.assertAlmostEqual(pbr.get("roughnessFactor", 1), .6, places=6)
+        self.assertEqual(material.get("alphaMode", "OPAQUE"), "OPAQUE")
+        self.assertFalse(material.get("extensions", {}).get("KHR_materials_transmission", {}).get("transmissionFactor", 0))
+        self.assertFalse(any("Texture" in key for key in pbr))
+        self.assertFalse(any("Texture" in key for key in material))
+        self.assertFalse(any(entry["material"] == name for entry in report.get("materialConversions", [])))
+        return entries[0]
+
+    def import_fallback_fixture(self, mode, name, reason):
+        make_blend_fixture(self.source, mode)
+        source_digest = hashlib.sha256(self.source.read_bytes()).hexdigest()
+        report = blend_import.convert_blend_product(self.source, self.output, blender=BLENDER)
+        document = read_glb_document(self.output)
+        self.assert_fallback_material(document, report, name, reason)
+        measured = inspect_product_glb(self.output.read_bytes())
+        for actual, expected in zip(measured["dimensionsM"], (.130, .035, .040)):
+            self.assertAlmostEqual(actual, expected, places=6)
+        self.assertEqual(report["meshCount"], 2)
+        self.assertEqual(hashlib.sha256(self.source.read_bytes()).hexdigest(), source_digest)
+        self.assertEqual(report["sourceSha256"], source_digest)
+        self.assertFalse((self.root / "startup-executed").exists())
+        return document, report
+
+    def mesh_surface_signature(self, path):
+        """Compare geometry and UVs independently of material primitive splitting."""
+        payload = Path(path).read_bytes()
+        json_length = struct.unpack_from("<I", payload, 12)[0]
+        document, binary = read_glb_document(path), payload[28 + json_length:]
+        result = {}
+        def attribute_rows(index):
+            accessor = document["accessors"][index]
+            self.assertEqual(accessor["componentType"], 5126)
+            components = {"VEC2": 2, "VEC3": 3}[accessor["type"]]
+            view = document["bufferViews"][accessor["bufferView"]]
+            offset = view.get("byteOffset", 0) + accessor.get("byteOffset", 0)
+            stride = view.get("byteStride", components * 4)
+            return [struct.unpack_from(f"<{components}f", binary, offset + number * stride)
+                    for number in range(accessor["count"])]
+        for node in document["nodes"]:
+            if "mesh" not in node:
+                continue
+            triangles = []
+            for primitive in document["meshes"][node["mesh"]]["primitives"]:
+                attributes = primitive["attributes"]
+                channels = [attribute_rows(attributes[name])
+                            for name in ("POSITION", "NORMAL", "TEXCOORD_0") if name in attributes]
+                indices = [row[0] for row in products._accessor_rows(document, [binary], primitive["indices"])]
+                for start in range(0, len(indices), 3):
+                    triangles.append(tuple(sorted(tuple(round(value, 6) for channel in channels for value in channel[index])
+                                                  for index in indices[start:start + 3])))
+            result[node["name"]] = sorted(triangles)
+        return result
 
     def test_nested_mm_product_is_a_centered_static_snapshot_with_materials(self):
         make_blend_fixture(self.source)
@@ -605,6 +792,19 @@ class BlendImportBlenderTests(unittest.TestCase):
         self.assertIn("baseColorTexture", cap["pbrMetallicRoughness"])
         inspect_product_glb(self.output.read_bytes())
 
+    def test_explicit_units_override_replaces_file_units_and_keeps_source(self):
+        make_blend_fixture(self.source)
+        source_digest = hashlib.sha256(self.source.read_bytes()).hexdigest()
+        report = blend_import.convert_blend_product(self.source, self.output, blender=BLENDER, source_units="cm")
+        measured = inspect_product_glb(self.output.read_bytes())
+        for actual, expected in zip(measured["dimensionsM"], (1.30, .35, .40)):
+            self.assertAlmostEqual(actual, expected, places=6)
+        self.assertEqual(report["sourceUnitSystem"], "METRIC")
+        self.assertAlmostEqual(report["sourceUnitScaleToMeters"], .001)
+        self.assertEqual(report["sourceUnitsOverride"], "cm")
+        self.assertEqual(report["sourceScaleToMeters"], .01)
+        self.assertEqual(hashlib.sha256(self.source.read_bytes()).hexdigest(), source_digest)
+
     def assert_glass_snapshot(self, document, report, source_digest):
         materials = document["materials"]
         glass = next(material for material in materials if material["name"] == "LiquidPerfume")
@@ -649,29 +849,50 @@ class BlendImportBlenderTests(unittest.TestCase):
         self.assertGreaterEqual(len(document["images"]), 2)
         self.assertTrue(all("bufferView" in image and "uri" not in image for image in document["images"]))
 
-    def test_mixed_glass_shader_remains_an_actionable_error(self):
-        make_blend_fixture(self.source, "glass_mixed")
-        with self.assertRaisesRegex(ValueError, "(?i)mix|bake|principled"):
-            blend_import.convert_blend_product(self.source, self.output, blender=BLENDER)
-        self.assertFalse(self.output.exists())
+    def test_mixed_glass_shader_warns_and_keeps_both_product_meshes(self):
+        self.import_fallback_fixture("glass_mixed", "LiquidPerfume", "(?i)mix|bake|principled")
 
-    def test_glass_with_volume_remains_an_actionable_error(self):
-        make_blend_fixture(self.source, "glass_volume")
-        with self.assertRaisesRegex(ValueError, "(?i)volume"):
-            blend_import.convert_blend_product(self.source, self.output, blender=BLENDER)
-        self.assertFalse(self.output.exists())
+    def test_glass_with_volume_warns_without_claiming_glass_conversion(self):
+        self.import_fallback_fixture("glass_volume", "LiquidPerfume", "(?i)volume")
 
-    def test_glass_with_arbitrary_normal_input_is_rejected_without_silent_fallback(self):
-        make_blend_fixture(self.source, "glass_normal_rgb")
-        with self.assertRaisesRegex(ValueError, "(?i)normal"):
-            blend_import.convert_blend_product(self.source, self.output, blender=BLENDER)
-        self.assertFalse(self.output.exists())
+    def test_glass_with_arbitrary_normal_input_uses_an_explicit_neutral_fallback(self):
+        self.import_fallback_fixture("glass_normal_rgb", "LiquidPerfume", "(?i)normal")
 
-    def test_glass_with_spatially_varying_ior_is_rejected_without_silent_fallback(self):
-        make_blend_fixture(self.source, "glass_varying_ior")
-        with self.assertRaisesRegex(ValueError, "(?i)ior|index of refraction"):
-            blend_import.convert_blend_product(self.source, self.output, blender=BLENDER)
-        self.assertFalse(self.output.exists())
+    def test_glass_with_spatially_varying_ior_uses_an_explicit_neutral_fallback(self):
+        self.import_fallback_fixture("glass_varying_ior", "LiquidPerfume", "(?i)ior|index of refraction")
+
+    def test_shader_group_fallback_preserves_supported_faces_geometry_and_uvs(self):
+        baseline = self.root / "baseline.blend"
+        baseline_glb = self.root / "baseline.glb"
+        make_blend_fixture(baseline)
+        blend_import.convert_blend_product(baseline, baseline_glb, blender=BLENDER)
+        document, report = self.import_fallback_fixture("group_surface", "Metal", "Group.003")
+        self.assertEqual(self.mesh_surface_signature(self.output), self.mesh_surface_signature(baseline_glb))
+        self.assertEqual(report["materialFallbacks"][0]["objects"], ["Body"])
+        fix = report["materialFallbacks"][0]["fix"]
+        for step in ("(?i)bake", "Principled", "(?i)import"):
+            self.assertRegex(fix, step)
+        by_name = {node["name"]: node for node in document["nodes"]}
+        body = document["meshes"][by_name["Body"]["mesh"]]["primitives"]
+        body_materials = {document["materials"][primitive["material"]]["name"] for primitive in body}
+        self.assertEqual(body_materials, {"Body finish", "Metal"})
+        cap = document["meshes"][by_name["Cap"]["mesh"]]["primitives"]
+        self.assertEqual({document["materials"][primitive["material"]]["name"] for primitive in cap}, {"Cap finish"})
+        for name, color, roughness in (("Body finish", (.12, .4, .6, 1), .27), ("Cap finish", (.72, .08, .12, 1), .63)):
+            pbr = next(material for material in document["materials"] if material["name"] == name)["pbrMetallicRoughness"]
+            for actual, expected in zip(pbr["baseColorFactor"], color):
+                self.assertAlmostEqual(actual, expected, places=6)
+            self.assertAlmostEqual(pbr["roughnessFactor"], roughness, places=6)
+
+    def test_shared_shader_group_has_one_fallback_and_keeps_face_assignments(self):
+        document, report = self.import_fallback_fixture("group_shared", "Metal", "Group.003")
+        self.assertEqual(set(report["materialFallbacks"][0]["objects"]), {"Body", "Cap"})
+        metal_index = next(index for index, material in enumerate(document["materials"]) if material["name"] == "Metal")
+        by_name = {node["name"]: node for node in document["nodes"]}
+        for name in ("Body", "Cap"):
+            primitives = document["meshes"][by_name[name]["mesh"]]["primitives"]
+            self.assertIn(metal_index, {primitive["material"] for primitive in primitives})
+        self.assertEqual(len(report["materialFallbacks"]), 1)
 
     def test_masked_glass_and_two_principled_label_preserve_shader_weight_regions(self):
         make_blend_fixture(self.source, "mixed_surfaces")
@@ -751,6 +972,51 @@ class BlendImportBlenderTests(unittest.TestCase):
             blend_import.convert_blend_product(self.source, self.output, blender=BLENDER)
         self.assertFalse(self.output.exists())
 
+    def test_static_color_and_math_nodes_bake_without_losing_pattern(self):
+        make_blend_fixture(self.source, "static_color_math")
+        source_digest = hashlib.sha256(self.source.read_bytes()).hexdigest()
+        report = blend_import.convert_blend_product(self.source, self.output, blender=BLENDER)
+        document = read_glb_document(self.output)
+        material = next(value for value in document["materials"] if value["name"].startswith("Body finish"))
+        pbr = material["pbrMetallicRoughness"]
+        color = glb_texture_image(self.output, document, pbr["baseColorTexture"])
+        roughness = glb_texture_image(self.output, document, pbr["metallicRoughnessTexture"])
+        for image, channel in ((color, 0), (roughness, 1)):
+            sample = image.resize((128, 128))
+            values = [pixel[channel] for y in range(128) for x in range(128)
+                      if (pixel := sample.getpixel((x, y)))[channel] > 8]
+            self.assertGreater(max(values) - min(values), 32)
+        channels = {channel for bake in report["materialBakes"] for surface in bake["materials"] for channel in surface["channels"]}
+        self.assertTrue({"Base Color", "Roughness"}.issubset(channels))
+        self.assertEqual(hashlib.sha256(self.source.read_bytes()).hexdigest(), source_digest)
+        self.assertFalse((self.root / "startup-executed").exists())
+
+    def test_unused_material_slots_do_not_block_or_change_visible_faces(self):
+        make_blend_fixture(self.source, "unused_material")
+        report = blend_import.convert_blend_product(self.source, self.output, blender=BLENDER)
+        document = read_glb_document(self.output)
+        self.assertEqual(report["meshCount"], 2)
+        self.assertFalse(report["materialFallbacks"])
+        self.assertEqual({material["name"] for material in document["materials"]}, {"Body finish", "Cap finish"})
+        by_name = {node["name"]: node for node in document["nodes"]}
+        for name in ("Body", "Cap"):
+            primitives = document["meshes"][by_name[name]["mesh"]]["primitives"]
+            self.assertTrue(primitives)
+            self.assertTrue(all(document["materials"][primitive["material"]]["name"] == name + " finish" for primitive in primitives))
+
+    def test_linked_principled_ior_preserves_the_saved_frame_value(self):
+        make_blend_fixture(self.source, "principled_ior_value")
+        report = blend_import.convert_blend_product(self.source, self.output, blender=BLENDER)
+        document = read_glb_document(self.output)
+        material = next(value for value in document["materials"] if value["name"] == "Body finish")
+        self.assertAlmostEqual(material["extensions"]["KHR_materials_ior"]["ior"], 1.47, places=5)
+        self.assertEqual(report["sourceBlenderVersion"].split(".")[:2], report["blenderVersion"].split(".")[:2])
+
+    def test_varying_principled_ior_warns_and_keeps_the_other_material(self):
+        document, _ = self.import_fallback_fixture("principled_ior_varying", "Body finish", "varying IOR")
+        cap = next(material for material in document["materials"] if material["name"] == "Cap finish")
+        self.assertAlmostEqual(cap["pbrMetallicRoughness"]["roughnessFactor"], .63, places=6)
+
     def import_filter_fixture(self, mode):
         make_blend_fixture(self.source, mode)
         source_digest = hashlib.sha256(self.source.read_bytes()).hexdigest()
@@ -812,11 +1078,70 @@ class BlendImportBlenderTests(unittest.TestCase):
             blend_import.convert_blend_product(self.source, self.output, blender=BLENDER)
         self.assertFalse(self.output.exists())
 
-    def test_unpacked_texture_requires_packing_instead_of_silent_artwork_loss(self):
-        make_blend_fixture(self.source, "unpacked")
-        with self.assertRaisesRegex(ValueError, "(?i)pack"):
-            blend_import.convert_blend_product(self.source, self.output, blender=BLENDER)
-        self.assertFalse(self.output.exists())
+    def test_unpacked_texture_warns_without_reading_or_embedding_external_artwork(self):
+        document, report = self.import_fallback_fixture("unpacked", "Cap finish", "(?i)external|missing|pack")
+        self.assertFalse(document.get("images"))
+        self.assertEqual(report["materialFallbacks"][0]["objects"], ["Cap"])
+        self.assertRegex(report["materialFallbacks"][0]["fix"], "(?i)pack")
+        body = next(material for material in document["materials"] if material["name"] == "Body finish")
+        self.assertAlmostEqual(body["pbrMetallicRoughness"]["roughnessFactor"], .27, places=6)
+
+    def test_missing_texture_warns_and_keeps_the_product_geometry(self):
+        document, report = self.import_fallback_fixture("missing", "Cap finish", "(?i)external|missing|pack")
+        self.assertFalse(document.get("images"))
+        self.assertRegex(report["materialFallbacks"][0]["fix"], "(?i)pack")
+
+    def test_failed_material_bake_restores_uvs_and_preserves_other_face_materials(self):
+        baseline, baseline_glb = self.root / "baseline.blend", self.root / "baseline.glb"
+        make_blend_fixture(baseline)
+        blend_import.convert_blend_product(baseline, baseline_glb, blender=BLENDER)
+        wrapper = self.root / "fail_material_bake.py"
+        wrapper.write_text(
+            "import sys\n"
+            f"sys.path.insert(0, {str(blend_import.IMPORT_SCRIPT.parent)!r})\n"
+            "import import_blend_product as importer\n"
+            "def failed_bake(obj, *args, **kwargs):\n"
+            "    obj.data.uv_layers.active.data[0].uv = (99, 99)\n"
+            "    obj.data.polygons[0].material_index = 99\n"
+            "    raise RuntimeError('Synthetic material bake failure')\n"
+            "importer.bake_material_inputs = failed_bake\n"
+            "importer.main()\n"
+        )
+        with patch.object(blend_import, "IMPORT_SCRIPT", wrapper):
+            document, report = self.import_fallback_fixture("bake_failure", "Procedural finish", "Synthetic material bake failure")
+        self.assertEqual(self.mesh_surface_signature(self.output), self.mesh_surface_signature(baseline_glb))
+        self.assertFalse(report["materialBakes"])
+        self.assertFalse(any(warning.startswith("Baked ") for warning in report["warnings"]))
+        supported = next(material for material in document["materials"] if material["name"] == "Body finish")
+        self.assertAlmostEqual(supported["pbrMetallicRoughness"]["roughnessFactor"], .27, places=6)
+        body = next(node for node in document["nodes"] if node["name"] == "Body")
+        materials = {document["materials"][primitive["material"]]["name"]
+                     for primitive in document["meshes"][body["mesh"]]["primitives"]}
+        self.assertEqual(materials, {"Body finish", "Procedural finish"})
+
+    def test_later_shared_material_bake_failure_replaces_prior_success_consistently(self):
+        wrapper = self.root / "fail_second_bake.py"
+        wrapper.write_text(
+            "import sys\n"
+            f"sys.path.insert(0, {str(blend_import.IMPORT_SCRIPT.parent)!r})\n"
+            "import import_blend_product as importer\n"
+            "real_bake = importer.bake_material_inputs\n"
+            "count = 0\n"
+            "def fail_later(obj, *args, **kwargs):\n"
+            "    global count\n"
+            "    count += 1\n"
+            "    if count > 1: raise RuntimeError('Second shared-material bake failed')\n"
+            "    return real_bake(obj, *args, **kwargs)\n"
+            "importer.bake_material_inputs = fail_later\n"
+            "importer.main()\n"
+        )
+        with patch.object(blend_import, "IMPORT_SCRIPT", wrapper):
+            document, report = self.import_fallback_fixture("bake_failure_shared", "Procedural finish", "Second shared-material bake failed")
+        self.assertEqual(set(report["materialFallbacks"][0]["objects"]), {"Body", "Cap"})
+        self.assertEqual({material["name"] for material in document["materials"]}, {"Procedural finish"})
+        self.assertFalse(report["materialBakes"])
+        self.assertFalse(any(warning.startswith("Baked ") for warning in report["warnings"]))
+        self.assertFalse(document.get("images"))
 
 
 if __name__ == "__main__":

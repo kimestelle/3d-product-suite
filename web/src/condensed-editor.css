@@ -1,13 +1,9 @@
-/* Four places to work; object selection and section headings stay within reach. */
-.gesso-four-navigation{position:relative;top:calc(-1 * var(--gesso-space-6))}
-.gesso-four-navigation .gesso-navrow{display:flex;gap:var(--gesso-space-12);flex:0 1 auto}
-.gesso-four-navigation .gesso-category-button{width:100px;min-width:100px;justify-content:flex-start;flex-shrink:0}
-.gesso-four-navigation .gesso-category-button[aria-pressed=true]{color:#fff}
+/* Object selection and section headings stay within reach. */
 .gesso-sidebar .gesso-condensed-sidebar{overflow:hidden;display:flex;flex-direction:column;gap:var(--gesso-space-10)}
 .gesso-sidebar .gesso-panel-title{padding-top:var(--gesso-space-14);padding-bottom:var(--gesso-space-14);font-weight:400}
 .gesso-panel.gesso-condensed-product,.gesso-panel.gesso-condensed-world{display:flex;flex-direction:column;min-height:0;flex:1;gap:var(--gesso-space-12)}
 .gesso-condensed-product .gesso-fixed-parts{flex-shrink:0;display:flex;flex-direction:column;gap:var(--gesso-space-6)}
-.gesso-fixed-parts .gesso-part-tree{max-height:min(180px,22vh);overflow:auto;margin:0;overscroll-behavior:contain;scrollbar-width:thin}
+.gesso-fixed-parts .gesso-part-tree{max-height:min(180px,22vh);overflow:auto;margin:0;padding:var(--gesso-space-8);background:var(--gesso-surface-field);border-radius:8px;overscroll-behavior:contain;scrollbar-width:thin}
 .gesso-fixed-parts .gesso-button-row{margin-top:var(--gesso-space-2)}
 .gesso-control-sections{display:flex;flex-direction:column;min-height:0;flex:1;gap:0}
 .gesso-control-section{min-height:36px;display:flex;flex-direction:column;flex:0 0 auto;border-top:1px solid #ffffff14}
@@ -36,7 +32,7 @@
 .gesso-condensed-sidebar.has-import .import-form>.gesso-section-heading{flex:0 0 auto}
 .gesso-import-body{display:flex;flex-direction:column;gap:var(--gesso-space-12);min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:var(--gesso-space-2);margin:calc(-1 * var(--gesso-space-2))}
 
-/* The output medium is a choice within Film, beside the four workspaces. */
+/* The output medium is a choice within Film, beside the workspace tabs. */
 .gesso-film-mode{display:flex;align-items:center;gap:var(--gesso-space-20);margin-left:auto;padding-right:var(--gesso-space-4)}
 .gesso-film-mode button{border:0;background:none;color:#ffffff80;font-size:13px;font-weight:400;padding:var(--gesso-space-4) 0;min-height:28px}
 .gesso-film-mode button[aria-pressed=true],.gesso-film-mode button:hover{color:#fff}
@@ -46,3 +42,15 @@
 .gesso-product-mechanics>summary{min-height:36px;align-items:center}
 .gesso-mechanics-body{display:flex;flex-direction:column;gap:var(--gesso-space-10);padding-bottom:var(--gesso-space-12)}
 .gesso-workspace-animation .gesso-fixed-parts .gesso-part-tree{max-height:160px}
+
+/* Identity and direct parent selection stay in place; review notes may scroll. */
+.gesso-studio .gesso-workspace-product .gesso-product-structure>[data-editor-cabinet]{overflow:hidden}
+.gesso-studio .gesso-workspace-product .gesso-product-structure>[data-editor-cabinet]>.gesso-part-inspector-scroll{
+  flex:0 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;
+  display:flex;flex-direction:column;gap:var(--gesso-space-8);
+}
+.gesso-part-inspector-scroll>.gesso-section{flex-shrink:0;gap:var(--gesso-space-8)}
+.gesso-part-inspector-scroll .gesso-text-button{align-self:flex-start;text-align:left}
+
+/* Stage has one active control body beneath its pinned preview and layer row. */
+.gesso-studio .gesso-control-section.gesso-stage-controls{flex:1 1 auto;min-height:0}

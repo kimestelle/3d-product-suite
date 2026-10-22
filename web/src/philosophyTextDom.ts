@@ -1,20 +1,22 @@
 import {clearCache,prepareWithSegments,type PreparedTextWithSegments} from '@chenglou/pretext';
-import {layoutContourText,type LineFlowLeaf} from './philosophyLineLayout';
+import {layoutContourText,type FlowLine,type LineFlowLeaf} from './philosophyLineLayout';
 import type {ContourQuery} from './philosophyContour';
-import {prepareTextTokens,placeTextTokens,createTokenMotion,updateTokenMotion,constrainTokenMotion,
-  type TextToken,type TokenMotion} from './philosophyTextMotion';
 
 export type ContourTextCache=Map<string,PreparedTextWithSegments>;
-type MountedToken={span:HTMLSpanElement;source:TextToken;motion:TokenMotion|null};
-type MountedLeaf={element:HTMLElement;original:Node[];style:string|null;lines:HTMLSpanElement[];
-  tokens:MountedToken[]|null;mode:'lines'|'tokens'|null;measure:LineFlowLeaf};
-export type ContourTextBlock={leaves:MountedLeaf[];height:number};
+type MountedLine={span:HTMLSpanElement;source:Readonly<FlowLine>;shownX:number};
+type MountedLeaf={element:HTMLElement;original:Node[];style:string|null;lines:MountedLine[];
+  measure:LineFlowLeaf;height:number;top:number;alignRight:boolean};
+export type ContourTextBlock={leaves:MountedLeaf[];height:number;width:number;blockedLines:number};
+type PaintOptions={left:number;top:number;right?:number;laneLeft?:number;laneRight?:number;
+  side:'left'|'right';query:ContourQuery;animate?:boolean;now?:number};
+const GAP=24,VERTICAL_CLEARANCE=4,SOFT_SHOULDER=64;
+const clamp=(value:number,min:number,max:number)=>Math.max(min,Math.min(value,max));
 
-/** Cold path only: read loaded type metrics before replacing the text with
- * selectable line spans. Original React-owned nodes are retained for cleanup. */
+/** Measure and wrap once, after fonts load or the reading width changes. Every
+ * line keeps its source range, baseline and selectable span until cleanup. */
 export function mountContourText(element:HTMLElement,rect:DOMRect,cache:ContourTextCache):ContourTextBlock {
   const nodes=element.matches('p,h1,h2')?[element]:[...element.querySelectorAll<HTMLElement>('p,h1,h2')];
-  const leaves=nodes.map(leaf=>{
+  const leaves:MountedLeaf[]=nodes.map(leaf=>{
     const bounds=leaf.getBoundingClientRect(),style=getComputedStyle(leaf);
     const font=`${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
     const lineHeight=parseFloat(style.lineHeight)||parseFloat(style.fontSize)*1.2;
@@ -24,17 +26,27 @@ export function mountContourText(element:HTMLElement,rect:DOMRect,cache:ContourT
     const key=JSON.stringify([text,font,letterSpacing,whiteSpace]);
     let prepared=cache.get(key);
     if(!prepared){prepared=prepareWithSegments(text,font,{letterSpacing,whiteSpace});cache.set(key,prepared);}
-    const tokens=prepareTextTokens(prepared,letterSpacing)?.map(source=>{
-      const span=document.createElement('span');
-      span.className='shape-light-text-token';span.textContent=source.text;span.dataset.source=source.key;
-      return {span,source,motion:null};
-    })??null;
-    return {element:leaf,original:[...leaf.childNodes],style:leaf.getAttribute('style'),lines:[],tokens,mode:null,
-      measure:{prepared,lineHeight,preserveWords:leaf.matches('h1,h2'),left:bounds.left-rect.left,top:bounds.top-rect.top,width:bounds.width,naturalHeight:bounds.height}};
+    return {element:leaf,original:[...leaf.childNodes],style:leaf.getAttribute('style'),lines:[],height:0,top:0,alignRight:style.textAlign==='right',
+      measure:{prepared,lineHeight,left:bounds.left-rect.left,top:bounds.top-rect.top,width:bounds.width,naturalHeight:bounds.height}};
   });
-  const block:ContourTextBlock={leaves,height:rect.height};
-  for(const leaf of leaves){leaf.element.replaceChildren();leaf.element.dataset.pretextLeaf='';}
-  return block;
+  const width=Math.max(rect.width,...leaves.map(leaf=>leaf.measure.left+leaf.measure.width));
+  const layout=layoutContourText(leaves.map(leaf=>leaf.measure),{left:0,top:0,right:width,side:'left',query:()=>null});
+  for(const line of layout.lines){
+    const leaf=leaves[line.leaf],span=document.createElement('span');
+    span.className='shape-light-text-line';span.textContent=line.text+line.separator;span.dataset.range=line.key;
+    span.style.width=`${line.width}px`;
+    span.style.top=`${line.top-layout.leafTops[line.leaf]}px`;
+    span.style.transform='translateX(0px)';
+    leaf.lines.push({span,source:Object.freeze(line),shownX:0});
+  }
+  leaves.forEach((leaf,index)=>{
+    leaf.height=layout.leafHeights[index];leaf.top=layout.leafTops[index];
+    leaf.element.replaceChildren(...leaf.lines.map(line=>line.span));leaf.element.dataset.pretextLeaf='';
+    leaf.element.style.height=`${leaf.height}px`;
+  });
+  const last=leaves.at(-1);
+  const height=last?rect.height+layout.height-(last.measure.top+last.measure.naturalHeight):rect.height;
+  return {leaves,height,width,blockedLines:0};
 }
 
 export function unmountContourText(block:ContourTextBlock|null) {
@@ -45,59 +57,57 @@ export function unmountContourText(block:ContourTextBlock|null) {
   }
 }
 
-export function contourTextMoving(block:ContourTextBlock|null):boolean {
-  return Boolean(block?.leaves.some(leaf=>leaf.mode==='tokens'&&leaf.tokens?.some(token=>token.motion?.active)));
+/** Position is a function of the current contour, with no trailing animation. */
+export function contourTextMoving(_block:ContourTextBlock|null):boolean {return false;}
+
+function contact(query:ContourQuery,top:number,bottom:number) {
+  const exact=query(top,bottom);
+  if(exact)return {edge:exact,weight:1,hard:true};
+  if(!query(top-SOFT_SHOULDER,bottom+SOFT_SHOULDER))return null;
+  // Near a flat top/bottom, ease the displacement over a vertical shoulder.
+  // Binary search finds actual distance rather than quantizing whole rows.
+  let low=0,high=SOFT_SHOULDER;
+  for(let step=0;step<12;step++){
+    const distance=(low+high)/2;
+    if(query(top-distance,bottom+distance))high=distance;else low=distance;
+  }
+  const edge=query(top-high,bottom+high);
+  if(!edge)return null;
+  const t=1-high/SOFT_SHOULDER;
+  return {edge,weight:t*t*(3-2*t),hard:false};
 }
 
-/** The warm path computes ranges and transforms stable source tokens. It never
- * rewrites a word at a normal wrap, measures layout, or starts a separate RAF.
- * The page's existing frame loop continues while contourTextMoving is true. */
-export function paintContourText(block:ContourTextBlock,options:{left:number;top:number;right:number;side:'left'|'right';query:ContourQuery;animate?:boolean;now?:number}):number {
-  const result=layoutContourText(block.leaves.map(leaf=>leaf.measure),options);
-  const now=options.now??performance.now();
-  const groups=block.leaves.map(()=>[] as typeof result.lines);
-  for(const line of result.lines)groups[line.leaf].push(line);
-  block.leaves.forEach((leaf,index)=>{
-    const lines=groups[index],height=`${result.leafHeights[index]}px`;
-    if(leaf.element.style.height!==height)leaf.element.style.height=height;
-    const positions=leaf.tokens&&placeTextTokens(leaf.tokens.map(token=>token.source),lines);
-    if(leaf.tokens&&positions){
-      if(leaf.mode!=='tokens'){
-        leaf.element.replaceChildren(...leaf.tokens.map(token=>token.span));leaf.mode='tokens';
-        for(const token of leaf.tokens)token.motion=null;
+/** The warm path only translates complete lines horizontally. No font/layout
+ * reads, new wraps, vertical offsets, text writes or height changes occur. */
+export function paintContourText(block:ContourTextBlock,options:PaintOptions):number {
+  const laneLeft=options.laneLeft??options.left;
+  const laneRight=options.laneRight??options.right??options.left+block.width;
+  block.blockedLines=0;
+  for(const leaf of block.leaves)for(const line of leaf.lines){
+    const source=line.source,anchor=options.left+source.left+(leaf.alignRight?leaf.measure.width-source.width:0);
+    const maximum=laneRight-source.width;
+    const bandTop=options.top+source.top-VERTICAL_CLEARANCE;
+    const bandBottom=options.top+source.top+leaf.measure.lineHeight+VERTICAL_CLEARANCE;
+    const collision=contact(options.query,bandTop,bandBottom);
+    let target=anchor,min=laneLeft,max=maximum;
+    if(collision){
+      const edge=options.side==='left'?collision.edge.left-GAP-source.width:collision.edge.right+GAP;
+      const displaced=options.side==='left'?Math.min(anchor,edge):Math.max(anchor,edge);
+      target=anchor+(displaced-anchor)*collision.weight;
+      if(collision.hard){
+        if(options.side==='left')max=Math.min(max,edge);else min=Math.max(min,edge);
       }
-      leaf.tokens.forEach((token,i)=>{
-        const target=positions[i];
-        token.motion??=createTokenMotion(target);
-        updateTokenMotion(token.motion,target,now,Boolean(options.animate));
-        const shown=constrainTokenMotion(token.motion,token.source.width,{
-          ...options,minimumLeft:leaf.measure.left,lineHeight:leaf.measure.lineHeight,
-        });
-        const transform=`translate(${shown.left-leaf.measure.left}px, ${shown.top-result.leafTops[index]}px)`;
-        if(token.span.style.transform!==transform)token.span.style.transform=transform;
-      });
-      return;
     }
-    // Preserve the original complete-line renderer for scripts with joining
-    // behavior or emergency grapheme breaks. No glyph is sacrificed to motion.
-    if(leaf.mode!=='lines'){
-      leaf.element.replaceChildren(...leaf.lines);leaf.mode='lines';
-      for(const token of leaf.tokens??[])token.motion=null;
-    }
-    lines.forEach((line,i)=>{
-      let span=leaf.lines[i];
-      if(!span){span=document.createElement('span');span.className='shape-light-text-line';leaf.lines.push(span);leaf.element.append(span);}
-      // Whitespace between block lines preserves paragraph reading/copy order.
-      if(span.dataset.range!==line.key){span.textContent=line.text+line.separator;span.dataset.range=line.key;}
-      const transform=`translate(${line.left-leaf.measure.left}px, ${line.top-result.leafTops[index]}px)`;
-      if(span.style.transform!==transform)span.style.transform=transform;
-    });
-    while(leaf.lines.length>lines.length)leaf.lines.pop()!.remove();
-  });
-  // The contents links occupy the authored left lane and stay in native flow
-  // below the title. Treating their full grid column as a collision box made
-  // empty space push all four anchors down in 24px jumps during scrolling.
-  return block.height+result.height-(block.leaves.at(-1)!.measure.top+block.leaves.at(-1)!.measure.naturalHeight);
+    if(max<min){
+      // Geometry must leave a complete-line lane. Keep every word in the
+      // interior region and expose the conflict instead of rewrapping/hiding.
+      block.blockedLines++;
+      target=options.side==='left'?laneLeft:Math.max(laneLeft,maximum);
+    }else target=clamp(target,min,max);
+    const x=target-(options.left+leaf.measure.left);
+    if(x!==line.shownX){line.span.style.transform=`translateX(${x}px)`;line.shownX=x;}
+  }
+  return block.height;
 }
 
 export function resetContourText(cache:ContourTextCache){cache.clear();clearCache();}

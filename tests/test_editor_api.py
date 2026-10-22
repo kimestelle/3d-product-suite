@@ -226,7 +226,7 @@ class EditorApiTests(unittest.TestCase):
         self.assertEqual(len(self.request("GET", "/api/projects")[1]), 2)
         status, sampled, _ = self.request("POST", "/api/evaluate", {"scene": scene})
         self.assertEqual(status, 200)
-        self.assertAlmostEqual(sampled["frames"][0]["components"]["product"]["translationM"][1], .06, places=7)
+        self.assertAlmostEqual(sampled["frames"][0]["components"]["product"]["translationM"][1], .16, places=7)
         self.assertEqual(list(self.app.store.root.glob("product-import-*")), [])
 
     def test_invalid_product_uploads_and_missing_provenance_create_no_projects_or_assets(self):
@@ -285,6 +285,47 @@ class EditorApiTests(unittest.TestCase):
         self.assertEqual(self.request("GET", f"/api/projects/{project['id']}")[1], project)
         self.assertEqual(self.request("GET", f"/api/projects/{baseline['id']}")[1], baseline)
         self.assertFalse(any(path.exists() for path in conversion_paths))
+        self.assertEqual(list(self.app.store.root.glob("product-import-*")), [])
+
+    def test_newer_import_blender_does_not_change_pinned_render_executable(self):
+        self.bootstrap()
+        self.app.import_blender = "/Blender-5.1"
+        self.app.renders.blender = "/Blender-4.3.2"
+        query = urlencode({"name": "New Blender file", "owner": "Fixture author", "reuseBasis": "Original fixture", "source": "Fixture"})
+        def convert(source, destination, *, blender):
+            self.assertEqual(blender, "/Blender-5.1")
+            destination.write_bytes(product_glb())
+            return {"sourceFormat": "blend"}
+        with patch("film.blend_import.convert_blend_product", side_effect=convert):
+            status, project, _ = self.request("POST", "/api/products/import?" + query, raw=b"BLENDER-v501-test",
+                                             headers={"X-Asset-Filename": "product.blend", "Content-Type": "application/octet-stream"})
+        self.assertEqual(status, 201, project)
+        self.assertEqual(self.app.renders.blender, "/Blender-4.3.2")
+
+    def test_cad_and_mesh_routes_keep_units_axes_and_original_campaign(self):
+        baseline = self.bootstrap()["project"]
+        common = {"name": "Imported part", "owner": "Fixture author", "reuseBasis": "Original fixture", "source": "Fixture"}
+        cases = [("step", "convert_cad_product", "cadImport", {"sourceUp": "y"}),
+                 ("igs", "convert_cad_product", "cadImport", {"sourceUp": "z"}),
+                 ("obj", "convert_mesh_product", "meshImport", {"sourceUp": "y", "sourceUnits": "in"}),
+                 ("stl", "convert_mesh_product", "meshImport", {"sourceUp": "z", "sourceUnits": "mm"})]
+        for extension, converter, key, options in cases:
+            with self.subTest(extension=extension):
+                def convert(source, destination, **kwargs):
+                    self.assertEqual(source.read_bytes(), b"fixture source")
+                    self.assertEqual(kwargs["source_up"], options["sourceUp"])
+                    if "sourceUnits" in options:
+                        self.assertEqual(kwargs["source_units"], options["sourceUnits"])
+                    destination.write_bytes(product_glb())
+                    return {"sourceFormat": extension, "warnings": []}
+                with patch("film.cad_import." + converter, side_effect=convert):
+                    status, project, _ = self.request("POST", "/api/products/import?" + urlencode({**common, **options}),
+                                                     raw=b"fixture source", headers={"X-Asset-Filename": "part." + extension, "Content-Type": "application/octet-stream"})
+                self.assertEqual(status, 201, project)
+                self.assertEqual(project["scene"]["product"]["metadata"][key]["sourceFormat"], extension)
+                asset = project["scene"]["product"]["components"][0]["asset"]
+                self.assertEqual(self.request("GET", "/api/" + asset["path"])[1], product_glb())
+        self.assertEqual(self.request("GET", f"/api/projects/{baseline['id']}")[1], baseline)
         self.assertEqual(list(self.app.store.root.glob("product-import-*")), [])
 
     def test_failed_blend_conversion_leaves_existing_campaign_and_assets_unchanged(self):

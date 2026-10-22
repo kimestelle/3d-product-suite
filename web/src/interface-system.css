@@ -25,8 +25,8 @@
   --gesso-text-primary:#f5f5f3;--gesso-text-secondary:#aaa9a7;--gesso-text-muted:#858585;
   --gesso-text-disabled:#626262;--gesso-text-on-action:#131313;
   --gesso-border-subtle:#343434;--gesso-border-control:#626262;--gesso-border-focus:#f5f5f3;
-  --gesso-primitive-success:#a8d5b5;--gesso-primitive-pending:#e7c56a;
-  --gesso-signal-success:var(--gesso-primitive-success);--gesso-signal-pending:var(--gesso-primitive-pending);--gesso-signal-error:#ff968b;--gesso-radius-control:4px;--gesso-radius-viewport:20px;
+  --gesso-primitive-success:#a8d5b5;--gesso-primitive-pending:#e8ad79;
+  --gesso-signal-success:var(--gesso-primitive-success);--gesso-signal-pending:var(--gesso-primitive-pending);--gesso-signal-note:var(--gesso-primitive-pending);--gesso-signal-error:#ff968b;--gesso-radius-control:4px;--gesso-radius-viewport:20px;
   --gesso-control-height:32px;--gesso-section-height:32px;
   --gesso-field-value-width:56px;--gesso-field-unit-width:20px;--gesso-field-tools-width:40px;
   /* Layout uses 4px steps; 2px half-steps are reserved for dense controls.
@@ -67,7 +67,7 @@ h2,h3{font-family:var(--gesso-font-text);font-size:14px;line-height:20px;font-we
 .gesso-appmenus button:disabled,.gesso-header-actions button:disabled{opacity:1;color:var(--gesso-text-disabled)}
 .gesso-header-actions .gesso-save-status{display:flex;align-items:center;gap:var(--gesso-space-8);color:var(--gesso-text-secondary)}
 .gesso-header-actions .gesso-save-status[data-state=saved]{color:var(--gesso-signal-success)}
-.gesso-header-actions .gesso-save-status[data-state=saving]{color:var(--gesso-signal-pending)}
+.gesso-header-actions .gesso-save-status:is([data-state=saving],[data-state=opening],[data-state=working]){color:var(--gesso-signal-pending)}
 .gesso-save-status .gesso-ui-icon{flex:none}
 .gesso-header-actions .gesso-export-entry{display:inline-flex;align-items:center;gap:var(--gesso-space-4)}
 .gesso-export-arrow{width:14px;height:20px;mask-image:url("./assets/gesso/about-arrow-up-right.svg");-webkit-mask-image:url("./assets/gesso/about-arrow-up-right.svg");mask-size:contain;-webkit-mask-size:contain}
@@ -78,6 +78,42 @@ h2,h3{font-family:var(--gesso-font-text);font-size:14px;line-height:20px;font-we
 .key-icon{width:10px;height:10px}
 .gesso-navrow button:not([aria-pressed=true]) .key-hint{opacity:1}
 .gesso-film-mode button{font-size:12px;line-height:18px;color:var(--gesso-text-secondary)}
+/* The tab row begins under File, retaining one layout-column pitch per tab.
+   The sixteen-pixel inset belongs to the tab surface, not the text alignment. */
+.gesso-studio{--gesso-surface-chrome:#181818;--chrome:var(--gesso-surface-chrome);--panel:var(--gesso-surface-chrome);--editor-identity-width:160px;--editor-grid-pitch:calc((100vw - 2 * var(--gutter) + var(--gesso-space-20)) / 7)}
+.gesso-studio > .gesso-topbar[data-frame-outside]{background:#080808}
+/* View-only alignment aid: the same seven-column pitch used by the tab labels.
+   Mount in the header stack so the opaque menu remains above the guides. */
+.gesso-column-guides{position:fixed;inset:0 var(--gutter);display:grid;grid-template-columns:repeat(7,calc(var(--editor-grid-pitch) - var(--gesso-space-20)));column-gap:var(--gesso-space-20);z-index:0;pointer-events:none;user-select:none}
+.gesso-topbar>.gesso-appbar{position:relative;z-index:2}
+.gesso-topbar>.gesso-workspace-navigation{position:relative;z-index:1}
+.gesso-column-guides>span{border-inline:1px solid #ffffff66;background:#ffffff05}
+.gesso-menu-content .gesso-column-guide-toggle{justify-content:space-between}
+.gesso-column-guide-toggle>span{color:var(--gesso-text-secondary)}
+
+.gesso-studio > .gesso-workspace{padding-top:var(--gesso-space-16)}
+.gesso-workspace-navigation{height:52px;align-items:flex-end;padding:var(--gesso-space-8) 0 0;margin-left:calc(var(--editor-identity-width) + var(--gesso-space-16) - var(--gesso-space-16));gap:var(--gesso-space-20)}
+.gesso-workspace-navigation .gesso-navrow{position:relative;isolation:isolate;display:grid;grid-template-columns:repeat(3,var(--editor-grid-pitch));height:44px;flex:0 0 auto}
+/* One halo follows the entire exposed edge: editor ledge, shoulders, then tab.
+   The bottom clip keeps light outside the continuous opaque editor surface. */
+.gesso-tab-surface{position:absolute;clip-path:inset(-128px -100vw 0);inset:0 auto 0 0;width:var(--editor-grid-pitch);pointer-events:none;z-index:-1;transform:translateX(calc(var(--active-tab) * var(--editor-grid-pitch)));will-change:transform;transition:transform 380ms cubic-bezier(.22,.7,.2,1)}
+.gesso-tab-surface svg{position:absolute;left:-12px;top:0;width:calc(100% + 24px);height:100%;overflow:visible}
+.gesso-tab-halo{fill:none;stroke:var(--gesso-surface-chalk);stroke-width:32px;opacity:.24;filter:blur(32px)}
+.gesso-tab-fill{fill:var(--gesso-surface-chrome)}
+.gesso-workspace-navigation .gesso-category-button{width:auto;min-width:0;height:44px;min-height:44px;padding:var(--gesso-space-8) var(--gesso-space-16) var(--gesso-space-10);align-items:baseline;gap:0;border-radius:10px 10px 0 0;font:600 20px/26px var(--gesso-font-text);letter-spacing:-.2px;color:#fff9;transition:color 160ms ease,background-color 160ms ease}
+.gesso-workspace-navigation .gesso-category-button[aria-pressed=true],.gesso-workspace-navigation .gesso-category-button:hover{color:var(--gesso-text-primary);background:transparent}
+.gesso-workspace-navigation .gesso-category-button[aria-pressed=false]{font-weight:400}
+.gesso-workspace-navigation .gesso-category-button:focus-visible{outline-offset:-4px}
+.gesso-workspace-navigation .key-hint{align-self:flex-start;gap:0;margin-top:0;height:12px;font-weight:400;letter-spacing:0;color:#fff8}
+.gesso-workspace-navigation .key-icon{width:12px;height:12px}
+.gesso-workspace-navigation .key-icon img{display:block;opacity:1}
+.gesso-workspace-navigation .gesso-film-mode{height:44px;align-items:center}
+.gesso-sidebar-layers{display:flex;align-items:center;gap:var(--gesso-space-16);flex:none;padding:var(--gesso-space-16) var(--rail-gutter)}
+.gesso-sidebar-layers button{display:inline-flex;align-items:baseline;gap:var(--gesso-space-2);min-height:28px;border:0;background:transparent;padding:3px 0 5px;color:var(--gesso-text-secondary);font:400 12px/18px var(--gesso-font-text);white-space:nowrap}
+.gesso-sidebar-layers button[aria-pressed=true],.gesso-sidebar-layers button:hover{color:var(--gesso-text-primary)}
+.gesso-sidebar-layers .key-hint{height:12px;gap:0;margin-top:0;color:var(--gesso-text-muted)}
+.gesso-sidebar-layers .key-icon img{display:block;opacity:.5}
+@media(prefers-reduced-motion:reduce),(max-width:899px){.gesso-tab-surface{transition:none}}
 .gesso-sidebar .gesso-panel-title{font:500 14px/20px var(--gesso-font-text);padding:var(--gesso-space-20) var(--rail-gutter) var(--gesso-space-8);color:var(--gesso-text-primary)}
 .gesso-sidebar-content:first-child{padding-top:var(--gesso-space-20)}
 .gesso-sidebar-footer{font-size:11px;line-height:16px;color:var(--gesso-text-secondary)}
@@ -86,6 +122,8 @@ h2,h3{font-family:var(--gesso-font-text);font-size:14px;line-height:20px;font-we
 .gesso-panel{font-size:13px;line-height:18px;gap:var(--gesso-space-12)}
 .gesso-panel.gesso-condensed-product,.gesso-panel.gesso-condensed-world{gap:var(--gesso-space-8)}
 .gesso-section{gap:var(--gesso-space-8)}
+/* Collections share the Objects box surface; controls stay on the panel. */
+.gesso-studio .gesso-selection-surface{--gesso-preview-surface:var(--gesso-surface-field);background:var(--gesso-surface-field);border-radius:8px;padding:var(--gesso-space-8);min-width:0;}
 .gesso-section-heading{font:400 13px/18px var(--gesso-font-text);color:var(--gesso-text-primary)}
 .gesso-section-heading>span:not(:first-child){font-size:11px;line-height:16px;color:var(--gesso-text-muted)}
 .gesso-fixed-parts>.gesso-section-heading{font-size:11px;line-height:16px;color:var(--gesso-text-secondary)}
@@ -96,6 +134,11 @@ h2,h3{font-family:var(--gesso-font-text);font-size:14px;line-height:20px;font-we
 .gesso-facts dd{font-size:13px;line-height:18px;color:var(--gesso-text-primary)}
 .gesso-status{font:400 11px/16px var(--gesso-font-text);color:var(--gesso-text-muted)}
 .gesso-error,.gesso-transform-feedback{color:var(--gesso-signal-error);font:400 11px/16px var(--gesso-font-text)}
+/* Feedback is distinct from control labels and numeric metadata. */
+.gesso-studio .gesso-note,.gesso-studio .gesso-feedback[data-tone=note]{color:var(--gesso-signal-note)}
+.gesso-studio .gesso-feedback[data-tone=success]{color:var(--gesso-signal-success)}
+.gesso-studio .gesso-feedback[data-tone=error]{color:var(--gesso-signal-error)}
+.gesso-studio :is(.gesso-note,.gesso-feedback) a{color:var(--gesso-text-primary)}
 .message.error{color:var(--gesso-signal-error);border-color:var(--gesso-signal-error);background:var(--gesso-surface-chrome);border-radius:4px}
 
 /* Text and select fields carry their label inside the measured surface. */
@@ -137,6 +180,8 @@ select option{background:var(--gesso-surface-field);color:var(--gesso-text-prima
 .gesso-control-section .gesso-section-body{gap:var(--gesso-space-8);padding-bottom:var(--gesso-space-8)}
 .gesso-sidebar .gesso-section>.gesso-section-heading:has(>.gesso-section-label){margin-bottom:calc(-1 * var(--gesso-space-4))}
 .gesso-section-body>.gesso-section{gap:var(--gesso-space-8)}
+/* Collections share the Objects box surface; controls stay on the panel. */
+.gesso-studio .gesso-selection-surface{--gesso-preview-surface:var(--gesso-surface-field);background:var(--gesso-surface-field);border-radius:8px;padding:var(--gesso-space-8);min-width:0;}
 .gesso-disclosure>summary,.gesso-compact-details>summary{display:flex;align-items:center;gap:var(--gesso-space-8);list-style:none;min-height:24px;padding:0;color:var(--gesso-text-secondary);font:400 13px/18px var(--gesso-font-text)}
 .gesso-camera-options>summary{min-height:var(--gesso-section-height)}
 .gesso-disclosure>summary::-webkit-details-marker{display:none}

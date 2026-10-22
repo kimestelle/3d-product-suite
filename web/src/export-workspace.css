@@ -1,0 +1,46 @@
+/* Export inherits the same dark surface and control tokens as the editor. */
+.gesso-studio .gesso-workspace.with-export-workspace{
+  --workspace-rail-width:280px;--film-right-width:300px;
+  grid-template-columns:var(--workspace-rail-width) minmax(0,1fr) var(--film-right-width);
+  grid-template-rows:minmax(0,1fr) 0px;
+}
+.gesso-studio .with-export-workspace>.gesso-sidebar:first-child{visibility:hidden;opacity:0;pointer-events:none}
+.gesso-studio .with-export-workspace>.gesso-stage{grid-column:2;grid-row:1;background:var(--chrome);margin-bottom:var(--gesso-space-16);border-radius:20px}
+.gesso-studio .with-export-workspace .viewport-wrap{background:var(--chrome)}
+.gesso-export-setup-sidebar{grid-column:1;grid-row:1;background:var(--chrome);z-index:1}
+.gesso-export-sidebar{grid-column:3;grid-row:1;background:var(--chrome)}
+.gesso-studio .with-export-workspace .gesso-view-toolbar{display:none}
+.gesso-export-preview-mask{position:absolute;pointer-events:none;box-shadow:0 0 0 100vmax var(--chrome);outline:1px solid #ffffff14;z-index:1}
+.gesso-export-preview-chrome{position:absolute;inset:0;pointer-events:none;z-index:3;color:var(--gesso-text-primary);font:400 12px/18px var(--gesso-font-text)}
+.gesso-export-preview-heading{position:absolute;left:var(--gesso-space-24);right:var(--gesso-space-24);top:var(--gesso-space-16);display:flex;justify-content:space-between;gap:var(--gesso-space-16)}
+.gesso-export-preview-heading>span:last-child{color:var(--gesso-text-secondary)}
+.gesso-export-preview-transport{position:absolute;left:var(--gesso-space-24);right:var(--gesso-space-24);bottom:var(--gesso-space-16);display:flex;align-items:center;gap:var(--gesso-space-16);height:40px;pointer-events:auto;background:var(--chrome)}
+.gesso-export-preview-transport>button{border:0;background:var(--gesso-surface-field);color:var(--gesso-text-primary);border-radius:4px;min-width:48px;padding:3px 8px 5px;font:inherit}
+.gesso-export-preview-transport>input[type=range]{flex:1;min-width:40px;accent-color:var(--gesso-text-primary);height:4px;border:0;background:var(--gesso-surface-selected)}
+.gesso-export-preview-time{flex:none;font-variant-numeric:tabular-nums;color:var(--gesso-text-secondary)}
+.gesso-export-preview-frame{display:flex;align-items:center;gap:var(--gesso-space-8);color:var(--gesso-text-secondary);flex:none}
+.gesso-export-preview-frame>input{width:60px;height:28px;padding:var(--gesso-space-4);border:0;border-radius:4px;color:var(--gesso-text-primary);background:var(--gesso-surface-field);font:inherit;font-variant-numeric:tabular-nums}
+.gesso-studio .with-export-workspace .comparison-view-label{top:var(--gesso-space-40);z-index:2;left:var(--gesso-space-24);right:var(--gesso-space-24);color:var(--gesso-text-secondary)}
+.gesso-studio .with-export-workspace .comparison-view-label :is(b,span){background:var(--chrome);border:0}
+.gesso-studio .with-export-workspace .comparison-stage.split .comparison-pane+.comparison-pane{border-color:var(--gesso-border-subtle)}
+.gesso-studio .with-export-workspace .gesso-render-status{color:var(--gesso-signal-error);background:var(--chrome);z-index:4}
+@media(min-width:900px) and (max-width:1199px){
+  .gesso-studio .gesso-workspace.with-export-workspace{--workspace-rail-width:248px;--film-right-width:268px;--rail-gutter:16px}
+  .gesso-export-preview-transport{gap:var(--gesso-space-8)}
+  .gesso-export-preview-time{font-size:11px}
+}
+
+.gesso-studio .film-inspector-rail>.gesso-film-mode-tabs{margin-inline:var(--rail-gutter)}
+
+.gesso-studio .with-export-workspace .gesso-export-form>.gesso-export-note{color:var(--gesso-signal-note)}
+
+/* The specimen keeps its room as both rails enter. Playback wraps within it. */
+.gesso-studio .with-export-workspace>.gesso-stage{container-type:inline-size}
+@container(max-width:520px){
+  .gesso-export-preview-transport{height:auto;min-height:40px;flex-wrap:wrap;gap:8px;left:16px;right:16px}
+  .gesso-export-preview-transport>input[type=range]{flex-basis:100%;order:4}
+  .gesso-export-preview-frame{margin-left:auto}
+  .gesso-export-preview-heading{left:16px;right:16px;gap:8px}
+  .gesso-export-preview-time{font-size:11px}
+}
+@container(max-width:360px){.gesso-export-preview-frame{display:none}.gesso-export-preview-time{margin-left:auto}}

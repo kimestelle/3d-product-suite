@@ -182,6 +182,93 @@ pixel=list(image.pixels[offset:offset+4])
 assert pixel[2]>pixel[0], pixel
 ''', temporary / "frames")
 
+    def test_hidden_plinth_authored_floor_meets_product_support(self):
+        # Exercise native sweep vertices directly, without rendering or changing
+        # the product pose. Imported worlds must not receive an authored sweep.
+        with tempfile.TemporaryDirectory() as temporary:
+            verification = Path(temporary) / "verify-support.py"
+            verification.write_text(r'''
+import bpy, copy, json, runpy, sys
+from pathlib import Path
+args = sys.argv[sys.argv.index('--') + 1:]
+module = runpy.run_path(args[0], run_name='gesso_adapter')
+original = json.loads(Path(args[1]).read_text())
+for kind in ('authored', 'mesh', 'splat'):
+    for visible in (None, True, False):
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.object.delete(use_global=False)
+        source = copy.deepcopy(original)
+        source['environment']['kind'] = kind
+        source['environment']['props'] = []
+        source['environment'].pop('collider', None)
+        plinth = source['environment']['plinth']
+        plinth.update(translationM=[.1, .2, .3], sizeM=[.3, .12, .4])
+        if visible is None:
+            plinth.pop('visible', None)
+        else:
+            plinth['visible'] = visible
+        module['environment'](source)
+        sweep = bpy.data.objects.get('Set / curved studio sweep')
+        if kind == 'authored':
+            assert sweep is not None
+            actual = min((sweep.matrix_world @ vertex.co).z for vertex in sweep.data.vertices)
+            expected = (.26 if visible is False else .14) - .0001
+            assert abs(actual - expected) < 1e-7, (visible, actual, expected)
+        else:
+            assert sweep is None, kind
+        if kind == 'splat':
+            assert abs(bpy.data.objects['World / shadow catcher'].location.z - .26) < 1e-7
+        assert (bpy.data.objects.get(plinth['id']) is None) == (visible is False)
+''', encoding="utf-8")
+            self.run_blender("--python", verification, "--", ROOT / "scripts/blender_scene.py", ROOT / "examples/bottle.scene.json")
+
+    def test_fixed_studio_size_preserves_native_room_lights_and_shadow_extent(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            verification = Path(temporary) / "verify-studio-size.py"
+            verification.write_text(r'''
+import bpy, copy, json, runpy, sys
+from pathlib import Path
+args = sys.argv[sys.argv.index('--') + 1:]
+module = runpy.run_path(args[0], run_name='gesso_adapter')
+original = json.loads(Path(args[1]).read_text())
+for kind in ('authored', 'splat'):
+    snapshots = []
+    for factor, reference in ((1, .32), (1000, .32), (1000, None)):
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.object.delete(use_global=False)
+        source = copy.deepcopy(original)
+        source['environment'].update(kind=kind, props=[])
+        source['environment'].pop('collider', None)
+        source['product']['dimensionsM'] = [dimension * factor for dimension in (.32, .16, .24)]
+        source['placement']['scale'] = 1 / factor
+        if reference is not None:
+            source['environment']['studioSizeM'] = reference
+            source['environment']['plinth']['translationM'] = [.1, .2, .3]
+            if factor == 1000:
+                source['placement']['translationM'] = [4, 5, -1.28]
+        before = copy.deepcopy(source)
+        module['environment'](source)
+        size = reference if reference is not None else .32 * factor
+        name = 'Set / curved studio sweep' if kind == 'authored' else 'World / shadow catcher'
+        surface = bpy.data.objects[name]
+        extent = max(abs(vertex.co.x) for vertex in surface.data.vertices)
+        expected = size * (45 if kind == 'authored' else 40)
+        assert abs(extent - expected) < max(1e-6, expected * 1e-6), (kind, extent, expected)
+        lights = sorted((obj for obj in bpy.context.scene.objects if obj.type == 'LIGHT'), key=lambda obj: obj.name)
+        snapshot = [(tuple(light.location), tuple(light.rotation_euler), light.data.energy, light.data.size) for light in lights]
+        snapshots.append(snapshot)
+        scale = size / .12
+        key = bpy.data.objects['Studio / large soft key']
+        assert abs(key.data.energy - 2.6 * scale * scale) < max(1e-6, key.data.energy * 1e-6)
+        origin = [.1, -.3, .2 + .07 / 2] if reference is not None else [0, 0, 0]
+        expected_position = [origin[i] + offset * scale for i, offset in enumerate((-.19, -.24, .32))]
+        assert max(abs(actual - expected) for actual, expected in zip(key.location, expected_position)) < max(1e-6, size * 1e-6)
+        assert source == before
+    assert snapshots[0] == snapshots[1], (kind, snapshots[:2])
+    assert snapshots[1] != snapshots[2], kind
+''', encoding="utf-8")
+            self.run_blender("--python", verification, "--", ROOT / "scripts/blender_scene.py", ROOT / "examples/bottle.scene.json")
+
     def test_saved_scene_preserves_every_sampled_pose(self):
         source = load_scene(ROOT / "examples" / "bottle.scene.json")
         source["shots"][0]["camera"]["depthOfField"] = {"enabled": True, "fStop": 1.4}

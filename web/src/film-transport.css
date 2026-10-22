@@ -1,0 +1,8 @@
+.gesso-studio .film-transport{display:flex;align-items:center;gap:8px;flex:none;min-width:0}
+.gesso-studio .film-transport>button{display:grid;place-items:center;flex:0 0 40px;width:40px;height:40px;min-width:40px;min-height:40px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--gesso-text-secondary);line-height:1}
+.gesso-studio .film-transport>button svg{display:block;width:24px;height:24px;pointer-events:none}
+.gesso-studio .film-transport>.film-play svg{width:28px;height:28px}
+.gesso-studio .film-transport>.film-play{color:var(--gesso-text-primary)}
+.gesso-studio .film-transport>button:is(:hover,:active,[aria-pressed=true]):not(:disabled){background:transparent;color:var(--gesso-text-primary)}
+.gesso-studio .film-transport>button:focus-visible:not(:disabled){background:var(--gesso-surface-action);color:var(--gesso-text-on-action)}
+.gesso-studio .film-transport>button:disabled{color:var(--gesso-text-disabled);opacity:.5}

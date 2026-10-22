@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest';
 import fixture from '../../examples/bottle.scene.json';
 import {MATERIAL_PRESETS} from './materials';
-import {assignMaterialPreset, attachMaterialParts, campaignMaterialPresets, deleteMaterialPreset, materialOwner, materialTargets, materialTypes, presetPartIds, saveMaterialPreset, type SavedMaterialPreset} from './materialPresets';
+import {assignMaterialPreset, attachMaterialParts, campaignMaterialPresets, deleteMaterialPreset, materialOwner, materialStarters, materialTargets, materialTypes, presetPartIds, saveMaterialPreset, type SavedMaterialPreset} from './materialPresets';
 import {sceneParts, type HierarchyPart} from './hierarchy';
 import {commitHistory, createHistory, redoHistory, undoHistory} from './state';
 
@@ -10,6 +10,22 @@ const preset = (): SavedMaterialPreset => ({id: 'custom-metal', name: 'Brushed a
 const png = {format: 'png' as const, sha256: 'a'.repeat(64), path: `assets/${'a'.repeat(64)}.png`};
 
 describe('campaign material presets', () => {
+  it('offers three distinct starters without replacing the campaign’s saved or imported finishes', () => {
+    expect(materialStarters.map(item => item.name)).toEqual(['Red plastic', 'Satin metal', 'Clear glass']);
+    expect(materialStarters.map(item => item.type)).toEqual(['plastic', 'metal', 'glass']);
+    expect(materialStarters[0].material.baseColor[0]).toBeGreaterThan(materialStarters[0].material.baseColor[1] * 10);
+    expect(materialStarters[1].material.metallic).toBe(1);
+    expect(materialStarters[2].material.transmission).toBeGreaterThan(.9);
+    const source = scene(), before = structuredClone(source);
+    const created = {...structuredClone(materialStarters[0]), id: 'new-red-finish'};
+    saveMaterialPreset(source, created);
+    expect(presetPartIds(source, created)).toEqual([]);
+    expect(source.product.components.map(({materialPresetId: _id, ...part}: any) => part)).toEqual(before.product.components);
+    const saved = campaignMaterialPresets(source).find(item => item.id === created.id)!;
+    saved.material.baseColor[0] = 0;
+    expect(materialStarters[0].material.baseColor[0]).toBe(.6);
+    expect(MATERIAL_PRESETS[1].material.baseColor).not.toEqual(materialStarters[0].material.baseColor);
+  });
   it('lists each unlinked part independently without changing legacy scene values', () => {
     const source = scene();
     source.product.components[1].material = structuredClone(source.product.components[0].material);

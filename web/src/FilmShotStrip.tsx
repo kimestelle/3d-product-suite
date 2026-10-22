@@ -1,9 +1,13 @@
+import {isFilmTextCard} from './filmTextCard';
 import {useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent} from 'react';
 import {createPortal} from 'react-dom';
 import {NumberControl} from './EditorControls';
 import {exactShotAtFrame, sequenceEnd, shotFrames, type Shot} from './sequence';
 import {sceneFramesAfterTrim} from './filmTimelineModel';
 import {sceneDropTarget, sceneReorderIndexForKey} from './sceneReorder';
+import './film-playhead.css';
+
+const playheadHitRadius = 12;
 
 /** Each frame owns one equal interval on the film; cuts sit between intervals. */
 export function filmFrameAtPosition(x: number, left: number, width: number, total: number): number {
@@ -64,6 +68,7 @@ function SceneMenu({shot, index, props}: {shot: Shot; index: number; props: Film
     {open && createPortal(<div className="gesso-scene-menu" id={id} role="dialog" aria-label={`Scene options: ${name}`} ref={panel} style={{left: position.left, bottom: position.bottom}}
       onKeyDown={event => {
         event.stopPropagation();
+        if ((event.target as Element).closest('select:open')) return;
         if (event.key === 'Escape') {event.preventDefault(); close(true);}
         if (event.key === 'Tab') {
           const controls = [...panel.current!.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled)')];
@@ -92,7 +97,7 @@ type SceneDrag = {id:string; pointerId:number; input:HTMLButtonElement; startX:n
 export function FilmShotStrip(props: FilmShotStripProps) {
   const {scene, frame, editingFrame = frame, onFrame, disabled, onPlay, onDurationChange} = props;
   const total = sequenceEnd(scene), fps = scene.render.fps, shot = exactShotAtFrame(scene, frame), editingShot = exactShotAtFrame(scene, editingFrame);
-  const surface = useRef<HTMLDivElement>(null), drag = useRef<{pointerId: number; input: HTMLInputElement; original: number} | null>(null);
+  const surface = useRef<HTMLDivElement>(null), drag = useRef<{pointerId: number; input: HTMLInputElement; original: number; offset: number; last: number} | null>(null);
   const trim = useRef<TrimDrag | null>(null), [preview, setPreview] = useState<{id: string; frames: number} | null>(null);
   const reorder=useRef<SceneDrag|null>(null), [drop,setDrop]=useState<{id:string; index:number; boundary:number; valid:boolean; offset:number}|null>(null);
   const reorderButtons=useRef(new Map<string,HTMLButtonElement>()), restoreFocus=useRef<{id:string;index:number}|null>(null);
@@ -144,7 +149,7 @@ export function FilmShotStrip(props: FilmShotStripProps) {
     const blur = () => {cancel(); cancelTrim();cancelReorder();}; window.addEventListener('blur', blur);window.addEventListener('resize',blur);
     return () => {window.removeEventListener('blur', blur);window.removeEventListener('resize',blur); cancel(); cancelTrim();cancelReorder();};
   }, []);
-  useEffect(() => {cancelTrim();cancelReorder();}, [scene]);
+  useEffect(() => {cancel();cancelTrim();cancelReorder();}, [scene]);
   useEffect(()=>{
     const pending=restoreFocus.current;
     if(!disabled&&pending){
@@ -154,7 +159,12 @@ export function FilmShotStrip(props: FilmShotStripProps) {
       restoreFocus.current=null;
     }
   },[scene,disabled]);
-  const seek = (event: PointerEvent<HTMLInputElement>) => {const bounds = event.currentTarget.getBoundingClientRect(); onFrame(filmFrameAtPosition(event.clientX, bounds.left, bounds.width, total));};
+  const seek = (event: PointerEvent<HTMLInputElement>) => {
+    const active = drag.current, bounds = surface.current?.getBoundingClientRect();
+    if (!active || active.pointerId !== event.pointerId || !bounds) return;
+    const next = filmFrameAtPosition(event.clientX - active.offset, bounds.left, bounds.width, total);
+    if (next !== active.last) {active.last = next; onFrame(next);}
+  };
   const keyboard = (event: KeyboardEvent<HTMLInputElement>) => {
     if (disabled || event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.key === 'Escape') {event.preventDefault(); event.stopPropagation(); cancel(true); return;}
@@ -194,9 +204,9 @@ export function FilmShotStrip(props: FilmShotStripProps) {
               if(next!==undefined){event.preventDefault();event.stopPropagation();if(next!==index){setPlacementAnnouncement('');restoreFocus.current={id:item.id,index:next};props.onReorder?.(item.id,next);}}
             }}/>}
           <span className="film-shot-caption"><span>{String(index + 1).padStart(2, '0')}</span><SceneName shot={item} disabled={disabled} onRename={props.onRename}/></span>
-          <small>{item.kind === 'image' && 'Image · '}{preview?.id === item.id ? `${preview.frames} frames` : `${Number((shotFrames(item) / fps).toFixed(3))} s`}</small>
+          <small>{item.kind === 'image' && (isFilmTextCard(item.image?.textCard) ? 'Text · ' : 'Image · ')}{preview?.id === item.id ? `${preview.frames} frames` : `${Number((shotFrames(item) / fps).toFixed(3))} s`}</small>
           {props.onDuplicate && <SceneMenu shot={item} index={index} props={props}/>}
-          {item.id === shot?.id && <span className="film-shot-playhead" aria-hidden="true" style={{left: `clamp(1px, ${filmPlayheadPosition(frame, item) * 100}%, calc(100% - 1px))`}}/>}
+          {item.id === shot?.id && <span className="film-shot-playhead" aria-hidden="true" style={{left: `${filmPlayheadPosition(frame, item) * 100}%`}}/>}
           {onDurationChange && <button type="button" className="film-scene-trim" aria-label={`Trim scene end: ${item.name || 'Untitled scene'}`} title="Drag to trim · ← → one frame · Shift ten frames" disabled={disabled}
             onPointerDown={event => {
               if (disabled || event.button !== 0) return;
@@ -219,11 +229,25 @@ export function FilmShotStrip(props: FilmShotStripProps) {
       {drop&&drop.valid&&drop.index!==scene.shots.findIndex((item:Shot)=>item.id===drop.id)&&<span className="film-scene-drop-marker" aria-hidden="true" style={{left:`clamp(1px, ${drop.boundary/total*100}%, calc(100% - 1px))`}}/>}
       <span className="gesso-sr-only" role="status">{drop ? drop.valid?`Move scene to position ${drop.index+1} of ${scene.shots.length}. Release to place; Escape to cancel.`:'Outside timeline. Release to cancel.':placementAnnouncement}</span>
       {preview && <span className="film-trim-preview" aria-hidden="true" style={{left: `${(scene.shots.find((item: Shot) => item.id === preview.id).startFrame - 1 + preview.frames) / total * 100}%`}}/>}
+      <span className="film-shot-playhead-handle" aria-hidden="true" style={{left: `${filmPlayheadPosition(frame, {startFrame: 1, endFrame: total}) * 100}%`}}>
+        <svg viewBox="0 0 16 16" focusable="false"><path d="M1 1H15V8L8 16L1 8Z"/></svg>
+      </span>
       <input className="film-shot-seek" type="range" aria-label="Film playhead" min={1} max={total} step={1} value={frame} disabled={disabled}
         aria-valuetext={`${((frame - 1) / fps).toFixed(2)} seconds · ${shot ? shot.name || 'Untitled scene' : 'No scene'} · frame ${frame} of ${total}`}
         title="Scrub the time ruler · ← → one frame · Shift ten frames · Space play / pause"
         onChange={event => onFrame(Number(event.target.value))} onKeyDown={keyboard}
-        onPointerDown={event => {if (disabled || event.button !== 0) return; event.preventDefault(); event.currentTarget.focus(); drag.current = {pointerId: event.pointerId, input: event.currentTarget, original: frame}; event.currentTarget.setPointerCapture(event.pointerId); seek(event);}}
+        onPointerDown={event => {
+          if (disabled || event.button !== 0 || !event.isPrimary || drag.current) return;
+          const bounds = surface.current?.getBoundingClientRect(); if (!bounds) return;
+          event.preventDefault(); event.stopPropagation(); cancelTrim(); cancelReorder(); event.currentTarget.focus({preventScroll: true});
+          const center = bounds.left + filmPlayheadPosition(frame, {startFrame: 1, endFrame: total}) * bounds.width;
+          const offset = event.clientX - center;
+          const grabbing = Math.abs(offset) <= playheadHitRadius;
+          drag.current = {pointerId: event.pointerId, input: event.currentTarget, original: frame, offset: grabbing ? offset : 0, last: frame};
+          event.currentTarget.setPointerCapture(event.pointerId);
+          // A grab preserves its contact point; clicking elsewhere on the ruler seeks immediately.
+          if (!grabbing) seek(event);
+        }}
         onPointerMove={event => {if (drag.current?.pointerId === event.pointerId) seek(event);}}
         onPointerUp={event => {if (drag.current?.pointerId === event.pointerId) {seek(event); cancel();}}}
         onPointerCancel={() => cancel(true)} onLostPointerCapture={() => cancel()}/>

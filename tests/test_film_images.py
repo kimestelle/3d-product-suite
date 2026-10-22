@@ -166,6 +166,29 @@ class FilmImageTests(unittest.TestCase):
             self.assertEqual(image.getpixel((4, 4)), (210, 60, 20))
         self.assertEqual((output / "frames" / "000003.png").read_bytes(), (output / "frames" / "000005.png").read_bytes())
 
+    def test_text_card_metadata_uses_the_same_canonical_pixels_for_export(self):
+        asset = self.image_shot()
+        card = {"version": 1, "text": "Made with gesso", "color": "#ffffff", "background": "#181818"}
+        self.scene["shots"][0]["image"]["textCard"] = card
+        # The browser-generated card is an immutable image; export must not
+        # reinterpret its editable source or substitute a server-side font.
+        self.scene["render"].update(width=asset["width"], height=asset["height"])
+        clip = evaluate(self.scene, 3)["clip"]
+        self.assertEqual(clip["textCard"], card)
+        self.assertEqual(clip["asset"], asset)
+        source = self.root / "text-card.scene.json"
+        source.write_text(json.dumps(self.scene))
+        output = self.root / "text-card-job"
+        job = jobs.create_job(source, output)
+        bundled_clip = json.loads((output / "samples.json").read_text())["frames"][2]["clip"]
+        self.assertEqual(bundled_clip, clip)
+        self.assertEqual((output / asset["path"]).read_bytes(), (self.root / asset["path"]).read_bytes())
+        self.assertEqual(jobs._render_non_scene_frames(output, job["renderProfile"], [3, 4, 5]), [])
+        with Image.open(self.root / asset["path"]) as approved, Image.open(output / "frames" / "000003.png") as rendered:
+            self.assertEqual(rendered.size, approved.size)
+            self.assertEqual(rendered.tobytes(), approved.convert("RGB").tobytes())
+        self.assertEqual((output / "frames" / "000003.png").read_bytes(), (output / "frames" / "000005.png").read_bytes())
+
 
 class FilmImageApiTests(unittest.TestCase):
     # Reuse only the real HTTP harness, not its unrelated test cases.
@@ -199,3 +222,21 @@ class FilmImageApiTests(unittest.TestCase):
         status, response, _ = self.request("POST", "/api/film/images/import", raw=b"<svg></svg>",
               headers={"Content-Type": "application/octet-stream", "X-Asset-Filename": "photo.png"})
         self.assertEqual(status, 400, response)
+
+    def test_text_card_source_and_asset_survive_save_reload_and_sampling(self):
+        project = self.bootstrap()["project"]
+        status, asset, _ = self.request("POST", "/api/film/images/import", raw=image_bytes(),
+              headers={"Content-Type": "application/octet-stream", "X-Asset-Filename": "title.png"})
+        self.assertEqual(status, 201, asset)
+        card = {"version": 1, "text": "Made with gesso\nA new finish.", "color": "#ffffff", "background": "#181818"}
+        scene = copy.deepcopy(project["scene"])
+        scene["shots"][0].update(kind="image", image={"asset": asset, "fit": "contain", "textCard": card})
+        route = f"/api/projects/{project['id']}"
+        status, saved, _ = self.request("PUT", route, {"scene": scene, "expectedRevisionId": project["revisionId"]})
+        self.assertEqual(status, 200, saved)
+        status, reloaded, _ = self.request("GET", route)
+        self.assertEqual(status, 200, reloaded)
+        self.assertEqual(reloaded["scene"]["shots"][0]["image"], scene["shots"][0]["image"])
+        status, sampled, _ = self.request("POST", "/api/evaluate", {"scene": reloaded["scene"], "frame": 1})
+        self.assertEqual(status, 200, sampled)
+        self.assertEqual(sampled["sample"]["clip"], {"kind": "image", **scene["shots"][0]["image"]})

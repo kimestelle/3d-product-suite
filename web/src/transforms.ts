@@ -1,3 +1,4 @@
+import {partPose} from './partTargets';
 import {Euler, Quaternion} from 'three';
 
 export type TransformTarget = {kind:'product'} | {kind:'part';componentId:string};
@@ -5,14 +6,23 @@ export type TransformMode = 'translate' | 'rotate' | 'scale';
 export type TransformAxis = 'x' | 'y' | 'z';
 export const TRANSFORM_SCALE_MIN = .01;
 export const TRANSFORM_SCALE_MAX = 100;
+export const PRODUCT_SCALE_MIN = 1e-6;
+export const PRODUCT_SCALE_MAX = 1e6;
+export const PRODUCT_SCALE_RANGE_MESSAGE = 'Product scale must stay between 0.000001× and 1000000× of the source size.';
+export function transformScaleLimits(target:TransformTarget):{min:number;max:number} {
+  return target.kind === 'product' ? {min:PRODUCT_SCALE_MIN,max:PRODUCT_SCALE_MAX} : {min:TRANSFORM_SCALE_MIN,max:TRANSFORM_SCALE_MAX};
+}
+export function formatScalePercent(scale:number):string {
+  return String(Number((scale*100).toPrecision(8)));
+}
 
 export function transformTargetKey(target:TransformTarget|null):string {
   return target?.kind === 'part' ? `part:${target.componentId}` : target?.kind ?? '';
 }
 
-function targetTransform(scene:any,target:TransformTarget):any {
+function targetTransform(scene:any,target:TransformTarget,create=false):any {
   const transform = target.kind === 'product' ? scene?.placement
-    : scene?.product?.components?.find((part:any)=>part.id === target.componentId)?.assembly;
+    : partPose(scene,target.componentId,create);
   if (!transform) throw new Error('The selected component is no longer available.');
   return transform;
 }
@@ -29,7 +39,7 @@ export function transformScene(scene:any,target:TransformTarget,mode:TransformMo
     ? 'Select a part to rotate. Whole-product rotation is not available.' : 'Select a component to transform.');
   const next = structuredClone(scene);
   if (mode === 'scale' && amount === 1 || mode === 'rotate' && amount % 360 === 0) return next;
-  const transform = targetTransform(next,target);
+  const transform = targetTransform(next,target,true);
   const index = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
   if (mode === 'translate') {
     transform.translationM[index] += amount;
@@ -41,7 +51,8 @@ export function transformScene(scene:any,target:TransformTarget,mode:TransformMo
   } else {
     if (amount <= 0) throw new Error('Scale must be greater than zero.');
     const scale = (transform.scale ?? 1)*amount;
-    if (scale < TRANSFORM_SCALE_MIN || scale > TRANSFORM_SCALE_MAX) throw new Error('Scale must stay between 1% and 10000% of the original size.');
+    const {min,max} = transformScaleLimits(target);
+    if (scale < min || scale > max) throw new Error(target.kind === 'product' ? PRODUCT_SCALE_RANGE_MESSAGE : 'Scale must stay between 1% and 10000% of the original size.');
     transform.scale = scale;
   }
   return next;
@@ -49,7 +60,7 @@ export function transformScene(scene:any,target:TransformTarget,mode:TransformMo
 
 /** Commit only the manipulated fields, preserving unrelated state in the destination. */
 export function copyTransform(destination:any,preview:any,target:TransformTarget,mode:TransformMode):void {
-  const from = targetTransform(preview,target), to = targetTransform(destination,target);
+  const from = targetTransform(preview,target), to = targetTransform(destination,target,true);
   if (mode === 'translate') to.translationM = [...from.translationM];
   else if (mode === 'rotate') to.rotationXyzw = [...from.rotationXyzw];
   else to.scale = from.scale ?? 1;
@@ -62,10 +73,10 @@ export function typedTransformAmount(mode:TransformMode,text:string):number|null
   return mode === 'translate' ? number/1000 : number;
 }
 
-export function nudgeTransformAmount(mode:TransformMode,value:number,direction:1|-1,fine=false):number {
+export function nudgeTransformAmount(mode:TransformMode,value:number,direction:1|-1,fine=false,scaleBounds={min:.0001,max:Infinity}):number {
   const step = (mode === 'translate' ? .001 : mode === 'rotate' ? 1 : .01)*(fine ? .1 : 1);
   const next = Number((value+direction*step).toFixed(12));
-  return mode === 'scale' ? Math.max(.0001,next) : next;
+  return mode === 'scale' ? Math.min(scaleBounds.max,Math.max(scaleBounds.min,next)) : next;
 }
 
 export type TransformKeyIntent = {type:'start';mode:TransformMode} | {type:'axis';axis:TransformAxis}

@@ -62,7 +62,7 @@ export function disposeSurfaceMaterial(material: THREE.MeshPhysicalMaterial): vo
   material.dispose();
 }
 
-async function loadTexture(asset: ImageAsset, channel: MaterialTextureChannel, assetUrl: (asset: ImageAsset) => string, signal?: AbortSignal): Promise<THREE.Texture> {
+export async function loadTexture(asset: ImageAsset, channel: MaterialTextureChannel, assetUrl: (asset: ImageAsset) => string, signal?: AbortSignal): Promise<THREE.Texture> {
   if (asset?.format !== 'png' || !/^[a-f0-9]{64}$/.test(asset?.sha256 || '') || asset.path !== `assets/${asset.sha256}.png`) {
     throw new Error('Material textures must declare a safe, content-addressed PNG.');
   }

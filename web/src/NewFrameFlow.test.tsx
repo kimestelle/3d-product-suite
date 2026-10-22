@@ -36,6 +36,17 @@ describe('New scene rails', () => {
     expect(html).toMatch(/<button[^>]*class="frame-setup-next"[^>]*disabled=""/);
   });
 
+  it('keeps the selected motion preview fixed above setup controls with native action buttons', () => {
+    const props=context();props.setup.stage='camera';props.setup.cameraKind='orbit';
+    props.setup.cameraMotionId=addMotion(props.scene,props.setup.shotId,'$camera','orbit');
+    const before=structuredClone(props.scene),html=renderToStaticMarkup(<FrameSetupInspector {...props}/>);
+    expect(html.indexOf('class="film-motion-preview"')).toBeLessThan(html.indexOf('class="film-rail-scroll"'));
+    expect(html).toContain('data-motion-actor="camera"');
+    expect(html.match(/class="film-motion-choice"/g)).toHaveLength(2);
+    expect(html).toContain('Finish scene');expect(html).toContain('New scene motion amount');
+    expect(props.scene).toEqual(before);
+  });
+
   it('keeps whole-product and individual-part selection exclusive', () => {
     expect(nextFrameTargets(['cap', 'label'], '$product', true)).toEqual(['$product']);
     expect(nextFrameTargets(['$product'], 'cap', true)).toEqual(['cap']);

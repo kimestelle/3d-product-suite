@@ -1,6 +1,7 @@
+import {partPose,partTargetIds} from './partTargets';
 import {Euler, Quaternion} from 'three';
 import {displayPartName} from './hierarchy';
-import type {TransformAxis, TransformMode, TransformTarget} from './transforms';
+import {PRODUCT_SCALE_RANGE_MESSAGE,transformScaleLimits,type TransformAxis,type TransformMode,type TransformTarget} from './transforms';
 
 export type KeyframeProperty = 'position.x'|'position.y'|'position.z'|'rotation.x'|'rotation.y'|'rotation.z'|'scale'|'motion';
 export type KeyframeInterpolation = 'linear'|'ease'|'hold';
@@ -24,8 +25,8 @@ export function animationBlockReason(scene:any,componentId:string,_property:Keyf
   return `${name(componentId)} anchors ${name(dependent.componentId)} movement. Animate Whole product to move them together.`;
 }
 
-function transform(scene:any,componentId:string):any {
-  const result=componentId===PRODUCT_TARGET?scene.placement:scene.product?.components?.find((part:any)=>part.id===componentId)?.assembly;
+function transform(scene:any,componentId:string,create=false):any {
+  const result=componentId===PRODUCT_TARGET?scene.placement:partPose(scene,componentId,create);
   if (!result) throw new Error('That component is no longer available.');
   return result;
 }
@@ -34,9 +35,12 @@ function validateProperty(scene:any,componentId:string,property:KeyframeProperty
   if (componentId===PRODUCT_TARGET && (property.startsWith('rotation.')||property==='motion')) throw new Error('Select a part for rotation or mechanical movement.');
   if (property==='motion'&&!getMotion(scene,componentId)) throw new Error('This part has no mechanical movement.');
 }
-function validateValue(property:KeyframeProperty,value:number):void {
+function validateValue(componentId:string,property:KeyframeProperty,value:number):void {
   if (!Number.isFinite(value)) throw new Error('Enter a finite value.');
-  if (property==='scale'&&(value<.01||value>100)) throw new Error('Scale must stay between 1% and 10000%.');
+  if (property==='scale') {
+    const product=componentId===PRODUCT_TARGET,{min,max}=transformScaleLimits(product?{kind:'product'}:{kind:'part',componentId});
+    if(value<min||value>max)throw new Error(product?PRODUCT_SCALE_RANGE_MESSAGE:'Scale must stay between 1% and 10000%.');
+  }
   if (property==='motion'&&(value < -100 || value > 100)) throw new Error('Movement must stay within 100 times its original travel.');
 }
 function validateFrame(scene:any,frame:number):void {
@@ -74,7 +78,7 @@ function createTrack(scene:any,componentId:string,property:KeyframeProperty):Ani
   scene.animation.tracks.push(track);return track;
 }
 export function upsertKey(scene:any,componentId:string,property:KeyframeProperty,frame:number,value:number,interpolation?:KeyframeInterpolation):AnimationTrack {
-  validateProperty(scene,componentId,property);validateFrame(scene,frame);validateValue(property,value);
+  validateProperty(scene,componentId,property);validateFrame(scene,frame);validateValue(componentId,property,value);
   const existingTrack=getTrack(scene,componentId,property);
   const blocked=animationBlockReason(scene,componentId,property);
   if(blocked&&existingTrack?.enabled!==false)throw new Error(blocked);
@@ -105,7 +109,7 @@ export function toggleTrack(scene:any,componentId:string,property:KeyframeProper
   }else upsertKey(scene,componentId,property,frame,baseValue(scene,componentId,property,frame),'ease');
 }
 function setBaseValue(scene:any,componentId:string,property:KeyframeProperty,value:number):void {
-  const pose=transform(scene,componentId);
+  const pose=transform(scene,componentId,true);
   if(property==='scale')pose.scale=value;
   else if(property.startsWith('position.'))pose.translationM[AXES.indexOf(property.slice(-1) as TransformAxis)]=value;
   else if(property.startsWith('rotation.')){
@@ -116,7 +120,7 @@ function setBaseValue(scene:any,componentId:string,property:KeyframeProperty,val
 }
 /** Mutates the supplied scene: animated properties key at time; static properties edit the base pose. */
 export function writeProperty(scene:any,componentId:string,property:KeyframeProperty,frame:number,value:number):void {
-  validateProperty(scene,componentId,property);validateFrame(scene,frame);validateValue(property,value);
+  validateProperty(scene,componentId,property);validateFrame(scene,frame);validateValue(componentId,property,value);
   if(getTrack(scene,componentId,property)?.enabled)upsertKey(scene,componentId,property,frame,value);
   else setBaseValue(scene,componentId,property,value);
 }
@@ -141,12 +145,13 @@ export function setKeyInterpolation(scene:any,trackId:string,frame:number,interp
 /** A calculation copy for G/R/S: sampled transform channels become its base pose. Mechanical motion stays separate. */
 export function materializeAnimatedPose(scene:any,frame:number):any {
   const next=structuredClone(scene);
-  const ids=[PRODUCT_TARGET,...(scene.product?.components??[]).map((part:any)=>part.id)];
+  // Removed parts retain their authored pose for Undo and any source dependencies.
+  const ids=[PRODUCT_TARGET,...partTargetIds(scene,true)];
   for(const id of ids){
     const properties=TRANSFORM_PROPERTIES.filter(property=>id!==PRODUCT_TARGET||!property.startsWith('rotation.'));
     const enabled=properties.filter(property=>getTrack(scene,id,property)?.enabled);
     if(!enabled.length)continue;
-    const pose=transform(next,id);
+    const pose=transform(next,id,true);
     for(const property of enabled.filter(property=>!property.startsWith('rotation.')))setBaseValue(next,id,property,getPropertyValue(scene,id,property,frame));
     if(enabled.some(property=>property.startsWith('rotation.'))){
       pose.rotationXyzw=new Quaternion().setFromEuler(new Euler(...AXES.map(axis=>getPropertyValue(scene,id,`rotation.${axis}`,frame)*Math.PI/180) as [number,number,number],'XYZ')).toArray();
@@ -168,11 +173,14 @@ export function commitAnimatedTransform(destination:any,preview:any,target:Trans
   }
 }
 
-export interface PropertyPresentation {label:string;axis?:string;unit:string;factor:number;min?:number;max?:number;step:number}
+export interface PropertyPresentation {label:string;axis?:string;unit:string;factor:number;min?:number;max?:number;step:number;precision?:number}
 export function propertyPresentation(scene:any,id:string,property:KeyframeProperty):PropertyPresentation {
   if(property.startsWith('position.'))return {label:'Position',axis:property.slice(-1).toUpperCase(),unit:'mm',factor:1000,step:.1};
   if(property.startsWith('rotation.'))return {label:'Rotation',axis:property.slice(-1).toUpperCase(),unit:'°',factor:1,step:1};
-  if(property==='scale')return {label:'Scale',unit:'%',factor:100,min:1,max:10000,step:1};
+  if(property==='scale'){
+    const product=id===PRODUCT_TARGET,{min,max}=transformScaleLimits(product?{kind:'product'}:{kind:'part',componentId:id});
+    return {label:'Scale',unit:'%',factor:100,min:Number((min*100).toPrecision(12)),max:Number((max*100).toPrecision(12)),step:1,...(product?{precision:8}:{})};
+  }
   const action=getMotion(scene,id),factor=action?.type==='screw'?(action.turns*action.directionSign||1):(action?.distanceM*1000||1);
   return {label:action?.type==='screw'?'Turns':'Travel',unit:action?.type==='screw'?'rev':'mm',factor,min:-100*Math.abs(factor),max:100*Math.abs(factor),step:.1};
 }

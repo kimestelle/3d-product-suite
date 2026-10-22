@@ -1,5 +1,8 @@
+import {partTargetIds} from './partTargets';
 import {NumberControl} from './EditorControls';
 import {UiIcon} from './UiIcon';
+import {FilmMotionChoice, FilmMotionPreview} from './FilmMotionPreview';
+import {motionDiagramSpec} from './filmMotionDiagram';
 import {availableMotionKinds, listMotions, motionLights, LIGHT_MOTION_KINDS, type FilmMotion, type MotionKind} from './filmMotion';
 import {filmTargetName, motionMeasure} from './FilmWorkspace';
 import {frameObjectMotionKinds, type FrameSetup} from './frameSetup';
@@ -53,13 +56,13 @@ function anchorHint(scene: any, target: string): string {
 export function FrameSetupObjects({scene, setup, disabled, onTargets, onCameraTarget}: FrameSetupProps) {
   const camera = setup.stage === 'camera';
   // Lights are animated alongside the product; the camera only aims at product geometry.
-  const targets = ['$product', ...scene.product.components.map((part: any) => part.id),
+  const targets = ['$product', ...partTargetIds(scene),
     ...(camera ? [] : motionLights(scene).filter(light => light.enabled).map(light => lightTarget(light.id)))];
   return <section className="gesso-panel frame-setup-objects film-rail-panel" aria-label={camera ? 'Camera target' : 'Objects to animate'}>
     <header className="frame-setup-rail-heading"><h2>{camera ? 'Camera target' : 'Objects to animate'}</h2>{!camera && <span>{setup.targets.length} selected</span>}</header>
     <div className="film-rail-scroll">
     <p className="frame-setup-hint">{camera ? 'Choose what the camera points toward.' : 'Select the product, individual parts or lights.'}</p>
-    <div className="frame-setup-targets" role="group" aria-label={camera ? 'Aim target' : 'Moving objects'}>
+    <div className="frame-setup-targets gesso-selection-surface" role="group" aria-label={camera ? 'Aim target' : 'Moving objects'}>
       {targets.map(target => {
         const supported = camera || availableMotionKinds(scene, target).length > 0;
         const checked = camera ? setup.cameraTarget === target : setup.targets.includes(target);
@@ -111,6 +114,7 @@ export function FrameSetupInspector(props: FrameSetupProps) {
     : ['move', 'rotate', 'scale', ...(common.includes('mechanical') ? ['mechanical' as const] : [])];
   const selectedKind = camera ? setup.cameraKind : setup.objectKind;
   const objectReady = setup.objectKind === null || setup.targets.length > 0;
+  const previewTarget = camera ? '$camera' : setup.targets[0] ?? '$product';
   return <section className="gesso-panel frame-setup-inspector film-rail-panel" aria-label="New scene setup">
     <div className="frame-setup-fixed-heading">
     <header className="frame-setup-heading"><span>New scene</span></header>
@@ -120,13 +124,14 @@ export function FrameSetupInspector(props: FrameSetupProps) {
       <button type="button" aria-current={camera ? 'step' : undefined} aria-pressed={camera} disabled={disabled || !objectReady} onClick={() => onStage('camera')}>Camera</button>
     </nav>
     </div>
+    <FilmMotionPreview spec={motionDiagramSpec(scene, previewTarget, selectedMotion?.kind ?? 'pose', selectedMotion)} label={selectedMotion ? kindName(scene, setup, selectedMotion.kind) : camera ? 'Framing' : 'Position'} disabled={disabled || selectedMotion?.enabled === false}/>
     <div className="film-rail-scroll">
     <div className="frame-setup-content">
       <div className="frame-setup-section-heading"><h2>{camera ? 'Camera movement' : 'Object movement'}</h2><span>{camera ? filmTargetName(scene, setup.cameraTarget) : setup.targets.length === 1 ? filmTargetName(scene, setup.targets[0]) : `${setup.targets.length} objects`}</span></div>
       <div className="frame-setup-kinds" role="group" aria-label={camera ? 'Camera movement choices' : 'Object movement choices'}>
         <button type="button" className="frame-setup-none" aria-pressed={selectedKind === null} disabled={disabled} onClick={() => camera ? onCameraKind(null) : onObjectKind(null)}><span>{inherited ? 'No added motion' : 'Keep still'}</span>{selectedKind === null && <UiIcon name="check"/>}</button>
-        {kinds.map(kind => <button type="button" key={kind} aria-pressed={selectedKind === kind} disabled={disabled || (!camera && !common.includes(kind))} title={!camera && !common.includes(kind) ? 'Select objects that support this movement.' : undefined}
-          onClick={() => camera ? onCameraKind(kind as 'orbit' | 'dolly') : onObjectKind(kind)}><span>{kindName(scene, setup, kind)}</span>{selectedKind === kind && <UiIcon name="check"/>}</button>)}
+        {kinds.map(kind => <FilmMotionChoice key={kind} spec={motionDiagramSpec(scene, previewTarget, kind)} label={kindName(scene, setup, kind)} selected={selectedKind === kind} disabled={disabled || (!camera && !common.includes(kind))} title={!camera && !common.includes(kind) ? 'Select objects that support this movement.' : undefined}
+          onClick={() => camera ? onCameraKind(kind as 'orbit' | 'dolly') : onObjectKind(kind)}/>)}
       </div>
       {!camera && setup.targets.length === 0 && <p className="frame-setup-hint">Choose objects on the left, or continue without added movement.</p>}
       {selectedMotion && <FrameMotionControls motion={selectedMotion} scene={scene} shotId={setup.shotId} disabled={disabled} onPatchMotion={onPatchMotion}/>}

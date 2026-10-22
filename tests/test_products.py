@@ -76,9 +76,11 @@ class ProductTests(unittest.TestCase):
         self.assertEqual(asset, {"format": "glb", "path": f"assets/{hashlib.sha256(payload).hexdigest()}.glb",
                                  "sha256": hashlib.sha256(payload).hexdigest(), "sourceUp": "Y"})
         self.assertEqual((self.output / asset["path"]).read_bytes(), payload)
-        self.assertAlmostEqual(evaluate(scene, 1)["components"]["product"]["translationM"][1], 0.06, places=7)
+        self.assertAlmostEqual(evaluate(scene, 1)["components"]["product"]["translationM"][1], 0.16, places=7)
+        self.assertAlmostEqual(max(scene["product"]["dimensionsM"]) * scene["placement"]["scale"], .32)
+        self.assertEqual(scene["environment"]["studioSizeM"], .32)
         for shot in scene["shots"]:
-            self.assertAlmostEqual(shot["camera"]["from"]["targetM"][1], 0.06, places=7)
+            self.assertAlmostEqual(shot["camera"]["from"]["targetM"][1], 0.16, places=7)
             self.assertGreater(shot["camera"]["from"]["positionM"][2], 0.3)
 
     def test_scene_creation_is_idempotent_and_refuses_another_source_revision(self):

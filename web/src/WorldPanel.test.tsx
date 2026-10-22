@@ -6,6 +6,27 @@ import WorldObjectEditor from './WorldObjectEditor';
 import {addLight, addProp, applyDramaticSpot} from './world';
 function render(layer: WorldLayer, scene: any = fixture, selectedObjectId: string | null = null) {return renderToStaticMarkup(<WorldPanel selectedObjectId={selectedObjectId} scene={scene} layer={layer} worlds={[]} onChange={() => {}} onWorld={() => {}} onImport={() => {}}><button>Compare worlds</button></WorldPanel>);}
 describe('World panel', () => {
+  it('keeps the selected stage visual above every section and shows worlds as image choices', () => {
+    for (const layer of ['Environment', 'Props', 'Lights'] as const) {
+      const html = render(layer);
+      expect(html).toContain('aria-label="Current stage preview"');
+      expect(html.indexOf('gesso-selected-world-cover')).toBeLessThan(html.indexOf('gesso-stage-controls'));
+      expect(html).toContain('Scene preview');
+    }
+    const html = renderToStaticMarkup(<WorldPanel scene={fixture} layer="Environment" worlds={[{id: 'gallery', name: 'Gallery', environment: {...fixture.environment, kind: 'mesh'}}]} onChange={() => {}} onWorld={() => {}} onImport={() => {}}/>);
+    expect(html).toContain('aria-label="World library"');
+    expect(html).toContain('aria-label="Use Gallery"');
+    expect(html).toContain('aria-label="Use Authored studio" aria-pressed="true"');
+    expect(html).not.toContain('<option value="authored"');
+  });
+  it('offers a proportional product fit for an imported world and waits for its preview', () => {
+    const scene = {...fixture, placement: {translationM: [0, 0, 0], scale: .5}, environment: {...fixture.environment, kind: 'mesh', asset: {scaleToMeters: 1, translationM: [0, 0, 0], rotationXyzw: [0, 0, 0, 1]}}};
+    const html = renderToStaticMarkup(<WorldPanel scene={scene} layer="Environment" worlds={[]} onChange={() => {}} onWorld={() => {}} onImport={() => {}} onFitProduct={() => {}} fitDisabled/>);
+    expect(html).toContain('disabled="">Fit product to scene</button>');
+    expect(html).toContain('50%');
+    expect(html).toContain('Proportions and source dimensions stay unchanged.');
+    expect(render('Environment')).not.toContain('Fit product to scene');
+  });
   it('adds and removes lights, selects a type and exposes spot, ambient and preset controls', () => {
     const scene: any = structuredClone(fixture);
     expect(addLight(scene, 'spot')).toBe('spot-1');
@@ -20,17 +41,19 @@ describe('World panel', () => {
     expect(spot).toContain('disabled="">Remove light</button>');
     expect(spot).toContain('>Ambient</span>');
   });
-  it('marks the selected section without presenting it as a collapsible disclosure', () => {
-    for (const layer of ['Environment', 'Props', 'Lights'] as const) {
+  it('renders only the selected controls without leftover section selectors', () => {
+    const cases = [
+      ['Environment', 'World library', 'Add box', 'Studio lights'],
+      ['Props', 'Add box', 'World library', 'Studio lights'],
+      ['Lights', 'Studio lights', 'World library', 'Add box'],
+    ] as const;
+    for (const [layer, shown, ...hidden] of cases) {
       const html = render(layer);
-      const selectors = html.match(/<button[^>]*class="gesso-section-toggle gesso-section-selector"[\s\S]*?<\/button>/g) ?? [];
-      expect(selectors).toHaveLength(3);
-      expect(selectors.filter(button => button.includes('aria-current="true"'))).toHaveLength(1);
-      expect(selectors.find(button => button.includes('aria-current="true"'))).toContain(`aria-controls="world-section-${layer}"`);
-      for (const selector of selectors) {
-        expect(selector).not.toContain('aria-expanded');
-        expect(selector).not.toContain('gesso-ui-icon');
-      }
+      expect(html).toContain(`id="world-section-${layer}"`);
+      expect(html).toContain(shown);
+      for (const label of hidden) expect(html).not.toContain(label);
+      expect(html).not.toContain('gesso-section-selector');
+      expect(html.match(/data-editor-cabinet="true"/g)).toHaveLength(1);
     }
     expect(render('Props')).toContain('<details class="gesso-disclosure"><summary>Prop library</summary>');
     expect(render('Lights')).toContain('<details class="gesso-disclosure"><summary>HDRI library</summary>');

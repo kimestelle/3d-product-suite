@@ -2,6 +2,7 @@ import {describe,expect,it} from 'vitest';
 import {createFrameMorph,createFrameTransition,frameTransitionScale,normalizeFrameShrink} from './frameMorph';
 import {aboutFrameNodes,frameBounds,framePath,landingFrameNodes,loadingFrameNodes,roundedFrameNodes,transformFrameNodes,type FrameNodes} from './frameGeometry';
 import {philosophySequenceNodes} from './philosophySequence';
+import {CURVE_PRESETS} from './curvePresets';
 import type {AperturePoint} from './landingMorph';
 
 const origin={x:640,y:416,width:960,viewportWidth:1280,viewportHeight:832,aperture:0};
@@ -99,6 +100,73 @@ function expectTangents(nodes:FrameNodes) {
     expect((ax*bx+ay*by)/scale).toBeGreaterThan(1-1e-7);
   }
 }
+
+/** Extra curvature reversals expose scallops between otherwise smooth anchors.
+ * Sample inside each cubic, ignoring effectively straight sections. Tangent
+ * continuity alone cannot detect these bumps. */
+function curvatureReversals(nodes:FrameNodes):number {
+  const signs:number[]=[];
+  for(let i=0;i<nodes.length;i++) {
+    const a=nodes[i],b=nodes[(i+1)%nodes.length];
+    for(let sample=0;sample<20;sample++) {
+      const t=(sample+.5)/20,u=1-t;
+      const dx=3*u*u*(a.out.x-a.point.x)+6*u*t*(b.in.x-a.out.x)+3*t*t*(b.point.x-b.in.x);
+      const dy=3*u*u*(a.out.y-a.point.y)+6*u*t*(b.in.y-a.out.y)+3*t*t*(b.point.y-b.in.y);
+      const ddx=6*u*(b.in.x-2*a.out.x+a.point.x)+6*t*(b.point.x-2*b.in.x+a.out.x);
+      const ddy=6*u*(b.in.y-2*a.out.y+a.point.y)+6*t*(b.point.y-2*b.in.y+a.out.y);
+      const speed=Math.hypot(dx,dy);
+      if(speed<1e-9)continue;
+      const curvature=(dx*ddy-dy*ddx)/speed**3;
+      if(Math.abs(curvature)>1e-7)signs.push(Math.sign(curvature));
+    }
+  }
+  return signs.reduce((count,sign,i)=>count+Number(sign!==signs[(i+1)%signs.length]),0);
+}
+
+describe('Concave catalog transitions',()=>{
+  const pairs=[
+    {from:'studio-landing',to:'symbols-star',limit:32},
+    {from:'symbols-star',to:'symbols-plus',limit:40},
+  ];
+  const preset=(id:string)=>CURVE_PRESETS.find(item=>item.id===id)!.nodes;
+
+  it.each(pairs)('does not add repeated scallops to $from → $to',({from,to,limit})=>{
+    const a=preset(from),b=preset(to),morph=createFrameMorph(a,b);
+    expect(curvatureReversals(preset('symbols-star'))).toBe(16);
+    expect(curvatureReversals(preset('symbols-plus'))).toBe(16);
+    // Allow new concavities as features emerge, but not the 72–112 reversals
+    // caused by independently blending handle angles and shortened lengths.
+    for(const t of [.01,.05,.1,.25,.5,.75,.9,.95,.99]) {
+      const current=morph(t);
+      expect(curvatureReversals(current),`${from} → ${to} at ${t}`).toBeLessThanOrEqual(limit);
+      expectTangents(current);expect(crosses(current)).toBe(false);
+    }
+  });
+
+  it.each(pairs)('preserves $from → $to endpoints and reverses the contracted path',({from,to})=>{
+    const a=preset(from),b=preset(to),originalA=structuredClone(a),originalB=structuredClone(b);
+    const morph=createFrameMorph(a,b),travel=createFrameTransition(a,b),reverse=createFrameTransition(b,a);
+    expect(morph(0)).toEqual(a);expect(morph(1)).toEqual(b);
+    for(const t of [.000001,.1,.25,.5,.75,.9,.999999]) {
+      const forward=travel(t),back=reverse(1-t);
+      expect(forward).toHaveLength(64);
+      for(let i=0;i<64;i++)for(const key of ['point','in','out'] as const) {
+        expect(forward[i][key].x).toBeCloseTo(back[i][key].x,7);
+        expect(forward[i][key].y).toBeCloseTo(back[i][key].y,7);
+      }
+    }
+    for(const [t,endpoint] of [[.000001,a],[.999999,b]] as const) {
+      const near=morph(t);
+      for(let i=0;i<64;i++)for(const key of ['point','in','out'] as const) {
+        expect(Math.hypot(near[i][key].x-endpoint[i][key].x,near[i][key].y-endpoint[i][key].y)).toBeLessThan(.002);
+      }
+    }
+    const raw=frameBounds(morph(.5)),contracted=frameBounds(travel(.5));
+    expect(contracted.width).toBeCloseTo(raw.width*.7,7);
+    expect(contracted.height).toBeCloseTo(raw.height*.7,7);
+    expect(a).toEqual(originalA);expect(b).toEqual(originalB);
+  });
+});
 
 describe('Shared semantic window morph',()=>{
   it('preserves exact endpoint snapshots, finite 64-node output and caller input',()=>{

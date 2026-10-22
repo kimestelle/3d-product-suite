@@ -1,3 +1,4 @@
+import {isCameraHoldMotion} from './cameraMotionPresets';
 import {useEffect, useState} from 'react';
 import {displayPartName} from './hierarchy';
 import {motionLabel, motionLights, type FilmMotion, type MotionKind, type MotionEntry} from './filmMotion';
@@ -17,6 +18,7 @@ export function actionName(scene: any, target: string, kind: MotionKind): string
 }
 
 export function labelFor(scene: any, motion: FilmMotion) {
+  if (isCameraHoldMotion(motion)) return 'Still';
   return motion.kind === 'mechanical' || motion.kind === 'dolly' ? actionName(scene, motion.target, motion.kind) : motionLabel(motion);
 }
 

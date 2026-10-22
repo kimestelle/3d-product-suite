@@ -36,6 +36,7 @@ def main(argv=None):
     p = sub.add_parser("serve", help="Run the local browser editor and render queue")
     p.add_argument("--data-dir", type=Path, default=Path("workspace-data"))
     p.add_argument("--port", type=int, default=8787)
+    p.add_argument("--import-blender", help="Optional newer Blender executable for imports; export stays pinned")
     p.add_argument("--blender", default="blender")
     p.add_argument("--ffmpeg", default="ffmpeg")
     p = sub.add_parser("world-import", help="Import a self-contained visual GLB or Gaussian SPZ/PLY")
@@ -48,7 +49,7 @@ def main(argv=None):
     p.add_argument("--scale-to-meters", type=float, default=1)
     p = sub.add_parser("worlds", help="List imported world revisions")
     p.add_argument("--library", type=Path, default=Path("workspace-data"))
-    p = sub.add_parser("product-import", help="Import a prepared product GLB or a Blender .blend snapshot")
+    p = sub.add_parser("product-import", help="Import GLB, Blender, STEP, IGES, STL or OBJ products")
     p.add_argument("asset", type=Path)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--name", required=True)
@@ -56,7 +57,9 @@ def main(argv=None):
     p.add_argument("--source", required=True)
     p.add_argument("--reuse-basis", required=True)
     p.add_argument("--workspace", type=Path, help="Also open the prepared scene as a local editor project")
-    p.add_argument("--blender", default="blender", help="Blender executable for .blend conversion")
+    p.add_argument("--blender", default="blender", help="Blender executable for .blend / mesh conversion")
+    p.add_argument("--source-up", choices=("z", "y"), default="z", help="CAD/mesh vertical axis (default Z)")
+    p.add_argument("--source-units", choices=("mm", "cm", "m", "in", "ft"), help="Required for STL/OBJ; optional explicit units override for Blender")
     p = sub.add_parser("compare", help="Create the five-probe authored/mesh/Gaussian comparison")
     p.add_argument("scene", type=Path)
     p.add_argument("--library", type=Path, default=Path("workspace-data"))
@@ -68,7 +71,7 @@ def main(argv=None):
     try:
         if args.command == "serve":
             from .server import serve
-            serve(args.data_dir, port=args.port, blender=args.blender, ffmpeg=args.ffmpeg)
+            serve(args.data_dir, port=args.port, blender=args.blender, ffmpeg=args.ffmpeg, import_blender=args.import_blender)
         elif args.command == "world-import":
             from .worlds import import_world
             provenance = {"source": str(args.asset.name), "owner": args.owner, "reuseBasis": args.reuse_basis,
@@ -82,7 +85,8 @@ def main(argv=None):
             from .products import create_product_scene
             provenance = {"source": args.source, "owner": args.owner, "reuseBasis": args.reuse_basis,
                           "allowedExternalDestinations": []}
-            scene = create_product_scene(args.asset, args.output, name=args.name, provenance=provenance, blender=args.blender)
+            scene = create_product_scene(args.asset, args.output, name=args.name, provenance=provenance, blender=args.blender,
+                                         source_up=args.source_up, source_units=args.source_units)
             result = {"scene": str(args.output / "scene.json"), "sceneDigest": scene_digest(scene)}
             if args.workspace:
                 from .store import ProjectStore

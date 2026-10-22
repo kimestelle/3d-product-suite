@@ -2,6 +2,17 @@
 
 This record distinguishes engineering checks from visual approval, real-asset validation and observed user-study outcomes. Local fixture success does not pass those proposal gates.
 
+## 21 October 2026 — latest UI and Figma composition checkpoint
+
+- `npm test --prefix web -- --maxWorkers=2`: **1,406 tests passed across 119 files**. Five stale CompactPanels assertions were updated to the current camera controls and disclosure behavior.
+- `.venv/bin/python -B -m unittest discover -s tests -q`: **502 discovered, 445 passed, 57 skipped**, on local Python **3.14.6**. This does not validate the declared Python 3.12 environment or skipped optional integrations.
+- `npm run build --prefix web`: TypeScript and Vite build passed; the large-chunk advisory remains.
+- The five Form + Light Figma exports were converted to lossless WebP with exact decoded RGBA equality. Their asset provenance and editable source nodes are recorded in `web/src/assets/gesso/ASSETS.md`.
+
+Browser review checked all five desktop compositions and the mobile product view, with no horizontal overflow or console errors.
+
+No final Blender render or paid generation was requested for this push. The local dev server remains on port 8787.
+
 ## 19 October 2026 — gesso editor and site checkpoint
 
 Local checks before pushing the current editor, marketing pages, and shared frame system:
@@ -115,3 +126,19 @@ The generated files remain outside Git. The source checkout preserves the scene 
 ### Open validation at the foundation checkpoint
 
 No CG reviewer or brand designer had approved these foundation renders. The native-resolution full reel, approved real product inputs, glass specimen, generated environment comparison, laptop playback performance, preparation economics and user pilot were unmeasured. Provider integrations and the browser editor were outside this October 15 checkpoint; their later engineering checks are recorded in the October 16 section, without asserting quality or user-study approval.
+
+## 2026-10-21 — Teammate integration and product import compatibility
+
+Integrated `origin/worlds-light-sound` through `aaa8852` (17 commits) into the local `gesso-editor` branch, then restored and reconciled the existing bottle/artwork/part-motion/preview/curve work. A backup archive and the original stash were retained. No existing campaign was replaced. The 15 gallery media files came from the supplied handoff ZIP, remain ignored by Git, and are served locally.
+
+Checks:
+
+- Python 3.12: 469 tests, 48 optional skips, no failures. Subsequent authored-floor change passed its native Blender regression (nine visible/hidden/default support and world-kind combinations).
+- Web: full suite 1,115 tests passed with two workers. The unchanged exhaustive loader test initially hit its timeout under unrestricted parallel CPU load; bounded execution passed without a timeout change. Later units/performance notices and floor changes passed 26 focused checks; final TypeScript/production build passed.
+- Native Blender: 32 import cases exercised on each of 4.3.2 and 5.1.1; 12 existing geometry/artwork/part-motion/full-pose round trips passed. The actual perfume file converted on both runtimes without changing its source hash. A 5.1.1 import with explicit centimetres and a 20mm cap lift rendered successfully through pinned 4.3.2, including a second diagnostic after correcting floor contact.
+- Native CAD/mesh: all 13 tests passed with OpenCascade 7.8.1.1 and Blender 4.3.2. OBJ/STL tests also passed with the configured 5.1.1 import executable. Actual Nessino STEP retained 38 meshes / 86 faces at 320 × 223.003 × 320mm.
+- Handoff products: all five current gallery product hashes, GLBs and source hierarchies validated. Sasha's 71.3MB / 2.19M vertices is a known editing cost, now surfaced by the generic import notice.
+- Isolated browser: editor first rendered frame, explicit STL units, optional Blender units override, five About gallery videos and the existing radial comparison all checked. No page errors or failed HTTP responses. The original local projects remain present.
+- Whitespace checks and Python compilation passed. Local server restarted on 8787 with the same workspace, separate import/export Blender executables and the optional CAD worker.
+
+This machine currently has no discoverable FFmpeg 7.1.5 executable, so final native video encoding was not run; the server reports those formats unavailable. PNG still output and Blender scene exports were verified. Format boundaries, dependencies and reproducible test commands are in [import compatibility](import-compatibility.md).

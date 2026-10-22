@@ -1,0 +1,5 @@
+.product-fit-guide{position:absolute;inset:0;pointer-events:none;z-index:1;overflow:hidden}
+.product-fit-guide-box{position:absolute;border:1px dotted #ffffff80;box-sizing:border-box;filter:drop-shadow(0 1px 1px #0006)}
+.product-fit-guide-box span{position:absolute;top:8px;left:8px;color:#fff;font:inherit;font-size:12px;line-height:16px;text-shadow:0 1px 2px #0008}
+.product-fit-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.product-fit-controls .gesso-meta{margin:0}

@@ -1,6 +1,7 @@
+import type {ArtworkAsset} from './artwork';
 /** UV coordinates are the source mesh coordinates, including seams and stacked islands. */
 export type ProductDecal = {
-  id: string; componentId: string; partId: string; text: string; subtitle: string;
+  id: string; componentId: string; partId: string; text: string; subtitle: string; artwork?: ArtworkAsset;
   centerUv: [number, number]; sizeUv: [number, number]; rotationDeg: number; heightM: number; bevelM: number;
 };
 export type UvLayout = {

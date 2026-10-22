@@ -12,6 +12,13 @@ describe('camera motion pose ownership', () => {
     expect(cameraMotionOwnsPose(fixture, {...fixture.shots[0], motions: [motion]})).toBe(true);
     expect(cameraMotionOwnsPose({...fixture, motions: [motion]}, fixture.shots[0])).toBe(true);
   });
+  it('allows base framing for a local Still override without exposing the inherited move', () => {
+    const shared = {id: 'shared', target: '$camera', kind: 'orbit', amount: 40, enabled: true};
+    const hold = {id: 'hold', target: '$camera', kind: 'orbit', amount: 0, enabled: true};
+    const scene = {...fixture, motions: [shared]};
+    expect(cameraMotionOwnsPose(scene, {...fixture.shots[0], motions: [hold]})).toBe(false);
+    expect(cameraMotionOwnsPose(scene, fixture.shots[1])).toBe(true);
+  });
   it('ignores disabled camera actions and movements belonging to other objects or shots', () => {
     const disabled = {id: 'orbit-1', target: '$camera', kind: 'orbit', enabled: false};
     const product = {id: 'move-1', target: '$product', kind: 'move', enabled: true};

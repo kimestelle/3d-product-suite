@@ -19,5 +19,5 @@
 }
 /* Keep creation and import available while the object collection scrolls. */
 #world-section-Props{overflow:hidden;gap:12px}
-#world-section-Props>.gesso-world-object-previews{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;align-content:start;padding-bottom:4px}
+#world-section-Props>.gesso-world-object-previews{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;align-content:start}
 .gesso-world-object-actions>.gesso-disclosure[open]{max-height:260px;overflow:auto;scrollbar-width:thin}

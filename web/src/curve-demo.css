@@ -9,6 +9,8 @@
 .curve-header nav a,.curve-header nav button{display:inline-flex;align-items:center;gap:var(--gesso-space-8);white-space:nowrap}
 .curve-header nav button{padding:var(--gesso-space-4) 0;background:transparent;color:var(--gesso-text-primary)}
 .curve-header nav a:hover{color:var(--gesso-text-primary)}
+.curve-header nav .curve-compare-link{color:var(--gesso-text-primary)}
+@media(min-width:761px) and (max-width:1040px){.curve-demo:not(.curve-comparison) .curve-header{grid-template-columns:1fr auto;height:108px;row-gap:8px}.curve-demo:not(.curve-comparison) .curve-header h1{justify-self:end}.curve-demo:not(.curve-comparison) .curve-header nav{grid-column:1/-1;justify-content:flex-end;gap:24px}}
 .curve-workspace{display:grid;grid-template-columns:var(--curve-rail) minmax(0,1fr);flex:1;min-height:0;padding-bottom:var(--gesso-space-20)}
 .curve-library{display:flex;flex-direction:column;padding:var(--gesso-space-12) var(--gesso-space-24) 0 var(--curve-gutter);min-height:0;overflow:auto;scrollbar-width:thin}
 .curve-library-heading{display:flex;align-items:baseline;justify-content:space-between;gap:var(--gesso-space-16)}

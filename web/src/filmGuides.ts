@@ -1,16 +1,24 @@
 import {PerspectiveCamera, Plane, Raycaster, Vector2, Vector3} from 'three';
 
 export type FilmGateRect = {x: number; y: number; width: number; height: number};
-export type FilmGuideProjection = {
+export type FilmFrameProjection = {
   gate: FilmGateRect;
   viewportWidth: number;
   viewportHeight: number;
+};
+export type FilmGuideProjection = FilmFrameProjection & {
   target: {x: number; y: number; visible: boolean};
+  /** Actual optical focus projected through the presented camera, when DOF is enabled. */
+  focus?: {x: number; y: number; visible: boolean};
   targetM: [number, number, number];
   distanceM: number;
   focalLengthMm: number;
   inspecting: boolean;
 };
+export type FilmPresentationGuide = FilmFrameProjection | FilmGuideProjection;
+export function isCameraFilmGuide(guide: FilmPresentationGuide | null): guide is FilmGuideProjection {
+  return !!guide && 'target' in guide;
+}
 export type CameraTargetPointer = {clientX: number; clientY: number};
 export type CameraTargetGesture = {
   /** World-space aim point on the initial camera-facing plane, in metres. */
@@ -39,8 +47,16 @@ export function filmGuideZoom(width: number, height: number, aspect: number): nu
 }
 
 export function projectFilmGuide(camera: PerspectiveCamera, width: number, height: number, aspect: number,
-  target: Vector3, shotPosition: Vector3, focalLengthMm: number, inspecting: boolean): FilmGuideProjection {
+  target: Vector3, shotPosition: Vector3, focalLengthMm: number, inspecting: boolean, focusDistanceM?: number): FilmGuideProjection {
   camera.updateMatrixWorld(true);
+  const project = (point: Vector3) => {
+    const ndc = point.clone().project(camera);
+    const x = (ndc.x + 1) * width / 2, y = (1 - ndc.y) * height / 2;
+    return {x, y, visible: point.clone().applyMatrix4(camera.matrixWorldInverse).z < -camera.near
+      && [x, y, ndc.z].every(Number.isFinite) && ndc.z <= 1 && x >= 0 && x <= width && y >= 0 && y <= height};
+  };
+  const focus = focusDistanceM != null && Number.isFinite(focusDistanceM) && focusDistanceM > 0
+    ? project(target.clone().sub(shotPosition).normalize().multiplyScalar(focusDistanceM).add(shotPosition)) : undefined;
   const projected = target.clone().project(camera);
   const inFront = target.clone().applyMatrix4(camera.matrixWorldInverse).z < -camera.near;
   const x = (projected.x + 1) * width / 2, y = (1 - projected.y) * height / 2;
@@ -48,6 +64,7 @@ export function projectFilmGuide(camera: PerspectiveCamera, width: number, heigh
     gate: filmGateRect(width, height, aspect), viewportWidth: width, viewportHeight: height,
     target: {x: Number.isFinite(x) ? x : 0, y: Number.isFinite(y) ? y : 0,
       visible: inFront && [x, y, projected.z].every(Number.isFinite) && projected.z <= 1 && x >= 0 && x <= width && y >= 0 && y <= height},
+    ...(focus ? {focus} : {}),
     targetM: target.toArray() as [number, number, number],
     distanceM: shotPosition.distanceTo(target), focalLengthMm, inspecting,
   };

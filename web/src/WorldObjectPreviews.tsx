@@ -32,7 +32,8 @@ export default function WorldObjectPreviews({items, selectedId, onSelect}: World
     const canvas = document.createElement('canvas');
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(32, 2, .001, 100);
-    scene.background = new THREE.Color('#131313');
+    const styles = getComputedStyle(root);
+    scene.background = new THREE.Color(styles.getPropertyValue('--gesso-preview-surface').trim() || styles.getPropertyValue('--chrome').trim() || '#181818');
     const fill = new THREE.HemisphereLight(0xeef1ff, 0x24201c, 1.05);
     const light = new THREE.DirectionalLight(0xffffff, 2.2); light.position.set(-2, 3, 4);
     scene.add(fill, light);
@@ -147,7 +148,7 @@ export default function WorldObjectPreviews({items, selectedId, onSelect}: World
   }, []);
   useEffect(() => {syncRef.current?.();}, [key]);
 
-  return <div className="gesso-world-object-previews" ref={rootRef} role="group" aria-label="World objects">
+  return <div className="gesso-world-object-previews gesso-selection-surface" ref={rootRef} role="group" aria-label="World objects">
     {items.map(item => {
       const preview = previews[item.id];
       return <button type="button" className="gesso-world-object-preview" key={item.id} data-preview-id={item.id} data-object-id={item.id} aria-controls="world-object-settings"

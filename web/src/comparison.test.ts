@@ -137,6 +137,21 @@ describe('persisted A/B worlds', () => {
     expect(worlds[1].environment.asset.translationM[0]).toBe(0);
   });
 
+  it('keeps the campaign studio size shared while selecting either comparison world', () => {
+    const original:any=scene();original.environment.studioSizeM=.32;
+    const worlds=defaults();worlds[0].environment.studioSizeM=216;worlds[1].environment.studioSizeM=100;
+    const enabled:any=enableComparison(original,worlds);
+    expect(enabled.environment.studioSizeM).toBe(.32);
+    expect(enabled.comparison.alternative).not.toHaveProperty('studioSizeM');
+    for(const side of ['a','b'] as const){
+      const changed=setComparisonWorld(enabled,side,worlds[1]);
+      expect(changed.environment.studioSizeM).toBe(.32);
+      expect(changed.comparison.alternative).not.toHaveProperty('studioSizeM');
+    }
+    expect(original.environment.studioSizeM).toBe(.32);
+    expect(enableComparison(scene(),worlds).environment).not.toHaveProperty('studioSizeM');
+  });
+
   it('keeps absent shared props absent rather than adopting a library world’s props', () => {
     const original: any = scene(); delete original.environment.props;
     const enabled: any = enableComparison(original, defaults());

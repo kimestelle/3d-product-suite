@@ -50,18 +50,20 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
   const [states, setStates] = useState<Record<string, SwatchPreviewState>>({});
   const [unavailable, setUnavailable] = useState(false);
   const [contextVersion, setContextVersion] = useState(0);
+  const hasItems = items.length > 0;
   // Data updates patch the material store; only context recovery rebuilds WebGL.
   const materialKey = JSON.stringify(items.map(({id, material}) => [id, material]));
 
   useEffect(() => {
     const root = rootRef.current;
     const canvas = canvasRef.current;
-    if (!root || !canvas) return;
+    if (!root || !canvas || !hasItems) return;
     const sidebar = root.closest<HTMLElement>('.gesso-sidebar') ?? root;
     const control = rotationControl?.current;
     let disposed = false;
     let contextLost = false;
-    let visible = true;
+    let visible = false;
+    let initialized = false;
     let frame = 0;
     let pointer: {x: number; y: number} | null = null;
     let controls: ReturnType<typeof bindMaterialSampleControls> | undefined;
@@ -78,7 +80,9 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
     const baseRotation = new THREE.Quaternion();
     const baseEuler = new THREE.Euler();
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#131313');
+    const styles = getComputedStyle(root);
+    const backdrop = styles.getPropertyValue('--gesso-preview-surface').trim() || styles.getPropertyValue('--chrome').trim() || '#181818';
+    scene.background = new THREE.Color(backdrop);
     const camera = new THREE.PerspectiveCamera(32, 1, .001, 3);
     camera.position.set(0, 0, 4.45 * SPHERE_RADIUS_M);
     const sphere = new THREE.Mesh<THREE.BufferGeometry, THREE.MeshPhysicalMaterial>(geometry, new THREE.MeshPhysicalMaterial());
@@ -114,7 +118,7 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
       if (canvas!.width !== Math.floor(width * ratio) || canvas!.height !== Math.floor(height * ratio)) renderer.setSize(width, height, false);
       const sidebarBounds = sidebar.getBoundingClientRect();
       renderer.setScissorTest(false);
-      renderer.setClearColor('#131313', 1);
+      renderer.setClearColor(backdrop, 1);
       renderer.clear();
       renderer.setScissorTest(true);
       const tile = shapeRef.current === 'rectangle', cube = shapeRef.current === 'cube';
@@ -177,29 +181,34 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
     canvas.addEventListener('webglcontextrestored', contextRestore);
     setUnavailable(false);
 
-    try {
-      renderer = new THREE.WebGLRenderer({canvas, antialias: true, alpha: false, powerPreference: 'low-power'});
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-      renderer.outputColorSpace = THREE.SRGBColorSpace;
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.05;
-      renderer.autoClear = false;
-      if(control)control.disabled=false;
-      pmrem = new THREE.PMREMGenerator(renderer);
-      room = new RoomEnvironment();
-      environment = pmrem.fromScene(room, 0.04);
-      scene.environment = environment.texture;
-      scene.environmentIntensity = 0.75;
-      room.dispose();
-      room = undefined;
-      pmrem.dispose();
-      pmrem = undefined;
-      syncRef.current = () => {materials.sync(itemsRef.current); requestRender();};
-      syncRef.current();
-      requestRender();
-    } catch {
-      if(control)control.disabled=true;
-      setUnavailable(true);
+    // Hidden accordions and background tabs do not need a GPU context or maps.
+    // Once visible, retain the renderer until unmount so scrolling never reloads it.
+    function initializeRenderer() {
+      if (initialized || disposed || !visible || document.hidden) return;
+      initialized = true;
+      try {
+        renderer = new THREE.WebGLRenderer({canvas: canvas!, antialias: true, alpha: false, powerPreference: 'low-power'});
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, control ? 2 : 1));
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.05;
+        renderer.autoClear = false;
+        if(control)control.disabled=false;
+        pmrem = new THREE.PMREMGenerator(renderer);
+        room = new RoomEnvironment();
+        environment = pmrem.fromScene(room, 0.04);
+        scene.environment = environment.texture;
+        scene.environmentIntensity = 0.75;
+        room.dispose();
+        room = undefined;
+        pmrem.dispose();
+        pmrem = undefined;
+        syncRef.current = () => {materials.sync(itemsRef.current); requestRender();};
+        syncRef.current();
+      } catch {
+        if(control)control.disabled=true;
+        setUnavailable(true);
+      }
     }
 
     const move = (event: PointerEvent) => {
@@ -211,7 +220,7 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
     const visibility = () => {
       if(document.hidden)abortRotation();
       if (document.hidden && frame) {cancelAnimationFrame(frame); frame = 0;}
-      else requestRender();
+      else {initializeRenderer(); requestRender();}
     };
     sidebar.addEventListener('pointermove', move, {passive: true});
     sidebar.addEventListener('pointerleave', leave);
@@ -225,7 +234,7 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
     const intersection = new IntersectionObserver(entries => {
       visible = entries.some(entry => entry.isIntersecting);
       if (!visible && frame) {cancelAnimationFrame(frame); frame = 0;}
-      if (visible) requestRender();
+      if (visible) {initializeRenderer(); requestRender();}
     });
     intersection.observe(root);
 
@@ -254,8 +263,9 @@ export default function MaterialSwatches({items, selectedId, disabled = false, o
       pmrem?.dispose();
       environment?.dispose();
       renderer?.dispose();
+      renderer?.forceContextLoss();
     };
-  }, [contextVersion,rotationControl]);
+  }, [contextVersion,rotationControl,hasItems]);
 
   useEffect(() => {syncRef.current?.();}, [materialKey, shape]);
   useEffect(() => {cancelRotation.current?.();}, [shape]);

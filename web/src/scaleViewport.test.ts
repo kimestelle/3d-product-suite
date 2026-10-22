@@ -64,6 +64,25 @@ describe('uniform product scale in the real viewport', () => {
     expect(scene).toEqual(original);
   });
 
+  it('renders a 216m source at the campaign scale without rewriting its geometry', async () => {
+    const view = viewport(), scale = .32 / 216, scene = source(scale);
+    scene.placement.translationM = [0, 0, 0];
+    scene.product.dimensionsM = [100, 216, 60];
+    scene.product.components[0].sizeM = [100, 216, 60];
+    scene.product.components[0].assembly.translationM = [0, 108, 0];
+    const before = structuredClone(scene);
+    await view.makeProduct(scene, 1, new AbortController().signal);
+    const root = view.components.get('body') as THREE.Group;
+    const bounds = new THREE.Box3().setFromObject(root);
+    expect(bounds.getSize(new THREE.Vector3()).y).toBeCloseTo(.32, 10);
+    expect(bounds.min.y).toBeCloseTo(0, 10);
+    expect(root.scale.toArray()).toEqual([scale, scale, scale]);
+    expect(scene).toEqual(before);
+    await view.frame({components: {body: {translationM: [0, .16, 0], rotationXyzw: [0, 0, 0, 1], scale}},
+      camera: {positionM: [0, .16, 1], targetM: [0, .16, 0], focalLengthMm: 50}});
+    expect(new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3()).y).toBeCloseTo(.32, 10);
+  });
+
   it('preserves nested imported transforms and keeps artwork attached as sampled scale changes', async () => {
     const view = viewport(), scene = source(2, .75), imported = new THREE.Group();
     imported.position.set(.01, .02, .03); imported.rotation.y = .3; imported.scale.set(1.2, .8, 1.1);

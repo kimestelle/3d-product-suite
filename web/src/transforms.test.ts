@@ -2,7 +2,7 @@ import {describe,expect,it} from 'vitest';
 import {Euler,Quaternion} from 'three';
 import {commitHistory,createHistory} from './state';
 import {
-  copyTransform,nudgeTransformAmount,pointerTransformAmount,rotationSampleDelta,supportsTransform,transformKeyIntent,transformScene,typedTransformAmount,
+  copyTransform,formatScalePercent,transformScaleLimits,nudgeTransformAmount,pointerTransformAmount,rotationSampleDelta,supportsTransform,transformKeyIntent,transformScene,typedTransformAmount,
   type TransformKeyInput,
 } from './transforms';
 
@@ -63,10 +63,19 @@ describe('transform drafts',()=>{
     expect(transformScene(source,{kind:'part',componentId:'body'},'scale','z',2).product.components[1].assembly.scale).toBe(4);
     expect(transformScene(source,product,'scale','y',.01).placement.scale).toBe(.01);
     expect(transformScene(source,product,'scale','y',100).placement.scale).toBe(100);
-    expect(()=>transformScene(source,product,'scale','y',.00001)).toThrow('1% and 10000%');
-    expect(()=>transformScene(source,product,'scale','y',1000)).toThrow('1% and 10000%');
+    for(const value of [1e-6,.00148,1e6])expect(transformScene(source,product,'scale','y',value).placement.scale).toBe(value);
+    expect(()=>transformScene(source,product,'scale','y',1e-7)).toThrow('Product scale');
+    expect(()=>transformScene(source,product,'scale','y',1e7)).toThrow('Product scale');
+    expect(()=>transformScene(source,cap,'scale','y',.00148)).toThrow('1% and 10000%');
     expect(()=>transformScene(source,{kind:'part',componentId:'body'},'scale','z',60)).toThrow('1% and 10000%');
     expect(source.product.components[0].assembly).not.toHaveProperty('scale');
+  });
+  it('keeps small percentage readouts visible and distinguishes target ranges',()=>{
+    expect(formatScalePercent(1e-6)).toBe('0.0001');
+    expect(formatScalePercent(.00148)).toBe('0.148');
+    expect(formatScalePercent(.32/216)).toBe('0.14814815');
+    expect(transformScaleLimits(product)).toEqual({min:1e-6,max:1e6});
+    expect(transformScaleLimits(cap)).toEqual({min:.01,max:100});
   });
   it('rejects invalid targets, non-finite values, non-positive scale and unsupported product rotation',()=>{
     expect(()=>transformScene(fixture(),{kind:'part',componentId:'missing'},'translate','x',1)).toThrow();
@@ -125,6 +134,11 @@ describe('transform keyboard intent',()=>{
     expect(nudgeTransformAmount('scale',1,1)).toBe(1.01);
     expect(nudgeTransformAmount('scale',1,-1,true)).toBe(.999);
     expect(nudgeTransformAmount('scale',.001,-1)).toBeGreaterThan(0);
+    expect(nudgeTransformAmount('scale',.00148,-1,false,transformScaleLimits(product))).toBe(1e-6);
+    expect(nudgeTransformAmount('scale',1e6,1,false,transformScaleLimits(product))).toBe(1e6);
+    const scale=.00148,bounds=transformScaleLimits(product);
+    const amount=nudgeTransformAmount('scale',.001,-1,false,{min:bounds.min/scale,max:bounds.max/scale});
+    expect(amount*scale).toBeCloseTo(1e-6,14);
   });
 });
 

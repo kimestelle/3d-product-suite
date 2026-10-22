@@ -4,6 +4,24 @@ import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js'
 
 // Shared by the live viewport and object previews. Asset verification, geometry
 // and ownership must agree before either view presents a scene object.
+export function createStudioSweepGeometry(floorHeight: number, radius: number): THREE.BufferGeometry {
+  const profile = [[radius * 15, floorHeight], [-radius, floorHeight]];
+  for (let step = 1; step <= 32; step++) {
+    const angle = step * Math.PI / 64;
+    profile.push([-radius - radius * Math.sin(angle), floorHeight + radius * (1 - Math.cos(angle))]);
+  }
+  profile.push([-radius * 2, floorHeight + radius * 15]);
+  const positions: number[] = [], indices: number[] = [];
+  profile.forEach(([z, y], index) => {
+    positions.push(-radius * 15, y, z, radius * 15, y, z);
+    if (index) {const n = index * 2; indices.push(n - 2, n - 1, n + 1, n - 2, n + 1, n);}
+  });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices); geometry.computeVertexNormals();
+  return geometry;
+}
+
 export function createComponentGeometry(shape: string, size: number[], bevel = 0): THREE.BufferGeometry {
   const radius = Math.min(bevel, Math.min(...size) * 0.45);
   if (shape === 'box') {

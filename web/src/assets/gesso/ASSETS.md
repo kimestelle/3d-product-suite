@@ -32,5 +32,27 @@ No Adobe Halyard font files are included. The local wordmark should resolve inst
 ## Glassine opening study (2026-10-19)
 
 - `glassine2.webp`: Estelle Kim’s existing scan, copied unchanged from `softcopy-generative-materials/public/textures/glassine2.webp`. User-owned project material; no additional public license asserted.
-- `glassine-still.jpg`: deterministic capture of `glassineRenderer.ts` at light (0.68, 0.28), used on compact screens and as the WebGL fallback. Same renderer and source scan as the live opening specimen.
-- `glassineRenderer.ts`: adapts the scan-derived relief, transmission and lighting from Estelle’s `GlassineSurface.tsx`. Spectral hue blending and RGB-separated soft edges adapt the rainbow canvas study at https://softcopy.digital/studies/rainbow-canvas.html. No botanical image assets or unrelated study controls are included.
+- `glassine-still.jpg`: 900 × 900 deterministic capture of the current `glassineRenderer.ts` at light (0.68, 0.28), refreshed 2026-10-21. Used on compact screens, during loading and as the WebGL/data-saving fallback. Same renderer and source scan as the live opening specimen.
+- `glassineRenderer.ts`: adapts the scan high-pass, paper field, derivative normals and scene diffusion from Estelle’s `GlassineSurface.tsx`. The fixed spherical grid, recessed channels, reflective shoulders and scan-bound glints were authored for gesso. On 2026-10-21 this single-sheet impression replaced the earlier overlapping sheets and spectral perimeter fields, which adapted https://softcopy.digital/studies/rainbow-canvas.html. No botanical image assets or unrelated study controls are included.
+
+## Form + Light interface compositions (2026-10-21)
+
+`editor-stills/*.webp` are exports of the five editable compositions in the [gesso Figma file](https://www.figma.com/design/yeSSVUrYYw45JLkN7mnv52/gesso?node-id=342-8486), section “09 / Form + light — interface compositions”. They arrange Gesso's controls and existing product/material previews for each aperture; they are composed illustrations of the interface, not unaltered screenshots or final Cycles output. Halyard text, icons, fields and instances remain editable in Figma.
+
+Each content frame was exported to PNG at 1.5× with absolute bounds, excluding its enclosing mask and review-board labels, then encoded as lossless WebP. Decoded RGBA pixels match the PNG exports exactly. The website centers each rectangle and applies its own moving aperture once. Stage 0 retains the live glassine shader.
+
+| Asset | Pixels | Figma content node | Composition |
+| --- | --- | --- | --- |
+| `principles.webp` | 1512 × 1512 | `342:8924` | Product preview, camera motion and sequence |
+| `result.webp` | 1512 × 1512 | `342:9036` | Product preview, setup and export settings |
+| `product.webp` | 1220 × 1632 | `342:9125` | Product preview, imported parts and material library |
+| `interface.webp` | 1512 × 994 | `342:9347` | Framing controls, preview and timeline |
+| `person.webp` | 1512 × 1065 | `342:9459` | Material sample, response controls and library |
+
+The bottle preview uses the user-supplied Esteban Paris Ambre Blender asset from the existing bottle workflow. Existing source-asset rights and attribution apply; no additional public reuse license is asserted. Exporting these images does not alter a campaign or the Figma sources. About retains its separate rendered-film gallery.
+
+The previous site images were captures of the running local editor (Nessino and bottle views). Those captures, crop coordinates and metadata are preserved in `outputs/gesso-interview-comparison`. The pre-replacement assets and screenshot mapping are also backed up at `work/gesso/figma-form-light-baseline` in the task workspace; the exported PNGs are in `work/gesso/figma-form-light-exports` there.
+
+The same capture folder also contains interview before/after pairs at 1920 × 1080. The before interface is remote `gesso-editor` commit `5ea9e0184c9e345169be51ad6843bf6c999e41a1` (Oct 20); the after interface is the Oct 21 working build. Both open the same saved Nessino scene. These are controlled recaptures to explain the iteration, not images recorded during the interview or evidence of a second usability test.
+
+- `option-tab.svg`: unchanged 10 × 10 Lucide Option export from Figma `313:8359`, downloaded 2026-10-21 from https://www.figma.com/api/mcp/asset/33c892ef-28eb-4e6c-baa8-7f96a17b7cff.svg. Used for the primary tab and Product layer shortcuts. Lucide license: `Lucide-LICENSE.txt`.

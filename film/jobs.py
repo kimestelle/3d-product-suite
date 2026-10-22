@@ -32,7 +32,7 @@ BLENDER_VERSION = "4.3.2"
 FFMPEG_VERSION = "7.1.5"
 BATCH_SIZE = 12
 _RENDERER = Path(__file__).resolve().parents[1] / "scripts" / "blender_scene.py"
-_RENDERER_DEPENDENCIES = {name: Path(__file__).with_name(name) for name in ("decal_geometry.py", "film_images.py")}
+_RENDERER_DEPENDENCIES = {name: Path(__file__).with_name(name) for name in ("decal_geometry.py", "film_images.py", "material_assets.py")}
 
 
 def _now():

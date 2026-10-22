@@ -5,6 +5,9 @@ description = "Deterministic scene and render prototype for editable product fil
 requires-python = ">=3.12,<3.13"
 dependencies = ["Pillow>=11,<13"]
 
+[project.optional-dependencies]
+cad = ["cadquery-ocp==7.8.1.1"]
+
 [tool.setuptools]
 packages = ["film"]
 

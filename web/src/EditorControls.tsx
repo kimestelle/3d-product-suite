@@ -8,6 +8,7 @@ export interface NumberControlProps {
   min?: number;
   max?: number;
   step?: number;
+  precision?: number;
   unit?: string;
   ariaLabel?: string;
   compact?: boolean;
@@ -17,9 +18,9 @@ export interface NumberControlProps {
 }
 
 /** Keep the native input, visible units and reversible draft in one measured row. */
-export function NumberControl({label, value, onChange, min, max, step = 1, unit, ariaLabel, compact = false, disabled = false, readOnly = false, error}: NumberControlProps) {
+export function NumberControl({label, value, onChange, min, max, step = 1, precision = 4, unit, ariaLabel, compact = false, disabled = false, readOnly = false, error}: NumberControlProps) {
   const id = useId();
-  const currentText = String(Number(value.toFixed(4)));
+  const currentText = String(Number(value.toFixed(precision)));
   const [draft, setDraft] = useState(currentText);
   const skipBlur = useRef(false);
   useEffect(() => setDraft(currentText), [currentText]);
@@ -30,7 +31,7 @@ export function NumberControl({label, value, onChange, min, max, step = 1, unit,
   };
   const commit = () => {
     if (skipBlur.current) {skipBlur.current = false; return;}
-    if (draft.trim() === '') {setDraft(currentText); return;}
+    if (draft.trim() === '' || draft === currentText) {setDraft(currentText); return;}
     setValue(Number(draft));
   };
   const stepValue = (direction: number) => {

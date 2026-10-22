@@ -167,6 +167,92 @@ describe('real product component meshes', () => {
     expect(view.options.onParts).toHaveBeenCalledOnce();
   });
 
+  it.each(['paper', 'original'] as const)('keeps new %s artwork through focus changes while its image decodes', async finishMode => {
+    const fixture = glb({
+      nodes: [{ name: 'Assembly', children: [1, 2] }, { name: 'Label', mesh: 0 }, { name: 'Bottle', mesh: 0 }],
+      meshes: [{ primitives: [{ attributes: { POSITION: 0, TEXCOORD_0: 1 }, material: 0 }] }],
+      accessors: [
+        { bufferView: 0, componentType: 5126, count: 3, type: 'VEC3', min: [-.01, -.02, -.003], max: [.01, .02, .003] },
+        { bufferView: 0, componentType: 5126, count: 3, type: 'VEC2' },
+      ],
+    });
+    const bytes = new ArrayBuffer(33), header = new DataView(bytes);
+    header.setUint32(0, 0x89504e47); header.setUint32(4, 0x0d0a1a0a); header.setUint32(8, 13);
+    header.setUint32(12, 0x49484452); header.setUint32(16, 2); header.setUint32(20, 2);
+    const sha256 = createHash('sha256').update(new Uint8Array(bytes)).digest('hex');
+    const labelId = 'real-component::node:1', bottleId = 'real-component::node:2';
+    const scene: any = source(fixture.asset);
+    scene.product.artwork = [{ componentId: 'real-component', partId: labelId, finish: finishMode,
+      asset: { path: `assets/${sha256}.png`, sha256, format: 'png', width: 2, height: 2 } }];
+    const originalScene = structuredClone(scene), view = viewport(); view.options.studioMode = true;
+    vi.stubGlobal('fetch', async (url: string) => new Response(url.endsWith('.glb') ? fixture.bytes : bytes));
+    let finish!: (bitmap: ImageBitmap) => void;
+    const decode = vi.fn(() => new Promise<ImageBitmap>(resolve => { finish = resolve; })); vi.stubGlobal('createImageBitmap', decode);
+    // The editor may already have a selection before the new parts are indexed.
+    view.setSelection(labelId); view.setPartFocus(true); view.setUvProbePart(labelId);
+    const pending = view.makeProduct(scene, 1, new AbortController().signal);
+    await vi.waitFor(() => expect(decode).toHaveBeenCalledOnce());
+    const label = view.parts.get(labelId), bottle = view.parts.get(bottleId), original = label.material;
+    expect(bottle.material).toBe(original); // Both source nodes share the imported finish.
+    const originalDispose = vi.spyOn(original, 'dispose');
+    // Switching parts during decode must not cache the soon-to-be-replaced ink.
+    view.setSelection(bottleId); view.setUvProbePart(bottleId);
+    view.setSelection(labelId); view.setUvProbePart(labelId);
+    expect(view.focusMaterials.size).toBe(0); expect(view.previewMaterials.size).toBe(0);
+    expect(label.material).toBe(original); expect(original.opacity).toBe(1);
+    const image = { width: 2, height: 2, close: vi.fn() } as unknown as ImageBitmap;
+    finish(image); await pending;
+    const canonical = view.focusMaterials.get(label).material;
+    expect(canonical).not.toBe(original); expect(canonical.userData.gessoArtworkReplacement).toBe(true);
+    expect(canonical.map.image).toBe(image); expect(canonical.map.channel).toBe(0);
+    expect(canonical.color.toArray()).toEqual([1, 1, 1]); expect(canonical.alphaTest).toBe(.5);
+    expect(canonical.opacity).toBe(1); expect(canonical.transparent).toBe(false);
+    expect(canonical.roughness).toBe(finishMode === 'paper' ? .53 : .2);
+    expect(canonical.metalness).toBe(finishMode === 'paper' ? 0 : .3);
+    expect(label.material.map).toBe(canonical.map); expect(label.material.opacity).toBe(.72);
+    expect(bottle.material.opacity).toBe(.18);
+    const textureDispose = vi.spyOn(canonical.map, 'dispose'), previewDispose = vi.spyOn(label.material, 'dispose');
+    view.setUvProbePart(null); view.setPartFocus(false);
+    expect(label.material).toBe(canonical); expect(label.material.map.image).toBe(image);
+    expect(label.material.opacity).toBe(1); expect(label.castShadow).toBe(true);
+    expect(bottle.material).toBe(original); expect(original.color.toArray()).toEqual([.8, .1, .05]);
+    expect(original.roughness).toBe(.2); expect(original.opacity).toBe(1); expect(bottle.castShadow).toBe(true);
+    expect(previewDispose).toHaveBeenCalledOnce(); expect(originalDispose).not.toHaveBeenCalled();
+    expect(textureDispose).not.toHaveBeenCalled(); expect(image.close).not.toHaveBeenCalled();
+    expect(view.focusMaterials.size).toBe(0); expect(scene).toEqual(originalScene);
+  });
+
+  it('applies source-part sample matrices without moving siblings or detaching artwork', async () => {
+    const fixture = glb({ nodes: [
+      { name: 'Assembly', translation: [.001, .002, .003], children: [1, 2] },
+      { name: 'Cap', translation: [0, .02, 0], mesh: 0 }, { name: 'Bottle', mesh: 0 },
+    ] });
+    const view = viewport(); vi.stubGlobal('fetch', async () => new Response(fixture.bytes));
+    vi.stubGlobal('document', { hidden: true });
+    await view.makeProduct(source(fixture.asset), 1, new AbortController().signal);
+    const cap = view.parts.get('real-component::node:1'), bottle = view.parts.get('real-component::node:2');
+    const sourceParent = cap.parent, bottleLocal = bottle.matrix.clone(), capLocal = cap.matrix.clone();
+    const artwork = new THREE.Mesh(new THREE.PlaneGeometry(.01, .01), new THREE.MeshStandardMaterial());
+    artwork.userData.gessoArtwork = true; artwork.position.set(.004, .005, .006); cap.add(artwork);
+    artwork.updateMatrix(); const artworkLocal = artwork.matrix.clone();
+    // A sheared affine matrix catches accidental TRS decomposition in the viewport.
+    const sampled = new THREE.Matrix4().set(1, .25, 0, .03, 0, 1, .1, .08, 0, 0, 1, -.01, 0, 0, 0, 1);
+    const sample = { components: { 'real-component': { translationM: [.3, .4, .5], rotationXyzw: [0, 0, 0, 1], scale: 1.2 } },
+      parts: { 'real-component::node:1': { localMatrix: sampled.toArray() } },
+      camera: { positionM: [0, 0, 1], targetM: [0, 0, 0], focalLengthMm: 50 } };
+    const originalSample = structuredClone(sample);
+    await view.frame(sample); cap.updateWorldMatrix(true, true);
+    expect(cap.parent).toBe(sourceParent); expect(cap.matrixAutoUpdate).toBe(false); expect(cap.matrix.elements).toEqual(sampled.elements);
+    expect(bottle.matrix.elements).toEqual(bottleLocal.elements); expect(artwork.parent).toBe(cap);
+    const expectedWorld = sourceParent.matrixWorld.clone().multiply(sampled).multiply(artworkLocal);
+    artwork.matrixWorld.elements.forEach((value: number, index: number) => expect(value).toBeCloseTo(expectedWorld.elements[index], 12));
+    expect(sample).toEqual(originalSample);
+    // Seeking back must use the authored source pose, not accumulate the last frame.
+    await view.frame({ ...sample, parts: { 'real-component::node:1': { localMatrix: capLocal.toArray() } } });
+    expect(cap.matrix.elements).toEqual(capLocal.elements); expect(bottle.matrix.elements).toEqual(bottleLocal.elements);
+    expect(artwork.matrix.elements).toEqual(artworkLocal.elements);
+  });
+
   it('loads verified bytes with original hierarchy/materials and applies exact rigid sampled poses', async () => {
     const fixture = glb(); const view = viewport(); const signal = new AbortController().signal;
     const fetch = vi.fn(async () => new Response(fixture.bytes)); vi.stubGlobal('fetch', fetch);
@@ -434,7 +520,7 @@ function studioViewport() {
 }
 
 describe('Product presentation lifecycle', () => {
-  it('retains the white view across asset reloads and restores the imported World without changing the document', async () => {
+  it('retains the white view across asset reloads and loads the imported World on demand without changing the document', async () => {
     const { view } = studioViewport();
     const fixture = glb();
     vi.stubGlobal('fetch', async () => new Response(fixture.bytes));
@@ -448,8 +534,8 @@ describe('Product presentation lifecycle', () => {
     view.setProductPreview(true);
     await view.load(scene);
     expect(view.scene.background.getHex()).toBe(0xffffff);
-    expect(view.worldRoot.visible).toBe(false);
-    expect(view.worldRoot.parent).toBe(view.content);
+    expect(view.worldRoot).toBeNull();
+    expect(view.deferredWorld.ready).toBe(false);
     expect(view.productGround.visible).toBe(true);
     expect(view.productGround.position.y).toBeCloseTo(.1999);
     const oldGround = view.productGround;
@@ -459,9 +545,10 @@ describe('Product presentation lifecycle', () => {
     expect(disposeGround).toHaveBeenCalledOnce();
     expect(view.productGround).not.toBe(oldGround);
     expect(view.scene.background.getHex()).toBe(0xffffff);
-    expect(view.worldRoot.visible).toBe(false);
+    expect(view.worldRoot).toBeNull();
     expect(view.productGround.visible).toBe(true);
     view.setProductPreview(false);
+    await view.deferredWorld.task;
     expect(view.scene.background.toArray()).toEqual(scene.environment.worldColor);
     expect(view.worldRoot.visible).toBe(true);
     expect(view.worldRoot.parent).toBe(view.content);
@@ -1062,5 +1149,89 @@ describe('film image and gap presentation', () => {
     expect(view.spark.update).not.toHaveBeenCalled(); expect(view.renderer.render).not.toHaveBeenCalled();
     expect(view.options.onFilmGuide).toHaveBeenCalledWith(null);
     expect(view.options.onPresented).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('persistent product part removal', () => {
+  const sample = (removedPartIds?: string[]) => ({components: {},
+    ...(removedPartIds ? {removedPartIds} : {}),
+    camera: {positionM: [0, 0, 1], targetM: [0, 0, 0], focalLengthMm: 50}});
+  const drawnMeshes = (root: THREE.Object3D) => {
+    const result: THREE.Mesh[] = [];
+    root.traverseVisible(object => {if (object instanceof THREE.Mesh) result.push(object);});
+    return result;
+  };
+
+  it('hides an imported source branch before presentation without discarding source parts, attachments or transforms', async () => {
+    const fixture = glb({nodes: [
+      {name: 'Assembly', children: [1, 2]},
+      {name: 'Shell', mesh: 0, children: [3]},
+      {name: 'Base', mesh: 0, translation: [.1, 0, 0]},
+      {name: 'Inset', mesh: 0, translation: [0, .01, 0]},
+    ]});
+    const scene: any = source(fixture.asset);
+    scene.product.removedPartIds = ['real-component::node:1'];
+    const original = structuredClone(scene), view = viewport();
+    view.options.onParts = vi.fn();
+    vi.stubGlobal('fetch', async () => new Response(fixture.bytes));
+    vi.stubGlobal('document', {hidden: true});
+    await view.makeProduct(scene, 1, new AbortController().signal);
+    const shell = view.parts.get('real-component::node:1'), base = view.parts.get('real-component::node:2');
+    const inset = view.parts.get('real-component::node:3');
+    const decal = new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshBasicMaterial());
+    decal.userData.gessoArtwork = true; shell.add(decal); view.originalVisibility.set(decal, true);
+    expect(shell.visible).toBe(false); expect(drawnMeshes(view.content)).toEqual([base]);
+    expect(view.options.onParts.mock.calls[0][0].map((part: any) => part.id)).toEqual(expect.arrayContaining([
+      'real-component', 'real-component::node:1', 'real-component::node:2', 'real-component::node:3',
+    ]));
+    const geometry = shell.geometry, localMatrix = inset.matrix.clone();
+    const dispose = vi.spyOn(geometry, 'dispose');
+    await view.frame(sample(['real-component::node:1', 'real-component::node:3']));
+    expect(drawnMeshes(view.content)).toEqual([base]);
+    await view.frame(sample());
+    expect(new Set(drawnMeshes(view.content))).toEqual(new Set([shell, inset, base, decal]));
+    expect(shell.geometry).toBe(geometry); expect(inset.matrix).toEqual(localMatrix);
+    expect(base.position.x).toBe(.1); expect(decal.parent).toBe(shell);
+    expect(dispose).not.toHaveBeenCalled(); expect(scene).toEqual(original);
+  });
+
+  it('retains removal through focus, UV and material-hover updates while eye visibility stays temporary', async () => {
+    const {view, body, bodyMesh, label, cap} = studioViewport();
+    vi.stubGlobal('document', {hidden: true});
+    await view.frame(sample(['body']));
+    view.setSelection('body'); view.setPartFocus(true); view.setUvProbePart('body');
+    view.setMaterialHover({presetId: 'body', partIds: ['body']});
+    view.setHiddenParts(['cap']);
+    expect(body.visible).toBe(false); expect(cap.visible).toBe(false);
+    expect(drawnMeshes(view.content)).not.toContain(bodyMesh);
+    expect(drawnMeshes(view.content)).not.toContain(label);
+    const refresh = vi.spyOn(view, 'applyPartPreview');
+    await view.frame(sample(['body']));
+    expect(refresh).not.toHaveBeenCalled();
+    await view.frame(sample());
+    expect(body.visible).toBe(true); expect(cap.visible).toBe(false);
+    view.setHiddenParts([]); view.setMaterialHover(null); view.setUvProbePart(null); view.setPartFocus(false);
+    expect(body.visible).toBe(true); expect(cap.visible).toBe(true);
+    expect(bodyMesh.material.opacity).toBe(1); expect(label.material.opacity).toBe(.8);
+  });
+
+  it('applies removals to capture, supports an empty product, and restores source visibility on Undo', async () => {
+    const {view, body, cap} = studioViewport();
+    vi.stubGlobal('document', {hidden: false});
+    view.options.capture = true;
+    const capMesh = cap.children[0]; capMesh.visible = false; view.originalVisibility.set(capMesh, false);
+    view.setHiddenParts(['body']);
+    expect(body.visible).toBe(true);
+    const render = vi.spyOn(view, 'render').mockImplementation(async () => {
+      expect(drawnMeshes(view.content)).toEqual([]);
+    });
+    await view.frame(sample(['body', 'cap']));
+    expect(body.visible).toBe(false); expect(cap.visible).toBe(false);
+    expect(render).toHaveBeenCalledOnce();
+    render.mockResolvedValue(undefined);
+    await view.frame(sample());
+    expect(body.visible).toBe(true); expect(cap.visible).toBe(true);
+    expect(capMesh.visible).toBe(false);
+    expect(drawnMeshes(view.content).length).toBeGreaterThan(0);
   });
 });

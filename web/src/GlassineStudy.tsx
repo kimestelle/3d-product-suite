@@ -4,14 +4,13 @@ import type {GlassineBounds, GlassineRenderer} from './glassineRenderer';
 import paperUrl from './assets/gesso/glassine2.webp';
 import posterUrl from './assets/gesso/glassine-still.jpg?no-inline';
 import {STATIC_MOTION_QUERY} from './motionPolicy';
+import {PHILOSOPHY_SCREENSHOTS} from './philosophyScreenshots';
 
 export type GlassineFrame = {progress:number;width:number;height:number;bounds:GlassineBounds;contains:(x:number,y:number)=>boolean};
 export type GlassineStudyHandle = {update:(frame:GlassineFrame)=>void};
 type Connection = EventTarget & {saveData?:boolean};
 type Props = {active:boolean;page:RefObject<HTMLDivElement|null>};
 const REST={x:.68,y:.28};
-/* Loops rendered by Gesso, shown inside the window for each principle (stage = sequence position). */
-const STAGE_LOOPS=[{stage:1,slug:'omega-speedmaster'},{stage:2,slug:'ambre-perfume'},{stage:3,slug:'sasha-ring'},{stage:4,slug:'leica-camera'},{stage:5,slug:'theo-teapot'}];
 const smooth=(value:number)=>{const t=Math.max(0,Math.min(1,value));return t*t*(3-2*t);};
 
 /** One canvas follows the existing frame's scroll playhead. It has no geometry
@@ -25,12 +24,14 @@ export const GlassineStudy=forwardRef<GlassineStudyHandle,Props>(function Glassi
   useEffect(()=>{
     const element=canvas.current,windowElement=windowRef.current,root=page.current;
     if(!element||!windowElement||!root)return;
+    const screenshots=[...windowElement.querySelectorAll<HTMLImageElement>('img.shape-light-screenshot')];
     const motion=matchMedia(STATIC_MOTION_QUERY);
     const connection=(navigator as Navigator & {connection?:Connection}).connection;
     let renderer:GlassineRenderer|null=null,loading=false,ready=false,failed=false,alive=true;
     let request=0,lastTime=0,elapsed=0,dirty=true,pointerInside=false;
     let current={...REST},target={...REST},lastDraw=-Infinity;
     let lastSize='',lastBounds='';
+    let displayedStage=0;
     const stop=()=>{cancelAnimationFrame(request);request=0;lastTime=0;windowElement.dataset.running='false';};
     const visible=()=>activeRef.current&&!document.hidden&&(frameRef.current?.progress??1)<.85&&(frameRef.current?.width??0)>900;
     const still=()=>motion.matches||Boolean(connection?.saveData);
@@ -73,24 +74,26 @@ export const GlassineStudy=forwardRef<GlassineStudyHandle,Props>(function Glassi
       if(!activeRef.current)pointerInside=false;
       const fade=smooth((frame.progress-.12)/.72);
       const stage=Math.round(frame.progress);
-      const loops=[...windowElement.querySelectorAll<HTMLVideoElement>('video.shape-light-loop')];
-      let loopActive=false;
-      for(const video of loops){
-        const on=activeRef.current&&!document.hidden&&frame.width>900&&frame.progress>=.6&&Number(video.dataset.stage)===stage;
-        if(on!==(video.dataset.active==='true')){
-          video.dataset.active=String(on);
-          if(on){if(video.preload!=='auto')video.preload='auto';void video.play().catch(()=>{});}else video.pause();
-        }
-        loopActive=loopActive||on;
+      const chapterVisible=activeRef.current&&!document.hidden&&frame.width>900&&frame.progress>=.6;
+      const requested=screenshots.find(image=>Number(image.dataset.stage)===stage);
+      if(frame.progress<.6)displayedStage=0;
+      else if(requested?.dataset.ready==='true')displayedStage=stage;
+      const screenshotActive=chapterVisible&&displayedStage>0;
+      for(const image of screenshots){
+        const on=screenshotActive&&Number(image.dataset.stage)===displayedStage;
+        if(on!==(image.dataset.active==='true'))image.dataset.active=String(on);
       }
-      windowElement.dataset.loop=String(loopActive);
-      windowElement.style.opacity=loopActive?'1':String(1-fade);
+      windowElement.dataset.screenshot=String(screenshotActive);
+      windowElement.style.opacity=chapterVisible?'1':String(1-fade);
+      // A cold or failed image keeps the previous capture, or the cover poster,
+      // until its replacement has decoded. No chapter opens into an empty fill.
+      if(chapterVisible&&!displayedStage)windowElement.dataset.ready='false';
       const size=`${frame.width},${frame.height},${window.devicePixelRatio}`;
       if(renderer&&size!==lastSize){renderer.resize(frame.width,frame.height);lastSize=size;dirty=true;windowElement.dataset.ready='false';}
       const b=frame.bounds,key=`${b.x},${b.y},${b.width},${b.height}`;
       if(key!==lastBounds){
         lastBounds=key;dirty=true;
-        for(const fill of windowElement.querySelectorAll<HTMLElement>('.shape-light-glassine-still, video.shape-light-loop'))
+        for(const fill of windowElement.querySelectorAll<HTMLElement>('.shape-light-glassine-still, .shape-light-screenshot'))
           Object.assign(fill.style,{left:`${b.x*100}%`,top:`${b.y*100}%`,width:`${b.width*100}%`,height:`${b.height*100}%`});
       }
       if(dirty||!still())wake();
@@ -117,13 +120,13 @@ export const GlassineStudy=forwardRef<GlassineStudyHandle,Props>(function Glassi
       element.removeEventListener('webglcontextrestored',restore);
     };
   },[page]);
-  return <FrameWindow ref={windowRef} className="shape-light-glassine" aria-hidden="true" data-ready="false" data-state="loading" data-running="false">
+  return <FrameWindow ref={windowRef} className="shape-light-glassine" aria-hidden="true" data-ready="false" data-state="loading" data-running="false" data-screenshot="false">
     <img className="shape-light-glassine-still" src={posterUrl} alt=""/>
     <canvas ref={canvas}/>
-    {STAGE_LOOPS.map(loop=><video key={loop.slug} className="shape-light-loop" data-stage={loop.stage} data-active="false" muted loop playsInline preload="metadata" poster={`/media/gallery/${loop.slug}.jpg`}>
-      <source src={`/media/gallery/${loop.slug}.webm`} type="video/webm"/>
-      <source src={`/media/gallery/${loop.slug}.mp4`} type="video/mp4"/>
-    </video>)}
+    {PHILOSOPHY_SCREENSHOTS.map(screenshot=><img key={screenshot.id} className="shape-light-screenshot" data-stage={screenshot.stage} data-active="false" data-ready="false" src={screenshot.src} width={screenshot.width} height={screenshot.height} style={{objectPosition:screenshot.position}} alt="" loading="lazy" decoding="async" onLoad={event=>{
+      const image=event.currentTarget;
+      void image.decode().then(()=>{if(image.isConnected){image.dataset.ready='true';notify.current();}}).catch(()=>{});
+    }}/>)}
   </FrameWindow>;
 });
 

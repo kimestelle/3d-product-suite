@@ -2,6 +2,7 @@ import {useEffect, useRef, useState, type ReactNode, type PointerEvent, type Key
 import {NumberControl} from './EditorControls';
 import {UiIcon} from './UiIcon';
 import {FilmShotStrip} from './FilmShotStrip';
+import {FilmTransport} from './FilmTransport';
 import type {FilmWorkspaceProps} from './FilmWorkspace';
 import {addShot, duplicateShot, exactShotAtFrame, moveShot, removeShot, reorderShot, sequenceEnd, setSequenceFrames, setShotFrames, shotAtFrame, shotFrames, stretchShotFrames, type Shot} from './sequence';
 import {frameAfterSceneReorder} from './sceneReorder';
@@ -11,14 +12,14 @@ import {motionStartAfterDrag, motionStartMaximum, timelineMotionBounds, timeline
 import {barTimes, beatTimes} from './beatGrid';
 import './film-timeline.css';
 
-export interface FilmTimelineProps extends FilmWorkspaceProps {editingFrame?: number; onOutput?: () => void; detailContent?: ReactNode; onImportImage?: () => void; importingImage?: boolean}
+export interface FilmTimelineProps extends FilmWorkspaceProps {editingFrame?: number; onOutput?: () => void; detailContent?: ReactNode}
 type ProgressKey = NonNullable<FilmMotion['keys']>[number];
 type BlockDrag = {entry: MotionEntry; pointerId: number; input: HTMLButtonElement; pointerX: number; width: number; original: number; destination: number; max: number; total: number};
 const entryKey = (entry: MotionEntry) => `${entry.scope}/${entry.shotId ?? ''}/${entry.motion.id}`;
 function Notice({error}: {error: string}) {return error ? <p className="film-error" role="alert">{error}</p> : null;}
 
 export function FilmTimeline(props: FilmTimelineProps) {
-  const {scene, frame, editingFrame = frame, selectedTarget, onFrame, selectedMotionId, onMotionSelect, onTargetChange, disabled, playing, onPlay, editCurves, onEditCurves, onResetView} = props;
+  const {scene, frame, editingFrame = frame, selectedTarget, onFrame, selectedMotionId, onMotionSelect, onTargetChange, disabled, playing, onPlay, loopPlayback, onLoopPlaybackChange, editCurves, onEditCurves, onResetView} = props;
   const editingShot = exactShotAtFrame(scene, editingFrame), shot = editingShot ?? shotAtFrame(scene, editingFrame), fps = scene.render.fps, total = sequenceEnd(scene);
   const entries = timelineMotions(scene, selectedTarget), legacy = legacyMotions(scene).filter(entry => entry.target === selectedTarget);
   const totalSeconds = total / fps, tempo = scene.audio?.bpm, anchor = scene.audio?.offsetS ?? 0;
@@ -87,24 +88,22 @@ export function FilmTimeline(props: FilmTimelineProps) {
     if (!event.ctrlKey && !event.metaKey && !event.altKey) event.stopPropagation();
   }}>
     <header className="film-timeline-toolbar">
-      <div className="film-transport"><button type="button" className="film-play" aria-label={playing ? 'Pause film' : 'Play film'} onClick={onPlay} disabled={disabled || !onPlay}>{playing ? 'Pause' : 'Play'}</button>
-      <time>{round((frame - 1) / fps)} s</time></div>
-      <div className="film-timeline-actions"><div className="film-total-duration" title="Stretches all scenes and their motion to fit the movie"><NumberControl compact label="Duration" ariaLabel="Movie duration in seconds" value={total / fps} min={1 / fps} step={1 / fps} unit="s" disabled={disabled} onChange={value => {
+      <FilmTransport playing={!!playing} disabled={disabled} atStart={frame<=1} atEnd={frame>=total} onPlay={onPlay} onStart={()=>seekFilm(1)} onEnd={()=>seekFilm(total)}/>
+      <div className="film-timeline-actions"><h2 className="film-scene-count">{scene.shots.length} {scene.shots.length === 1 ? 'scene' : 'scenes'}</h2><div className="film-total-duration" title="Stretches all scenes and their motion to fit the movie"><NumberControl compact label="Duration" ariaLabel="Movie duration in seconds" value={total / fps} min={1 / fps} step={1 / fps} unit="s" disabled={disabled} onChange={value => {
         const result = edit(draft => setSequenceFrames(draft, Math.round(value * fps)));
         if (result) {
           const nextShot = result.draft.shots.find((item: Shot) => item.id === shot?.id);
           const progress = shot ? clamp((editingFrame - shot.startFrame) / Math.max(1, shotFrames(shot) - 1), 0, 1) : 0;
           onFrame(nextShot ? nextShot.startFrame + Math.round(progress * (shotFrames(nextShot) - 1)) : 1);
         }
-      }}/></div><button type="button" onClick={() => props.onCreateShot ? props.onCreateShot() : sequenceEdit(shot?.id, draft => addShot(draft, shot?.id))} disabled={disabled}><UiIcon name="plus"/>New scene</button>
-      {props.onImportImage && <button type="button" onClick={props.onImportImage} disabled={disabled || props.importingImage}>{props.importingImage ? 'Importing image…' : 'Add image'}</button>}
+      }}/></div><button type="button" data-new-scene-trigger onClick={() => props.onCreateShot ? props.onCreateShot() : sequenceEdit(shot?.id, draft => addShot(draft, shot?.id))} disabled={disabled}><UiIcon name="plus"/>New scene</button>
       {props.onOutput && <button type="button" className="film-output-action" onClick={props.onOutput}>Output <UiIcon name="chevron"/></button>}</div>
     </header>
     <div className="film-time-scroll"><div className="film-time-surface">
-      <div className="film-time-ruler" aria-hidden="true"><span className="film-row-label">Scenes</span><div>
+      <div className="film-time-ruler"><label className="film-loop"><input type="checkbox" checked={!!loopPlayback} disabled={disabled || !onLoopPlaybackChange} onChange={event => onLoopPlaybackChange?.(event.target.checked)}/>Loop</label><div aria-hidden="true">
         {beatGrid && <div className="film-beat-grid">{beatGrid.beats.map(time => <i key={time} className="film-beat-tick" style={{left: `${time / totalSeconds * 100}%`}}/>)}{beatGrid.bars.map(time => <i key={time} className="film-bar-tick" style={{left: `${time / totalSeconds * 100}%`}}/>)}</div>}
         {[0, .25, .5, .75, 1].map(fraction => <span key={fraction} style={{left: `${fraction * 100}%`}}>{round(fraction * total / fps)} s</span>)}</div></div>
-      <div className="film-scenes-lane"><span className="film-row-label">{scene.shots.length} {scene.shots.length === 1 ? 'scene' : 'scenes'}</span>
+      <div className="film-scenes-lane"><span aria-hidden="true"/>
       <FilmShotStrip scene={scene} frame={frame} editingFrame={editingFrame} onFrame={seekFilm} disabled={disabled} onPlay={onPlay}
         reorderDisabled={playing}
         onReorder={(id,index)=>{

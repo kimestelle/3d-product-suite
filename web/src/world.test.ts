@@ -4,6 +4,36 @@ import fixture from '../../examples/bottle.scene.json';
 import {addLight, addProp, addPropFromLibrary, applyDramaticSpot, setHdriFromLibrary, colorFromHex, colorHex, defaultLighting, ensureLighting, isLightTarget, lightIdFromTarget, lightTarget, removeLight, resizeProp, setLightType, setPropShape, setWorldYaw, worldYaw} from './world';
 
 describe('World editing', () => {
+  it('uses the fixed stage reference for default and newly added lights', () => {
+    const scenes = [1, 1000].map(factor => {
+      const scene: any = structuredClone(fixture);
+      scene.environment.studioSizeM = .32;
+      scene.product.dimensionsM = [.32, .16, .24].map(value => value * factor);
+      scene.placement.scale = 1 / factor;
+      if (factor === 1000) scene.placement.translationM = [4, 5, -1.28];
+      return scene;
+    });
+    expect(defaultLighting(scenes[0])).toEqual(defaultLighting(scenes[1]));
+    expect(defaultLighting(scenes[0]).lights[0].targetM).toEqual([0, .32 * .52, 0]);
+    for (const scene of scenes) {addLight(scene, 'spot'); addLight(scene, 'area');}
+    expect(scenes[0].lighting).toEqual(scenes[1].lighting);
+    for (const scene of scenes) applyDramaticSpot(scene);
+    expect(scenes[0].lighting).toEqual(scenes[1].lighting);
+  });
+  it('places new primitives and library props within the fixed stage', () => {
+    const scenes = [1, 1000].map(factor => {
+      const scene: any = structuredClone(fixture);
+      scene.environment.studioSizeM = .32;
+      scene.product.dimensionsM = [.32, .16, .24].map(value => value * factor);
+      return scene;
+    });
+    const entry = {id: 'jar', name: 'Jar', sizeM: [.1, .2, .1], asset: {path: 'assets/jar.glb', format: 'glb'}, sourceUrl: 'https://polyhaven.com/a/jar'};
+    for (const scene of scenes) {addProp(scene, 'box'); addPropFromLibrary(scene, entry);}
+    expect(scenes[0].environment.props).toEqual(scenes[1].environment.props);
+    expect(scenes[0].environment.props[0].sizeM).toEqual([.32 * .35, .32 * .35, .32 * .35]);
+    expect(scenes[0].environment.props[1].sizeM).toEqual(entry.sizeM);
+    expect(scenes[0].environment.props[1].translationM[0]).toBeCloseTo(.32 * .65 + .05);
+  });
   it('adds typed lights with unique ids, switches types additively and removes down to one light', () => {
     const scene: any = structuredClone(fixture);
     expect(addLight(scene, 'spot')).toBe('spot-1'); expect(addLight(scene, 'spot')).toBe('spot-2'); expect(addLight(scene, 'area')).toBe('area-1');

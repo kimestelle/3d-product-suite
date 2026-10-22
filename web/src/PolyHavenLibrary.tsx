@@ -60,7 +60,7 @@ export default function PolyHavenLibrary({kind,onImport,disabled=false,scopeKey=
     <div className="gesso-polyhaven-heading"><button type="button" className="gesso-text-button" aria-expanded={open} onClick={()=>setOpen(value=>!value)}><UiIcon name={open ? "down" : "chevron"} size={14}/> Browse Poly Haven</button><a href="https://polyhaven.com" target="_blank" rel="noreferrer" className="gesso-meta">CC0 ↗</a></div>
     {open&&<>
       <form className="gesso-polyhaven-search" onSubmit={submit}><input type="search" aria-label={`Search Poly Haven ${label}`} value={query} placeholder={kind==='hdris'?'Search studio, softbox…':kind==='models'?'Search vase, plant, rock…':'Search metal, wood, stone…'} onChange={event=>setQuery(event.target.value)}/><button type="submit" disabled={loading}>Search</button></form>
-      <div className="gesso-polyhaven-results" aria-busy={loading}>
+      <div className="gesso-polyhaven-results gesso-selection-surface" aria-busy={loading}>
         {assets.map(asset=><button type="button" key={asset.id} className="gesso-polyhaven-asset" aria-label={`${kind==='models'?'Add':'Apply'} ${asset.name}`} disabled={disabled||!!downloading||loading} onClick={()=>download(asset)}>
           <span className="gesso-polyhaven-image">{asset.thumbnailUrl&&<img src={asset.thumbnailUrl} alt="" loading="lazy"/>}</span><span>{downloading===asset.id?'Downloading…':asset.name}</span>
         </button>)}

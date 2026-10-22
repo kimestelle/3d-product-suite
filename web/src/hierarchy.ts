@@ -1,3 +1,4 @@
+import {sourcePart,sourcePartId,type SourceNode} from './partTargets';
 /** Editorial grouping is independent of source geometry, transforms and actions. */
 export interface HierarchyPart {
   id: string;
@@ -36,7 +37,7 @@ export function displayPartName(scene: any, id: string, fallback?: string): stri
   const alias=names&&typeof names==='object'&&!Array.isArray(names)&&Object.hasOwn(names,id)?names[id]:undefined;
   if(typeof alias==='string'&&alias.trim()&&alias.length<=PART_NAME_LIMIT)return alias.trim();
   const component=scene?.product?.components?.find((item:any)=>item.id===id);
-  return component?.name||component?.displayName||fallback||partName(id);
+  return component?.name||component?.displayName||fallback||sourcePart(scene,id)?.node.name||partName(id);
 }
 
 export function renamePart(scene:any, parts:HierarchyPart[], id:string, value:string):void {
@@ -54,11 +55,17 @@ export function renamePart(scene:any, parts:HierarchyPart[], id:string, value:st
 }
 
 export function sceneParts(scene: any): HierarchyPart[] {
-  return (scene?.product?.components ?? []).map((component: any) => ({
+  return (scene?.product?.components ?? []).flatMap((component: any) => [{
     id: component.id, componentId: component.id, name: displayPartName(scene,component.id),
     parentId: null, source: 'scene', sourceName: component.id,
     dimensionsM: component.sizeM,
-  }));
+  },...(component.sourceNodes??[]).filter((node:SourceNode)=>node.drawable).map((node:SourceNode)=>({
+    id:sourcePartId(component.id,node.nodeIndex),componentId:component.id,
+    name:displayPartName(scene,sourcePartId(component.id,node.nodeIndex),node.name),
+    parentId:node.parentIndex===null?component.id:sourcePartId(component.id,node.parentIndex),
+    source:'glb',sourceName:node.name,sourcePath:`nodes[${node.nodeIndex}]`,
+    dimensionsM:node.boundsM[0].map((value,index)=>node.boundsM[1][index]-value),
+  }))]);
 }
 
 /** This one fixture rule demonstrates the review flow; it is not an LLM or CAD importer. */

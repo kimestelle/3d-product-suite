@@ -14,11 +14,18 @@ export const isLightTarget = (target: string) => target.startsWith(LIGHT_TARGET_
 export const lightIdFromTarget = (target: string) => target.slice(LIGHT_TARGET_PREFIX.length);
 export const lightType = (light: Pick<StudioLight, 'type'>): StudioLightType => light.type === 'spot' ? 'spot' : 'area';
 
+/** A fixed studio stays on its support while the product's source anchor moves. */
+function rigOrigin(scene: any): number[] {
+  if (scene.environment.studioSizeM === undefined) return scene.placement.translationM;
+  const plinth = scene.environment.plinth;
+  return plinth.translationM.map((value: number, axis: number) => value + (axis === 1 ? plinth.sizeM[1] / 2 : 0));
+}
+
 /** The pre-existing Cycles rig, expressed in the canonical scene coordinates. */
 export function defaultLighting(scene: any): StudioLighting {
-  const size = Math.max(...scene.product.dimensionsM);
+  const size = scene.environment.studioSizeM ?? Math.max(...scene.product.dimensionsM);
   const scale = size / .12;
-  const position = scene.placement.translationM as number[];
+  const position = rigOrigin(scene);
   const targetM = position.map((value, index) => value + (index === 1 ? size * .52 : 0));
   const presets = [
     {id: 'key', name: 'Key', offset: [-.19, .32, .24], power: 2.6, diameter: .23, color: [1, .93, .82]},
@@ -37,8 +44,8 @@ export function ensureLighting(scene: any): StudioLighting {
 
 /** Rig-relative placement shared by new lights and the dramatic preset. */
 function rigFrame(scene: any) {
-  const size = Math.max(...scene.product.dimensionsM);
-  const position = scene.placement.translationM as number[];
+  const size = scene.environment.studioSizeM ?? Math.max(...scene.product.dimensionsM);
+  const position = rigOrigin(scene);
   return {size, scale: size / .12, position, targetM: position.map((value, index) => value + (index === 1 ? size * .45 : 0))};
 }
 
@@ -105,7 +112,7 @@ export function addProp(scene: any, shape: 'box' | 'cylinder'): string {
   const ids = new Set([scene.environment.plinth.id, ...scene.product.components.map((part: any) => part.id), ...(scene.environment.props ?? []).map((prop: any) => prop.id)]);
   let number = 1; while (ids.has(`prop-${number}`)) number++;
   const id = `prop-${number}`;
-  const extent = Math.max(...scene.product.dimensionsM);
+  const extent = scene.environment.studioSizeM ?? Math.max(...scene.product.dimensionsM);
   const side = extent * .35;
   const plinth = scene.environment.plinth;
   const top = plinth.translationM[1] + plinth.sizeM[1] / 2;
@@ -137,7 +144,8 @@ export function addPropFromLibrary(scene: any, entry: any): string {
     sizeM: dimensions, bevelM: 0, materialOverride: false,
     source: {provider: 'Poly Haven', assetId: entry.id, url: entry.sourceUrl, license: 'CC0'} });
   const plinth = scene.environment.plinth;
-  prop.translationM = [plinth.translationM[0] + Math.max(...scene.product.dimensionsM) * .65 + dimensions[0] / 2,
+  const extent = scene.environment.studioSizeM ?? Math.max(...scene.product.dimensionsM);
+  prop.translationM = [plinth.translationM[0] + extent * .65 + dimensions[0] / 2,
     plinth.translationM[1] + plinth.sizeM[1] / 2 + dimensions[1] / 2, plinth.translationM[2]];
   return id;
 }

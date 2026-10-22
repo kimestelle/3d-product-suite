@@ -1,7 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {Euler,Quaternion} from 'three';
 import {transformScene} from './transforms';
-import {PRODUCT_TARGET,animationBlockReason,animationTracks,commitAnimatedTransform,formatAnimationTime,getPropertyValue,getTrack,materializeAnimatedPose,moveKey,removeKey,sampleTrack,setKeyInterpolation,toggleTrack,upsertKey,writeProperty,type AnimationTrack} from './keyframes';
+import {PRODUCT_TARGET,animationBlockReason,animationTracks,commitAnimatedTransform,formatAnimationTime,getPropertyValue,getTrack,materializeAnimatedPose,moveKey,propertyPresentation,removeKey,sampleTrack,setKeyInterpolation,toggleTrack,upsertKey,writeProperty,type AnimationTrack} from './keyframes';
 
 const fixture=():any=>({sceneId:'bottle',render:{fps:30},shots:[{id:'a',startFrame:1,endFrame:180},{id:'b',startFrame:181,endFrame:360}],placement:{translationM:[.1,0,0]},product:{components:[
   {id:'body',assembly:{translationM:[0,.05,0],rotationXyzw:[0,0,0,1]}},
@@ -61,6 +61,17 @@ describe('editing scope',()=>{
     toggleTrack(scene,'cap','scale',100,false);writeProperty(scene,'cap','scale',100,3);
     expect(getPropertyValue(scene,'cap','scale',100)).toBe(3);expect(getTrack(scene,'cap','scale')!.keys).toEqual(keys);
     toggleTrack(scene,'cap','scale',100,true);expect(getPropertyValue(scene,'cap','scale',100)).toBe(2);
+  });
+  it('edits and keys a small whole product while retaining part limits',()=>{
+    const scene=fixture();writeProperty(scene,PRODUCT_TARGET,'scale',1,.00148);
+    toggleTrack(scene,PRODUCT_TARGET,'scale',1,true);writeProperty(scene,PRODUCT_TARGET,'scale',25,.00296);
+    expect(getPropertyValue(scene,PRODUCT_TARGET,'scale',13)).toBeCloseTo(.00222);
+    expect(materializeAnimatedPose(scene,13).placement.scale).toBeCloseTo(.00222);
+    expect(propertyPresentation(scene,PRODUCT_TARGET,'scale')).toMatchObject({min:.0001,max:1e8,precision:8});
+    expect(propertyPresentation(scene,'cap','scale')).toMatchObject({min:1,max:10000});
+    expect(()=>writeProperty(scene,'cap','scale',1,.00148)).toThrow('1% and 10000%');
+    for(const value of [1e-6,1e6])expect(()=>upsertKey(scene,PRODUCT_TARGET,'scale',25,value)).not.toThrow();
+    for(const value of [1e-7,1e7])expect(()=>upsertKey(scene,PRODUCT_TARGET,'scale',25,value)).toThrow('Product scale');
   });
   it('rejects invalid channels, time, and scale before mutating',()=>{
     const scene=fixture(),before=structuredClone(scene);
@@ -138,5 +149,28 @@ describe('mechanical reference constraints',()=>{
     upsertKey(scene,'body','position.x',20,.2);expect(track.keys[1].value).toBe(.2);
     const before=structuredClone(scene);expect(()=>toggleTrack(scene,'body','position.x',20,true)).toThrow('anchors');expect(scene).toEqual(before);
     writeProperty(scene,'body','position.x',20,.3);expect(getPropertyValue(scene,'body','position.x',20)).toBe(.3);expect(track.keys[1].value).toBe(.2);
+  });
+});
+
+
+describe('removed source poses',()=>{
+  it.each(['component','source branch'] as const)('materializes retained %s tracks without changing source or dropping keys',scope=>{
+    const scene=fixture(), cap=scene.product.components[1];
+    cap.sourceNodes=[
+      {nodeIndex:3,parentIndex:null,name:'Assembly',drawable:true,hasMesh:false},
+      {nodeIndex:7,parentIndex:3,name:'Shell',drawable:true,hasMesh:true},
+    ];
+    const target=scope==='component'?'cap':'cap::node:7';
+    upsertKey(scene,target,'position.y',1,.2,'linear');upsertKey(scene,target,'position.y',301,.5);
+    upsertKey(scene,target,'rotation.z',1,0,'linear');upsertKey(scene,target,'rotation.z',301,90);
+    const visible=materializeAnimatedPose(scene,151);
+    scene.product.removedPartIds=[scope==='component'?'cap':'cap::node:3'];
+    const before=structuredClone(scene), hidden=materializeAnimatedPose(scene,151);
+    expect(hidden.product.components).toEqual(visible.product.components);
+    expect(hidden.animation).toEqual(visible.animation);
+    expect(hidden.product.removedPartIds).toEqual(scene.product.removedPartIds);
+    expect(scene).toEqual(before);
+    delete scene.product.removedPartIds;
+    expect(materializeAnimatedPose(scene,151)).toEqual(visible);
   });
 });

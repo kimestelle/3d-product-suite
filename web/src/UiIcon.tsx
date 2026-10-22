@@ -19,13 +19,14 @@ import circle from './assets/gesso/interface/imgIconCircle_db14ad29.svg';
 import undo from './assets/gesso/undo-2.svg';
 import redo from './assets/gesso/redo-2.svg';
 import history from './assets/gesso/history.svg';
+import dice from './assets/gesso/dice-5.svg';
 
 const icons = {
   chevron: [chevron14, 14], down: [down, 14], minus: [minus, 12], plus: [plus, 12],
   check: [check, 12], eye: [eye, 14], eyeoff: [eyeoff, 14], lock: [lock12, 12],
   alert: [alert12, 12], unavailable: [unavailable, 12], loader: [loader, 12],
   option: [option, 10], clock: [clock, 12], circle: [circle, 12],
-  undo: [undo, 16], redo: [redo, 16], history: [history, 14.4],
+  undo: [undo, 16], redo: [redo, 16], history: [history, 14.4], dice: [dice, 20],
 } as const;
 
 /** Figma and Lucide assets; the mask lets each state inherit its text color. */

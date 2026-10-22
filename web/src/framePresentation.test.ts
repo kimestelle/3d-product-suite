@@ -21,16 +21,21 @@ function viewport(capture = false) {
   scene.add(content);
   const camera = new THREE.PerspectiveCamera(40, 2, .001, 100);
   camera.position.set(0, 0, 2);
-  const canvas = { style: {}, clientWidth: 800, clientHeight: 400, width: 1600, height: 800 };
+  const canvas = { style: {}, clientWidth: 800, clientHeight: 400, width: 800, height: 400 };
   const events: string[] = [];
   const presented: THREE.PerspectiveCamera[] = [];
+  let pixelRatio = 1;
   const renderer = {
-    setSize: vi.fn((width: number, height: number) => { events.push(`size:${width}x${height}`); }),
+    setSize: vi.fn((width: number, height: number) => {
+      events.push(`size:${width}x${height}`);
+      canvas.width = Math.floor(width * pixelRatio); canvas.height = Math.floor(height * pixelRatio);
+    }),
+    setPixelRatio: vi.fn((ratio: number) => { pixelRatio = ratio; }),
     render: vi.fn((_scene: THREE.Scene, renderedCamera: THREE.PerspectiveCamera) => {
       events.push('render'); presented.push(renderedCamera.clone());
     }),
-    getPixelRatio: vi.fn(() => capture ? 1 : 2),
-    getDrawingBufferSize: vi.fn((size: THREE.Vector2) => size.set(1600, 800)),
+    getPixelRatio: vi.fn(() => pixelRatio),
+    getDrawingBufferSize: vi.fn((size: THREE.Vector2) => size.set(canvas.width, canvas.height)),
     getContext: vi.fn(() => ({ finish })),
   };
   const finish = vi.fn();
@@ -91,7 +96,7 @@ describe('viewport frame presentation', () => {
     view.resize();
     const draw = view.draw(false, 1);
     await flush();
-    expect(spark.renderSize.toArray()).toEqual([1800, 1200]);
+    expect(spark.renderSize.toArray()).toEqual([900, 600]);
     const sortedCamera = spark.update.mock.calls[0][0].camera;
     expect(sortedCamera).not.toBe(view.camera);
     expect(renderer.setSize).not.toHaveBeenCalled();
@@ -109,6 +114,25 @@ describe('viewport frame presentation', () => {
     expect(renderer.render.mock.calls[0][1]).toBe(sortedCamera);
     expect(view.pendingSize).toEqual({ width: 600, height: 600 });
     expect(view.dirty).toBe(true);
+  });
+
+  it('sorts and presents large live viewports within the preview budget while retaining their CSS aspect', async () => {
+    const { view, canvas, renderer, presented } = viewport();
+    const sort = deferred();
+    const spark = splats(view, () => sort.promise);
+    canvas.clientWidth = 1920; canvas.clientHeight = 1080;
+    view.resize();
+    const draw = view.draw(false, 1);
+    await flush();
+    expect(spark.renderSize.toArray()).toEqual([1280, 720]);
+    expect(renderer.setPixelRatio).not.toHaveBeenCalled();
+    expect(renderer.setSize).not.toHaveBeenCalled();
+    sort.resolve();
+    await draw;
+    expect(renderer.setPixelRatio).toHaveBeenCalledExactlyOnceWith(2 / 3);
+    expect(renderer.setSize).toHaveBeenCalledExactlyOnceWith(1920, 1080, false);
+    expect([canvas.width, canvas.height]).toEqual([1280, 720]);
+    expect(presented[0].aspect).toBeCloseTo(16 / 9);
   });
 
   it('does not commit a sorted frame after a replacement load begins or while its first sample is missing', async () => {

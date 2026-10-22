@@ -1,5 +1,5 @@
 /* Film keeps one specimen and a single timeline between two mounted rails. */
-.gesso-studio .gesso-workspace.with-film-workspace{--workspace-rail-width:280px;--film-right-width:300px;--film-dock-height:calc(136px + var(--film-track-rows,0)*32px);grid-template-columns:var(--workspace-rail-width) minmax(0,1fr) var(--film-right-width);grid-template-rows:minmax(0,1fr) 0px;transition:grid-template-columns var(--frame-duration) var(--frame-easing),grid-template-rows var(--frame-duration) var(--frame-easing)}
+.gesso-studio .gesso-workspace.with-film-workspace{--workspace-rail-width:280px;--film-right-width:300px;--film-dock-height:calc(156px + var(--film-track-rows,0)*32px);grid-template-columns:var(--workspace-rail-width) minmax(0,1fr) var(--film-right-width);grid-template-rows:minmax(0,1fr) 0px;transition:grid-template-columns var(--frame-duration) var(--frame-easing),grid-template-rows var(--frame-duration) var(--frame-easing)}
 .gesso-studio .gesso-workspace.with-film-workspace.film-has-timeline{grid-template-rows:minmax(0,1fr) var(--film-dock-height)}
 .gesso-studio .with-film-workspace:is(.film-curves-open,.film-legacy-open){--film-dock-height:min(360px,48dvh)}
 .with-film-workspace>.gesso-sidebar:first-child{grid-column:1;grid-row:1}

@@ -37,3 +37,26 @@
 .film-product-mark{width:10px;height:10px;margin:1px;flex:none;box-sizing:border-box;border:1px solid currentColor;border-radius:2px}
 
 .film-clip-details{display:flex;flex-direction:column;gap:8px}.film-clip-details>h2{margin:0 0 4px;font-size:14px;font-weight:600}.film-image-preview{display:block;width:100%;max-height:220px;object-fit:contain;background:#000;border-radius:4px}.film-clip-details .film-hint{margin:0}
+
+/* Framing has one home: essentials first, measured coordinates on demand. */
+.gesso-studio .film-inspector .gesso-camera-panel{gap:8px}
+.film-camera-framing{min-width:0;margin-bottom:8px}
+.gesso-studio .gesso-camera-panel .gesso-camera-essentials{gap:8px;padding:0;border:0}
+.gesso-studio .gesso-camera-panel .gesso-camera-aimrow{grid-template-columns:minmax(0,1fr) 36px;gap:8px}
+.gesso-studio .gesso-camera-panel .gesso-camera-aimrow>.gesso-field{grid-template-columns:48px minmax(0,1fr);gap:8px}
+.gesso-camera-focus-settings{display:flex;flex-direction:column;gap:8px}
+.gesso-studio .gesso-camera-panel .gesso-camera-focus-toggle{min-height:28px;margin:0;padding:0}
+.gesso-camera-position .film-camera-fields{gap:8px}
+.gesso-camera-size>summary>small{font-variant-numeric:tabular-nums}
+.film-add-motion{margin-bottom:4px}
+
+/* Only the closed value truncates; popup options retain their full labels. */
+.gesso-studio .gesso-camera-panel .gesso-field>select{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Camera motion is a persistent choice; its parameters and framing scroll below. */
+.film-camera-presets{display:flex;flex-direction:column;gap:8px;min-width:0;margin-bottom:4px}
+.gesso-studio .film-inspector .film-camera-motion-choices{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.film-camera-motion-choices .film-motion-choice>.film-motion-diagram{height:48px}
+.film-camera-motion-choices .film-motion-choice-label{gap:2px}
+.film-camera-motion-choices .film-motion-choice[aria-pressed=false] .gesso-ui-icon{visibility:hidden}
+.film-camera-actions .film-assigned-motions{margin:0}

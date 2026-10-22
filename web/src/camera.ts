@@ -1,4 +1,5 @@
-import {Box3, Quaternion, Vector3} from 'three';
+import {Box3, Matrix4, Quaternion, Vector3} from 'three';
+import {sourcePart} from './partTargets';
 import {validateFilmMotions} from './filmMotion';
 
 export type CameraEnd = 'from' | 'to';
@@ -68,6 +69,15 @@ export function editCamera(scene: any, id: string, edit: (camera: CameraDefiniti
 // Evaluated transforms are supplied by the shared scene engine, including actions.
 export function cameraTarget(scene: any, sample: any, componentId?: string): number[] {
   if (!sample?.components) throw new Error('Wait for the scene to update before choosing a target.');
+  if(componentId&&sourcePart(scene,componentId)) {
+    const part=sourcePart(scene,componentId)!;
+    const pose=sample.parts?.[componentId];
+    if(!pose)throw new Error('Wait for the selected part to update before choosing a target.');
+    const bounds=new Box3(),matrix=new Matrix4().fromArray(pose.worldMatrix);
+    for(const x of [part.node.boundsM[0][0],part.node.boundsM[1][0]])for(const y of [part.node.boundsM[0][1],part.node.boundsM[1][1]])for(const z of [part.node.boundsM[0][2],part.node.boundsM[1][2]])
+      bounds.expandByPoint(new Vector3(x,y,z).applyMatrix4(matrix));
+    return bounds.getCenter(new Vector3()).toArray();
+  }
   const components = scene.product.components.filter((component: any) => !componentId || component.id === componentId);
   if (!components.length) throw new Error('This part is no longer in the product.');
   const bounds = new Box3();

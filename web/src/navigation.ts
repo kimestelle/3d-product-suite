@@ -1,7 +1,7 @@
-export type EditorGroup = 'product'|'material'|'world'|'renders';
+export type EditorGroup = 'product'|'world'|'renders';
 export type EditorMode = 'still'|'video';
-export const groups: {id:EditorGroup;label:string}[] = [{id:'product',label:'Product'},{id:'material',label:'Material'},{id:'world',label:'World'},{id:'renders',label:'Film'}];
-export const layers: Record<EditorGroup,string[]> = {product:['Model'],material:['Materials','Decals'],world:['Environment','Props','Lights'],renders:['Framing','Animation','Sequence','Output']};
+export const groups: {id:EditorGroup;label:string}[] = [{id:'product',label:'Product'},{id:'world',label:'Stage'},{id:'renders',label:'Film'}];
+export const layers: Record<EditorGroup,string[]> = {product:['Model','Materials','Decals'],world:['Environment','Props','Lights'],renders:['Framing','Animation','Sequence','Output']};
 export type EditorDestination = {group:EditorGroup;layer:string};
 export const defaultLayers = Object.fromEntries(groups.map(({id})=>[id,layers[id][0]])) as Record<EditorGroup,string>;
 
@@ -9,15 +9,17 @@ const normalized = (value:string|null) => value?.trim().toLowerCase();
 const asUrl = (input:URL|string) => new URL(String(input),'http://gesso.local');
 const filmAliases = new Map([['lens','Framing'],['focus','Framing'],['path','Framing'],['shots','Sequence'],['timing','Output']]);
 
-// URLs use the visible Film name; renders remains the internal group identifier.
+// Keep established world/film URLs while accepting visible and legacy step names.
 export function readEditorDestination(input:URL|string):EditorDestination {
   const url=asUrl(input), step=normalized(url.searchParams.get('step')), layerName=normalized(url.searchParams.get('layer'));
   let group:EditorGroup='product';
   if(url.searchParams.has('step')) {
-    const id=step==='film'||step==='camera'||step==='motion'?'renders':step;
+    const id=step==='film'||step==='camera'||step==='motion'?'renders':step==='stage'?'world':step==='material'?'product':step;
     const match=groups.find(group=>group.id===id);
     if(!match)return {group,layer:defaultLayers[group]};
     group=match.id;
+    // Material links retain their former default and now open within Product.
+    if(step==='material')return {group,layer:layerName==='decals'?'Decals':'Materials'};
     // The old Camera step always opens its replacement, Framing.
     if(step==='camera')return {group,layer:'Framing'};
     if(step==='motion')return {group,layer:'Animation'};
@@ -28,8 +30,7 @@ export function readEditorDestination(input:URL|string):EditorDestination {
     const matches=groups.filter(({id})=>layers[id].some(layer=>layer.toLowerCase()===layerName));
     if(matches.length===1)group=matches[0].id;
   }
-  // Preserve old Product links after separating materials and moving animation to Film.
-  if(group==='product'&&(layerName==='materials'||layerName==='decals'))return {group:'material',layer:layerName==='materials'?'Materials':'Decals'};
+  // Static placement and animation remain Film work, including old Product links.
   if((group==='product'||group==='renders')&&(layerName==='placement'||layerName==='animation'))return {group:'renders',layer:'Animation'};
   const alias=layerName?filmAliases.get(layerName):undefined;
   if(group==='renders'&&alias)return {group,layer:alias};
@@ -62,7 +63,9 @@ export function editorModeUrl(input:URL|string,mode:EditorMode):string {
 export function shortcutDestination(event: {altKey:boolean;ctrlKey:boolean;metaKey:boolean;shiftKey:boolean;code:string;repeat?:boolean}, group:EditorGroup, mode:EditorMode='video'): {group?:EditorGroup;layer?:string}|null {
   if(!event.altKey||event.ctrlKey||event.metaKey||event.shiftKey||event.repeat)return null;
   const digit = /^Digit([1-9])$/.exec(event.code);if(!digit)return null;
-  const n=Number(digit[1]);if(n<=4)return {group:groups[n-1].id};
+  const n=Number(digit[1]);if(n<=groups.length)return {group:groups[n-1].id};
+  // Keep layer shortcuts at 5 onward; the former fourth category key is unused.
+  if(n<5)return null;
   const visibleLayers=group==='renders'&&mode==='still'?['Framing','Output']:layers[group];
   const layer=visibleLayers[n-5];return layer?{layer}:null;
 }

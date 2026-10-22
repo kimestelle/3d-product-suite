@@ -4,7 +4,7 @@ The editor and pinned Blender renderer accept static, self-contained product GLB
 
 The editor and `product-import` CLI also accept `.blend` files through a local Blender conversion to that same static GLB contract. This imports the active scene at its saved frame, with packed textures and supported materials; it does not preserve Blender's editable modifiers or animation system. See the [import workflow and limits](../README.md#editor-and-world-workflow). The trial evidence below still describes its original inputs.
 
-Prepared GLBs use right-handed Y-up meters and a bounding-box center at the local origin. The importer measures decoded vertex positions, checks the active node hierarchy and refuses external dependencies, animation, skins, morph targets, compressed geometry and inconsistent dimensions. CAD and other source formats need conversion before import. The importer does not infer mechanical movement.
+Prepared GLBs use right-handed Y-up meters and a bounding-box center at the local origin. The importer measures decoded vertex positions, checks the active node hierarchy and refuses external dependencies, animation, skins, morph targets, compressed geometry and inconsistent dimensions. STEP/STP and IGES/IGS now convert locally in the import flow; STL/OBJ also convert with explicit units. Native CAD formats still require a STEP or GLB export. See [current compatibility and checks](import-compatibility.md). The importer does not infer mechanical movement.
 
 ## Prepare a product
 

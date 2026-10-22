@@ -1,11 +1,12 @@
-"""Import prepared product GLBs or normalized snapshots of Blender products.
+"""Import prepared GLBs and normalized snapshots of Blender, CAD and mesh products.
 
 GLB input must already use glTF's Y-up metres and be centered at its visible bounds.
-Blender conversion feeds the same handoff; neither path infers mechanisms or imports CAD.
+Conversions feed the same handoff; no format infers mechanisms or native CAD constraints.
 """
 from __future__ import annotations
 
 import copy
+from contextlib import contextmanager
 import hashlib
 import json
 import math
@@ -181,6 +182,67 @@ def inspect_product_glb(payload):
 
 
 
+def product_source_nodes(payload):
+    """Immutable physical hierarchy + measured local bounds from verified GLB bytes."""
+    json_length = struct.unpack_from("<I", payload, 12)[0]
+    document = json.loads(payload[20:20 + json_length])
+    binary_offset = 20 + json_length
+    binary = payload[binary_offset + 8:] if binary_offset < len(payload) else b""
+    buffers = [_data_uri(buffer["uri"]) if "uri" in buffer else binary for buffer in document.get("buffers", [])]
+    nodes, records = document["nodes"], []
+    def visit(index, parent=None):
+        node = nodes[index]
+        minimum, maximum = [math.inf] * 3, [-math.inf] * 3
+        def include(p):
+            for axis, value in enumerate(p):
+                minimum[axis] = min(minimum[axis], value)
+                maximum[axis] = max(maximum[axis], value)
+        if "mesh" in node:
+            for primitive in document["meshes"][node["mesh"]]["primitives"]:
+                for point in _accessor_rows(document, buffers, primitive["attributes"]["POSITION"], positions=True):
+                    include(point)
+        for child_index in node.get("children", []):
+            child = visit(child_index, index)
+            if child["drawable"]:
+                matrix = _node_matrix(nodes[child_index])
+                for x in (child["boundsM"][0][0], child["boundsM"][1][0]):
+                    for y in (child["boundsM"][0][1], child["boundsM"][1][1]):
+                        for z in (child["boundsM"][0][2], child["boundsM"][1][2]):
+                            p = (x, y, z)
+                            include([sum(matrix[r][c] * p[c] for c in range(3)) + matrix[r][3] for r in range(3)])
+        drawable = math.isfinite(minimum[0])
+        matrix = _node_matrix(node)
+        record = {"nodeIndex": index, "parentIndex": parent,
+                  "name": str(node.get("name") or f"Object {index + 1}")[:1000],
+                  "localMatrix": [matrix[r][c] for c in range(4) for r in range(4)],
+                  "boundsM": [minimum, maximum] if drawable else [[0., 0., 0.], [0., 0., 0.]],
+                  "drawable": drawable, "hasMesh": "mesh" in node}
+        records.append(record)
+        return record
+    for index in document["scenes"][document.get("scene", 0)]["nodes"]:
+        visit(index)
+    return sorted(records, key=lambda record: record["nodeIndex"])
+
+
+def validate_product_source_nodes(component, payload):
+    if "sourceNodes" in component:
+        _require(component["sourceNodes"] == product_source_nodes(payload),
+                 "Source part catalog does not match the immutable product asset")
+
+
+def hydrate_product_nodes(scene, asset_root):
+    """Enrich legacy scenes in memory; callers decide whether to save a revision."""
+    for component in scene["product"]["components"]:
+        if component["shape"] != "mesh" or "sourceNodes" in component:
+            continue
+        asset = component["asset"]
+        payload = _read_asset(safe_asset_path(asset_root, asset["path"]))
+        _require(hashlib.sha256(payload).hexdigest() == asset["sha256"], "Product asset hash changed while reading parts")
+        inspect_product_glb(payload)
+        component["sourceNodes"] = product_source_nodes(payload)
+    return scene
+
+
 def validate_product_material_nodes(component, payload):
     """Check section targets against the already verified, static GLB bytes."""
     bindings = component.get("materialBindings", [])
@@ -227,6 +289,11 @@ def _prepared_scene(source_path, *, name, provenance, template=None, dimensions_
     _require(Path(source_path).suffix.lower() == ".glb", "Prepared products must use a .glb file")
     payload = _read_asset(source_path)
     measured = inspect_product_glb(payload)
+    if measured["vertexCount"] > 1000000:
+        metadata = {**(metadata or {}), "importDiagnostics": {
+            "vertexCount": measured["vertexCount"],
+            "warnings": [f"Dense product: {measured['vertexCount']:,} vertices. Geometry is preserved; use a simplified source for faster editing."],
+        }}
     if dimensions_m is not None:
         _numbers(dimensions_m, 3, "dimensionsM")
     dimensions = list(measured["dimensionsM"] if dimensions_m is None else dimensions_m)
@@ -246,7 +313,8 @@ def _prepared_scene(source_path, *, name, provenance, template=None, dimensions_
                "components": [{"id": "product", "shape": "mesh", "sizeM": dimensions,
                                "asset": {"format": "glb", "path": f"assets/{digest}.glb", "sha256": digest, "sourceUp": "Y"},
                                "assembly": {"translationM": [0, dimensions[1] / 2, 0], "rotationXyzw": [0, 0, 0, 1]},
-                               "material": material, "materialOverride": False, "bevelM": 0}]}
+                               "material": material, "materialOverride": False, "bevelM": 0,
+                               "sourceNodes": product_source_nodes(payload)}]}
     if metadata is not None:
         _require(isinstance(metadata, dict), "Product metadata must be an object")
         _canonical(metadata)
@@ -279,6 +347,8 @@ def _prepared_scene(source_path, *, name, provenance, template=None, dimensions_
         after = copy.deepcopy(before)
         after["positionM"][0] *= 0.8
         shot["camera"] = {"from": before, "to": after}
+    from .campaign_defaults import resize_campaign_defaults
+    scene = resize_campaign_defaults(scene, reference_size_m=max(dimensions))
     validate_scene(scene)
     return scene, payload, source_root
 
@@ -291,21 +361,52 @@ def _write_assets(scene, payload, destination, template_root):
     _immutable_write(safe_asset_path(destination, asset["path"]), payload)
 
 
+PRODUCT_SUFFIXES = (".glb", ".blend", ".step", ".stp", ".iges", ".igs", ".stl", ".obj")
+
+
+@contextmanager
+def _converted_product(source_path, *, name, provenance, metadata, blender, source_up, source_units):
+    """Normalize once, then let all callers use the same immutable GLB handoff."""
+    import tempfile
+    suffix = Path(source_path).suffix.lower()
+    _require(suffix in PRODUCT_SUFFIXES, "Choose GLB, Blender, STEP, IGES, STL or OBJ; export native CAD to STEP first")
+    _require(isinstance(name, str) and 0 < len(name.strip()) <= 120, "Product name must contain 1 to 120 characters")
+    validate_provenance(provenance)
+    _require(metadata is None or isinstance(metadata, dict), "Product metadata must be an object")
+    if suffix == ".glb":
+        yield source_path, metadata
+        return
+    with tempfile.TemporaryDirectory(prefix="gesso-product-") as temporary:
+        converted = Path(temporary) / "product.glb"
+        if suffix == ".blend":
+            from .blend_import import convert_blend_product
+            report = convert_blend_product(source_path, converted, blender=blender,
+                                           **({"source_units": source_units} if source_units else {}))
+            key = "blendImport"
+        elif suffix in (".step", ".stp", ".iges", ".igs"):
+            from .cad_import import convert_cad_product
+            report = convert_cad_product(source_path, converted, source_up=source_up)
+            key = "cadImport"
+        else:
+            from .cad_import import convert_mesh_product
+            report = convert_mesh_product(source_path, converted, source_units=source_units,
+                                          source_up=source_up, blender=blender)
+            key = "meshImport"
+        yield converted, {**(metadata or {}), key: report}
+
+
 def create_product_scene(source_path, output_dir, *, name, provenance, template=None, dimensions_m=None,
-                         bounds_m=None, material=None, metadata=None, blender="blender"):
+                         bounds_m=None, material=None, metadata=None, blender="blender",
+                         source_up="z", source_units=None):
     """Write scene.json and pinned product/environment assets in output_dir."""
-    if Path(source_path).suffix.lower() == ".blend":
-        import tempfile
-        from .blend_import import convert_blend_product
-        _require(isinstance(name, str) and 0 < len(name.strip()) <= 120, "Product name must contain 1 to 120 characters")
-        validate_provenance(provenance)
-        _require(metadata is None or isinstance(metadata, dict), "Product metadata must be an object")
-        with tempfile.TemporaryDirectory(prefix="gesso-blend-product-") as temporary:
-            converted = Path(temporary) / "product.glb"
-            report = convert_blend_product(source_path, converted, blender=blender)
-            return create_product_scene(converted, output_dir, name=name, provenance=provenance, template=template,
-                                        dimensions_m=dimensions_m, bounds_m=bounds_m, material=material,
-                                        metadata={**(metadata or {}), "blendImport": report})
+    with _converted_product(source_path, name=name, provenance=provenance, metadata=metadata,
+                            blender=blender, source_up=source_up, source_units=source_units) as (prepared, details):
+        return _create_prepared_scene(prepared, output_dir, name=name, provenance=provenance, template=template,
+                                      dimensions_m=dimensions_m, bounds_m=bounds_m, material=material, metadata=details)
+
+
+def _create_prepared_scene(source_path, output_dir, *, name, provenance, template, dimensions_m,
+                           bounds_m, material, metadata):
     scene, payload, template_root = _prepared_scene(source_path, name=name, provenance=provenance, template=template,
                                                   dimensions_m=dimensions_m, bounds_m=bounds_m, material=material, metadata=metadata)
     destination = Path(output_dir).resolve()
@@ -320,8 +421,16 @@ def create_product_scene(source_path, output_dir, *, name, provenance, template=
 
 
 def import_product(source_path, library_root, *, name, provenance, template=None, dimensions_m=None,
-                   bounds_m=None, material=None, metadata=None):
+                   bounds_m=None, material=None, metadata=None, blender="blender", source_up="z", source_units=None):
     """Import a reusable local product entry; never uploads source media."""
+    with _converted_product(source_path, name=name, provenance=provenance, metadata=metadata,
+                            blender=blender, source_up=source_up, source_units=source_units) as (prepared, details):
+        return _import_prepared_product(prepared, library_root, name=name, provenance=provenance, template=template,
+                                        dimensions_m=dimensions_m, bounds_m=bounds_m, material=material, metadata=details)
+
+
+def _import_prepared_product(source_path, library_root, *, name, provenance, template, dimensions_m,
+                             bounds_m, material, metadata):
     scene, payload, template_root = _prepared_scene(source_path, name=name, provenance=provenance, template=template,
                                                   dimensions_m=dimensions_m, bounds_m=bounds_m, material=material, metadata=metadata)
     from .scene import scene_digest

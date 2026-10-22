@@ -1,3 +1,4 @@
+import {partTargetIds} from './partTargets';
 import {cameraPoseAtFrame} from './cameraFraming';
 import type {CameraPose} from './camera';
 import {defaultLighting, ensureLighting, isLightTarget, lightIdFromTarget} from './world';
@@ -32,15 +33,20 @@ export function motionLights(scene: any): {id: string; name: string; enabled: bo
   return ((scene.lighting ?? defaultLighting(scene)).lights as any[]).map(light => ({id: light.id, name: light.name, enabled: light.enabled}));
 }
 
-export function availableMotionKinds(scene: any, target: string): MotionKind[] {
+function supportedMotionKinds(scene: any, target: string, includeRemoved: boolean): MotionKind[] {
   if (target === '$camera') return ['orbit', 'dolly'];
   if (target === '$product') return ['move', 'rotate', 'scale'];
   if (isLightTarget(target)) return motionLights(scene).some(light => light.id === lightIdFromTarget(target) && light.enabled) ? [...LIGHT_MOTION_KINDS] : [];
-  if (!scene.product.components.some((part: any) => part.id === target)) return [];
+  if (!partTargetIds(scene, includeRemoved).includes(target)) return [];
   // The current evaluator cannot move an assembly reference independently.
   if (scene.actions.some((action: any) => action.relativeTo === target)) return [];
   const confirmed = scene.actions.some((action: any) => action.componentId === target && action.approval === 'confirmed');
   return confirmed ? ['mechanical', 'move', 'rotate', 'scale'] : ['move', 'rotate', 'scale'];
+}
+
+/** Removed parts keep their authored motion for recovery, but cannot receive new actions. */
+export function availableMotionKinds(scene: any, target: string): MotionKind[] {
+  return supportedMotionKinds(scene, target, false);
 }
 
 /** Camera actions own the complete camera position; independent spatial owners cannot compete. */
@@ -71,7 +77,7 @@ export function validateFilmMotions(scene: any): void {
       fail(motion && typeof motion === 'object', 'Motion must be an object.');
       fail(typeof motion.id === 'string' && motion.id.trim().length > 0 && motion.id.length <= 120 && !ids.has(motion.id), 'Motion IDs must be unique within their scope.');
       ids.add(motion.id);
-      fail(kinds.includes(motion.kind) && availableMotionKinds(scene, motion.target).includes(motion.kind), 'This action is unavailable for the selected object.');
+      fail(kinds.includes(motion.kind) && supportedMotionKinds(scene, motion.target, true).includes(motion.kind), 'This action is unavailable for the selected object.');
       // Mirrors film.scene: the renderer only animates a light saved in the rig.
       if (isLightTarget(motion.target)) fail((scene.lighting?.lights ?? []).some((light: any) => light.id === lightIdFromTarget(motion.target) && light.enabled), 'Save the studio rig before animating its lights.');
       fail(['x', 'y', 'z'].includes(motion.axis), 'Choose an X, Y or Z axis.');
@@ -137,6 +143,7 @@ function entry(scene: any, shotId: string, id: string): MotionEntry {
 }
 
 export function addMotion(scene: any, shotId: string, target: string, kind: MotionKind): string {
+  fail(availableMotionKinds(scene, target).includes(kind), 'This action is unavailable for the selected object.');
   const ids = new Set([...(scene.motions ?? []), ...scene.shots.flatMap((shot: any) => shot.motions ?? [])].map((motion: FilmMotion) => motion.id));
   let index = 1; while (ids.has(`motion-${index}`)) index++;
   const id = `motion-${index}`;
@@ -158,6 +165,8 @@ export function addMotion(scene: any, shotId: string, target: string, kind: Moti
 export function updateMotion(scene: any, shotId: string, id: string, patch: Partial<Omit<FilmMotion, 'id'>>) {
   edit(scene, draft => {
     const motion = entry(draft, shotId, id).motion;
+    if (patch.target !== undefined && patch.target !== motion.target)
+      fail(availableMotionKinds(draft, patch.target).includes(patch.kind ?? motion.kind), 'This action is unavailable for the selected object.');
     if (patch.durationFrames !== undefined && patch.durationFrames !== motion.durationFrames && !('keys' in patch)) {
       whole(patch.durationFrames, 'Motion duration');
       fail(patch.durationFrames >= 2, 'A motion needs at least two frames.');

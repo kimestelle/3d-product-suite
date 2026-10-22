@@ -1,4 +1,4 @@
-import { Euler, PerspectiveCamera, Plane, Quaternion, Raycaster, Vector2, Vector3 } from 'three';
+import { Euler, Matrix4, PerspectiveCamera, Plane, Quaternion, Raycaster, Vector2, Vector3 } from 'three';
 import type { TransformAxis, TransformMode } from './transforms';
 
 export type TransformPointer = { x: number; y: number };
@@ -7,7 +7,12 @@ export type TransformGesture = {
   sample(mode: TransformMode, axis: TransformAxis, pointer: TransformPointer): number | null;
 };
 type ViewportRect = { left: number; top: number; width: number; height: number };
-type GestureOptions = { translationScale?: number; rotationXyzw?: number[] };
+type GestureOptions = {
+  translationScale?: number;
+  rotationXyzw?: number[];
+  /** Authored coordinate space to world, including inherited scale and shear. */
+  parentToWorld?: Matrix4;
+};
 const axes = { x: new Vector3(1, 0, 0), y: new Vector3(0, 1, 0), z: new Vector3(0, 0, 1) };
 
 /** Freeze the real inspection projection; no pixel-to-world sensitivity constant. */
@@ -18,6 +23,12 @@ export function createTransformPointerGesture(
       || rect.width <= 0 || rect.height <= 0) return null;
   const translationScale = options.translationScale ?? 1;
   if (!Number.isFinite(translationScale) || translationScale <= 0) return null;
+  const worldToParent = options.parentToWorld?.clone();
+  if (worldToParent) {
+    if (!worldToParent.elements.every(Number.isFinite) || worldToParent.determinant() === 0) return null;
+    worldToParent.invert();
+    if (!worldToParent.elements.every(Number.isFinite)) return null;
+  }
   const frozenCamera = camera.clone(); frozenCamera.updateMatrixWorld(true);
   const origin = pivot.clone(), initial = { x: start.x, y: start.y };
   // DOMRect exposes these as prototype getters, not enumerable own fields.
@@ -27,6 +38,12 @@ export function createTransformPointerGesture(
   const projected = origin.clone().project(frozenCamera);
   const center = new Vector2(bounds.left + (projected.x + 1) * bounds.width / 2, bounds.top + (1 - projected.y) * bounds.height / 2);
   const initialRadius = Math.hypot(initial.x - center.x, initial.y - center.y);
+  // Intersect in the authored parent space. Decomposing its matrix would lose
+  // nonuniform scale/shear and make the pointer disagree with numeric controls.
+  if (worldToParent) {
+    origin.applyMatrix4(worldToParent);
+    direction.transformDirection(worldToParent);
+  }
   const rotationAxes = { x: axes.x.clone(), y: axes.y.clone(), z: axes.z.clone() };
   if (options.rotationXyzw) {
     const euler = new Euler().setFromQuaternion(new Quaternion().fromArray(options.rotationXyzw), 'XYZ');
@@ -38,6 +55,7 @@ export function createTransformPointerGesture(
   const raycaster = new Raycaster();
   const hit = (point: TransformPointer, normal: Vector3): Vector3 | null => {
     raycaster.setFromCamera(new Vector2((point.x - bounds.left) / bounds.width * 2 - 1, 1 - (point.y - bounds.top) / bounds.height * 2), frozenCamera);
+    if (worldToParent) raycaster.ray.applyMatrix4(worldToParent);
     if (Math.abs(raycaster.ray.direction.dot(normal)) < 1e-5) return null;
     const intersection = raycaster.ray.intersectPlane(new Plane().setFromNormalAndCoplanarPoint(normal, origin), new Vector3());
     // A plane through the camera collapses every ray to its origin.

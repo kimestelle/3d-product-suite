@@ -7,10 +7,13 @@ const props: ExportPanelProps = {
   projectName: 'Lamp campaign', frame: 125, initialMode: 'still', capabilities: {blenderAvailable: true, ffmpegAvailable: true}, jobs: [], currentDigest: 'current',
   onSubmit: async () => {throw new Error('render should only start from an explicit submit');}, onControl: async () => {}, onClose: () => {}, onAdjustFrame: () => {},
 };
-describe('Export sheet content', () => {
+describe('Export sidebar content', () => {
   it('separates selecting export settings from rendering and exposes all still formats', () => {
     const html = renderToStaticMarkup(<ExportPanel {...props}/>);
-    expect(html).toContain('<dialog'); expect(html).toContain('Render still');
+    expect(html).toContain('<section class="gesso-export-panel"'); expect(html).toContain('Render still');
+    expect(html).not.toContain('<dialog'); expect(html).not.toContain('aria-modal');
+    expect(html).toContain('role="tablist"'); expect(html).toContain('role="tab"');
+    expect(html.indexOf('role="tablist"')).toBeLessThan(html.indexOf('gesso-export-heading'));
     for (const label of ['PNG', 'JPEG', 'WebP', 'Current composition', '1080 × 1920 px', 'Frame 125 of 360', 'Filename']) expect(html).toContain(label);
     expect(html).not.toContain('<canvas'); expect(html).not.toContain('<img');
     expect(html).not.toContain('Download PNG');
@@ -30,5 +33,13 @@ describe('Export sheet content', () => {
     const html = renderToStaticMarkup(<ExportPanel {...props} scene={{...props.scene, comparison:{}}}/>);
     expect(html).toContain('Both environments'); expect(html).toContain('matching PNG stills');
     expect(html).not.toContain('JPEG'); expect(html).not.toContain('WebP');
+  });
+  it('keeps composition controls in a collapsed disclosure for either output mode', () => {
+    for (const mode of ['still', 'video'] as const) {
+      const html = renderToStaticMarkup(<ExportPanel {...props} initialMode={mode} compositionSettings={<p>Existing output controls</p>}/>);
+      expect(html).toContain('<details class="gesso-disclosure gesso-export-composition-settings"><summary>');
+      expect(html).toContain(`<summary>${mode === 'still' ? 'Composition' : 'Composition + sound'}</summary>`);
+      expect(html).toContain('Existing output controls');
+    }
   });
 });
