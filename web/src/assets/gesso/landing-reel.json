@@ -1,8 +1,19 @@
 {
-  "version": "showcase-2026-10-22",
+  "version": "showcase-mobile-2026-10-22",
   "fps": 30,
   "width": 1280,
   "height": 720,
+  "profile": "high",
+  "level": "3.1",
+  "mobile": {
+    "width": 640,
+    "height": 360,
+    "profile": "baseline",
+    "level": "3.0",
+    "crf": 26,
+    "maxRateKbps": 450,
+    "bufferKbits": 900
+  },
   "flip": true,
   "source": "gesso-video-handoff/media/03-renders/loops",
   "note": "Real Gesso Cycles camera renders from the five showcase campaigns. Audio is removed. Horizontal mirroring is presentation-only; these source files and the encoded reel keep their original orientation. The Leica look-alike is not the Minolta demo camera.",

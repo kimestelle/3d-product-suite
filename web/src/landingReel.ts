@@ -1,6 +1,7 @@
 import {LANDING_REEL_VERSION} from './landingReelMetadata';
 
 export const LANDING_REEL_SRC = `/media/gesso-landing-reel.mp4?v=${LANDING_REEL_VERSION}`;
+export const LANDING_REEL_MOBILE_SRC = `/media/gesso-landing-reel-mobile.mp4?v=${LANDING_REEL_VERSION}`;
 export type LandingReelState = {frameReady: boolean; playing: boolean; wanted: boolean; failed: boolean};
 export const LANDING_REEL_STILL: LandingReelState = {frameReady: false, playing: false, wanted: false, failed: false};
 
@@ -16,6 +17,9 @@ export class LandingReel {
   private disposed = false;
   private attached = false;
   private active = false;
+  private playPending = false;
+  private retryOnReady = false;
+  private retriedOnReady = false;
   private epoch = 0;
   private pendingFrame: number | null = null;
   private frameReady = false;
@@ -25,12 +29,14 @@ export class LandingReel {
   constructor(private video: HTMLVideoElement, private changed: (state: LandingReelState) => void, entering = false) {
     // Set both the reflected muted attribute and the live property before src
     // or play(). Inline autoplay on Safari must not depend on React's order.
-    video.defaultMuted = true; video.muted = true; video.playsInline = true;
+    video.defaultMuted = true; video.muted = true; video.playsInline = true; video.autoplay = true;
     this.entering = entering;
     this.reduced.addEventListener('change', this.sync);
     this.connection?.addEventListener('change', this.sync);
-    document.addEventListener('visibilitychange', this.sync);
+    document.addEventListener('visibilitychange', this.resume);
+    window.addEventListener('pageshow', this.resume);
     video.addEventListener('loadeddata', this.loaded);
+    video.addEventListener('canplay', this.ready);
     video.addEventListener('playing', this.played);
     video.addEventListener('pause', this.paused);
     video.addEventListener('error', this.error);
@@ -51,14 +57,15 @@ export class LandingReel {
   private sync = () => {
     if (this.disposed) return;
     if (!this.wanted) {
-      this.active = false; this.epoch++; this.cancelFrame(); this.video.pause(); this.playing = false;
+      this.active = false; this.playPending = false; this.epoch++; this.cancelFrame(); this.video.pause(); this.playing = false;
     } else if (!this.active) {
       this.active = true;
       const epoch = ++this.epoch;
       if (!this.attached) {
         this.attached = true;
         this.video.preload = 'auto';
-        this.video.src = LANDING_REEL_SRC;
+        // Choose before attaching src: a phone never fetches the desktop reel.
+        this.video.src = matchMedia('(max-width: 760px)').matches ? LANDING_REEL_MOBILE_SRC : LANDING_REEL_SRC;
       }
       if (!this.frameReady) {
         if (this.video.requestVideoFrameCallback) {
@@ -69,8 +76,18 @@ export class LandingReel {
         } else if (this.video.readyState >= 2) this.frameReady = true;
       }
       // Play can reject after an intentional pause; the epoch makes it stale.
-      try {this.video.play().catch(() => {if (epoch === this.epoch) this.error();});}
-      catch {if (epoch === this.epoch) this.error();}
+      this.playPending = true;
+      const rejected = (error: unknown) => {
+        if (epoch !== this.epoch || this.disposed) return;
+        this.playPending = false;
+        // Loading can interrupt Safari's first play request. Retry once after
+        // enough data arrives; a policy rejection still needs the play button.
+        this.retryOnReady = !this.retriedOnReady && error instanceof DOMException && error.name === 'AbortError';
+        this.error();
+        this.ready();
+      };
+      try {this.video.play().then(() => {if (epoch === this.epoch) this.playPending = false;}, rejected);}
+      catch (error) {rejected(error);}
     }
     this.publish();
   };
@@ -78,6 +95,19 @@ export class LandingReel {
     if (!this.video.requestVideoFrameCallback && this.video.readyState >= 2) {
       this.frameReady = true; this.publish();
     }
+  };
+  private ready = () => {
+    if (!this.retryOnReady || this.video.readyState < 3 || this.disposed) return;
+    this.retryOnReady = false; this.retriedOnReady = true; this.failed = false;
+    this.sync();
+  };
+  private resume = () => {
+    // A retained page can return from the back/forward cache with its video
+    // paused even when its media controller was previously active.
+    if (this.wanted && !this.playPending && (this.video.paused || !this.playing)) {
+      this.cancelFrame(); this.active = false;
+    }
+    this.sync();
   };
   private played = () => {
     if (!this.wanted) {this.video.pause(); return;}
@@ -91,9 +121,10 @@ export class LandingReel {
 
   toggle() {
     if (this.disposed) return;
+    this.retryOnReady = false;
     if (this.wanted || this.playing) this.manual = false;
     else {
-      this.manual = true; this.failed = false;
+      this.manual = true; this.failed = false; this.retriedOnReady = false;
       // Media errors need a fresh load; autoplay rejection does not.
       if (this.video.error) this.video.load();
     }
@@ -108,8 +139,10 @@ export class LandingReel {
     this.disposed = true; this.epoch++; this.cancelFrame();
     this.reduced.removeEventListener('change', this.sync);
     this.connection?.removeEventListener('change', this.sync);
-    document.removeEventListener('visibilitychange', this.sync);
+    document.removeEventListener('visibilitychange', this.resume);
+    window.removeEventListener('pageshow', this.resume);
     this.video.removeEventListener('loadeddata', this.loaded);
+    this.video.removeEventListener('canplay', this.ready);
     this.video.removeEventListener('playing', this.played);
     this.video.removeEventListener('pause', this.paused);
     this.video.removeEventListener('error', this.error);

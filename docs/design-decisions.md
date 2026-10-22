@@ -1344,3 +1344,36 @@ Reason: the user wants to try the full backend quickly on the existing Vercel de
 Verification after integrating main through 0e885be: 650 Python tests pass (67 optional skips), including 19 hosted-boundary/configuration tests. The frontend passes 1,524 tests (4 optional packaged-campaign skips); normal and demo builds and 11 native capture tests pass. Local HTTPS checks cover failed/successful login, secure cookie scope, private assets, return URLs, save/reload and a public landing page. Browser form values were set through the DOM because this runtime's Chromium also fails text insertion and text layout on an unrelated minimal HTML page; this is a functional flow check, not visual acceptance. Render/Vercel production checks remain pending.
 
 Container verification: the Linux image starts as UID 10001, authenticates requests, serves private GLBs, and preserves a saved revision and session across a restart on a named volume. OpenCascade constructs actual geometry. The image's Chromium types and lays out text normally, and the native capture worker authenticates successfully. A three-frame 32 × 32 export completes through Blender 4.3.2 and FFmpeg 7.1.5, producing H.264, the editable `.blend`, stills and a contact sheet. This verifies the packaged toolchain, not hosted performance or final image quality.
+
+### 2026-10-22 — D171 — The mobile cover starts a smaller compatible reel automatically
+
+**In code; refines D165 and D167.** Select a 640 × 360, 30 fps H.264 Baseline
+level 3.0 reel before attaching the source below the existing 760px breakpoint.
+It retains all five product cuts, runs for 11 seconds and transfers about 273 KB
+instead of 1.1 MB. Set muted, default-muted, inline and autoplay before loading.
+Keep the mobile video visible with its native poster while it starts, rather
+than making visibility depend on a first presented-frame callback. Recover a
+paused retained page on return and allow one interrupted-load retry when ready.
+Manual pause, reduced-motion/data-saving preferences and the tap-to-play fallback
+for a browser policy rejection remain effective.
+
+Reason: the user reports a still cover on phones and asks for lower-resolution
+automatic playback. The supplied desktop MP4 also declared AVC level 6.2 and a
+1,000,000 fps VUI clock; normalize those declarations to level 3.1 / 30 fps
+without re-encoding its pictures, so wider screens retain compatible media too.
+The page's layout, wordmark, contour and footage stay the same. Scope:
+LandingPage, landingReel, landing.css, the reel manifest, both MP4s,
+build_landing_reel and asset provenance.
+
+Verification: both files have 330 frames, no audio, correct codec/clock metadata
+and fast-start MP4 ordering. All 330 desktop decoded frame hashes are unchanged.
+Media regression checks inspect the shipped binary files. WebKit with iPhone
+emulation and system Chromium show advancing frames without a click, choose only
+the mobile asset on phones, use the full reel on desktop, pause off-page and
+resume on Back or page restoration. Physical iPhone battery/browser policy
+restrictions are not overridden by an autoplay request.
+
+The frontend suite and normal/demo builds pass; focused coverage includes 19
+media lifecycle tests and two binary-media checks. Reduced motion, Save-Data
+and a simulated autoplay rejection retain a working explicit play button in
+both browser engines.

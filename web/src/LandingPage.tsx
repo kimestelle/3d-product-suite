@@ -174,7 +174,7 @@ export default function LandingPage({active}: {active:boolean}) {
         <FrameWindow className="landing-window-content" vignette>
           <img className="landing-render gesso-product-film" src={stillRender} alt="Chronograph fan art in the velvet jewel-box, rendered in gesso" onLoad={()=>setReady(true)} onError={()=>setFailed(true)}/>
           <video ref={reel.videoRef} className={`landing-video gesso-product-film ${reel.frameReady ? 'has-frame' : ''}`}
-            poster={reelPoster} muted playsInline loop preload="none" disablePictureInPicture tabIndex={-1} aria-hidden="true"/>
+            data-failed={reel.failed} poster={stillRender} autoPlay muted playsInline loop preload="none" disablePictureInPicture tabIndex={-1} aria-hidden="true"/>
           <LandingVideoOverlay visible={active && aperture.open} playing={reel.playing} failed={reel.failed} videoRef={reel.videoRef} onToggle={reel.toggle}/>
         </FrameWindow>
         <div id={`${id}-enter`} className="landing-entrance" data-frame-outside inert={!aperture.open}>

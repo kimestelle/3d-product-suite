@@ -25,6 +25,26 @@ No Adobe Halyard font files are included. The interface loads the owner's Adobe 
 
 At the user's request, the homepage film/stills and About gallery video/posters are mirrored horizontally in CSS. The source media and the encoded reel keep their original orientation. Text, controls and other page images are not mirrored. A video edit using the source reel should apply the manifest's `flip: true` once to match the site; a recording of the site is already mirrored.
 
+### Mobile playback derivative (2026-10-22)
+
+`/media/gesso-landing-reel-mobile.mp4` is a 640 × 360, 30 fps derivative of the
+same five-product cut: 330 frames / 11 seconds, H.264 Constrained Baseline level
+3.0, YUV 4:2:0, no audio, with the MP4 index before its picture data. At 272,866
+bytes it is about 75% smaller than the desktop reel. Phones at the compact
+breakpoint select this file before a media request is made. Source footage,
+product credits, shot order, timing and presentation mirroring are preserved.
+
+The desktop MP4's AVC declarations were corrected from level 6.2 and a
+1,000,000 fps VUI clock to level 3.1 and a 30 fps clock. This is a lossless
+bitstream metadata update: all 330 decoded frame hashes match the previous
+file. The five references and 1280 × 720 / 30 fps stream fit level 3.1.
+
+Rebuild both files from the handoff with the existing `--source-dir` command,
+or use `python scripts/build_landing_reel.py --from-existing` to normalize the
+checked-in desktop reel and regenerate its mobile copy without the handoff.
+The manifest records the encoding settings. Neither command changes the
+original supplied renders or asserts additional reuse rights.
+
 - Landing frame `40:1124`, synced 2026-10-18: `landing-scene-mask.svg` (851.429 × 491.209), `landing-aperture-edge.svg` (852.338 × 492.118), and `landing-cta-arrow.svg` (14.25 × 20) are unchanged Figma exports. The expanded endpoint uses the exact mask and edge; the existing 64-node contour animates to/from that endpoint. The top navigation reuses `about-arrow-up-right.svg` (14 × 20), verified byte-identical to this frame's export. Video and poster retain the renderer provenance above.
 
 - `undo-2.svg` and `redo-2.svg`: official Lucide history arrows, downloaded 2026-10-18 from https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/undo-2.svg and https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/redo-2.svg . Original SVGs retained unchanged; 24 × 24 viewBox, rendered at 16px in the editor top bar. License: `Lucide-LICENSE.txt`.

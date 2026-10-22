@@ -74,6 +74,10 @@
   .landing-mobile-logo > span { display: block; transform: translateY(-.14em); }
   .landing-mobile-play { display: block; position: absolute; z-index: 3; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 8px 12px; border: 0; border-radius: 16px; background: #131313b8; color: #fff; font: 400 14px/20px var(--gesso-font-text); white-space: nowrap; }
   .landing-window { flex: none; width: var(--aperture-width); height: calc(var(--aperture-width) * .6); }
+  /* iOS may wait for a visible video before presenting its first frame. Let
+     the native poster cover loading instead of hiding video until playback. */
+  .landing-video { opacity: 1; }
+  .landing-video[data-failed=true] { opacity: 0; }
   .landing-side, .landing-logo, .landing-entrance, .landing-footer, .landing-video-overlay { display: none; }
   .landing-mobile-action { display: flex; flex: none; flex-direction: column; align-items: center; gap: 20px; color: #fff; }
   .landing-mobile-action p { margin: 0; font: 400 20px/28px var(--gesso-font-text); text-align: center; -webkit-font-smoothing: antialiased; }
