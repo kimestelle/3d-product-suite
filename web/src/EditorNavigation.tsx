@@ -4,7 +4,9 @@ import optionIcon from './assets/gesso/option-tab.svg';
 import {UiIcon} from './UiIcon';
 import './export-navigation.css';
 
-const exportButtonContour = 'M22 36Q12 36 12 26V10Q12 0 22 0H178Q188 0 188 10V26Q188 36 178 36Z';
+// Safari ignores CSS blur on SVG children and would draw the halo as a hard band; an SVG filter blurs everywhere.
+const haloBlur = 'gesso-tab-halo-blur';
+const exportButtonContour ='M22 36Q12 36 12 26V10Q12 0 22 0H178Q188 0 188 10V26Q188 36 178 36Z';
 const exportTabContour = 'M0 36Q12 36 12 26V10Q12 0 22 0H178Q188 0 188 10V26Q188 36 200 36Z';
 
 function Shortcut({digit}:{digit:number}) {
@@ -20,7 +22,10 @@ export default function EditorNavigation({group,onGroup,exportActive,onExport,ex
     <div className="gesso-navrow" style={{'--active-tab':groups.findIndex(item=>item.id===group)} as CSSProperties}>
       <div className="gesso-tab-surface" aria-hidden="true">
         <svg viewBox="0 0 200 44" preserveAspectRatio="none">
-          <path className="gesso-tab-halo" d="M-1000 44H0Q12 44 12 32V10Q12 0 22 0H178Q188 0 188 10V32Q188 44 200 44H1800"/>
+          <defs><filter id={haloBlur} filterUnits="userSpaceOnUse" x="-1200" y="-140" width="3200" height="330">
+            <feGaussianBlur stdDeviation="32"/>
+          </filter></defs>
+          <path className="gesso-tab-halo" filter={`url(#${haloBlur})`} d="M-1000 44H0Q12 44 12 32V10Q12 0 22 0H178Q188 0 188 10V32Q188 44 200 44H1800"/>
           <path className="gesso-tab-fill" d="M0 44Q12 44 12 32V10Q12 0 22 0H178Q188 0 188 10V32Q188 44 200 44Z"/>
         </svg>
       </div>
