@@ -8,6 +8,14 @@ const circle=loadingFrameNodes(origin);
 const ease=(t:number)=>t*t*(3-2*t);
 const mix=(a:number,b:number,t:number)=>a+(b-a)*t;
 
+/** The browser interpolates these transform samples on its compositor while
+ * model parsing occupies the main thread. They use the same ellipse as the
+ * shared contour; 120 intervals keep linear scale error below .03px at 92px. */
+export const STUDIO_LOADING_KEYFRAMES:Keyframe[]=Array.from({length:121},(_,index)=>{
+  const phase=index/120;
+  return {offset:phase,transform:`rotate(${360*phase}deg) scaleY(${1-.82*Math.sin(Math.PI*phase)**2})`};
+});
+
 /** One circle seen at changing angles. Projecting the same cached cubics keeps
  * every waiting pose an exact ellipse, without compiling catalog morphs. */
 export function studioLoadingNodes(elapsedMs:number,center:{x:number;y:number}):FrameNodes {

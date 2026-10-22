@@ -1,6 +1,13 @@
 .dynamic-frame-shell{position:relative;isolation:isolate;width:100%;height:100dvh;overflow:clip;background:#181818}
 .dynamic-frame-renderer,.dynamic-frame-artwork{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
 .dynamic-frame-renderer{z-index:0;overflow:clip}
+/* Only the waiting glyph is composited independently of editor initialization.
+   Its static SVG retains the shared 64 anchors; blur stays outside the transform. */
+.dynamic-frame-loader{position:fixed;left:calc(50% - 52px);top:calc(50% - 52px);width:104px;height:104px;pointer-events:none}
+.dynamic-frame-loader[hidden]{display:none}
+.dynamic-frame-loader [data-loading-surface]{position:absolute;inset:0;transform-origin:50% 50%;will-change:transform}
+.dynamic-frame-loader svg{display:block;width:104px;height:104px;overflow:visible;fill:currentColor}
+.dynamic-frame-loader-light{position:absolute;inset:0;filter:blur(20px);opacity:.5}
 .dynamic-frame-page{position:fixed;inset:0;z-index:1;opacity:0;visibility:hidden;outline:none}
 .dynamic-frame-page[data-initial=true]{visibility:visible}
 .dynamic-frame-page[data-frame-visible=false] *{visibility:hidden!important}

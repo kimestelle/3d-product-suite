@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import {frameBounds,loadingFrameNodes,roundedFrameNodes,type FrameNodes} from './frameGeometry';
-import {createStudioExpansion,studioLoadingNodes,STUDIO_LOADING_CYCLE_MS} from './studioLoading';
+import {createStudioExpansion,studioLoadingNodes,STUDIO_LOADING_CYCLE_MS,STUDIO_LOADING_KEYFRAMES} from './studioLoading';
 
 const keys=['point','in','out'] as const;
 const center={x:640,y:416};
@@ -33,6 +33,15 @@ function expectEllipse(nodes:FrameNodes) {
 }
 
 describe('Circle viewed from changing perspectives',()=>{
+  it('keeps native transform interpolation within .03px of the shared ellipse',()=>{
+    const scales=STUDIO_LOADING_KEYFRAMES.map(frame=>Number(String(frame.transform).match(/scaleY\(([^)]+)/)![1]));
+    for(let i=0;i<scales.length-1;i++)for(const t of [.25,.5,.75]){
+      const phase=(i+t)/(scales.length-1),interpolated=scales[i]+(scales[i+1]-scales[i])*t;
+      const exact=1-.82*Math.sin(Math.PI*phase)**2;
+      expect(Math.abs(interpolated-exact)*46).toBeLessThan(.03);
+    }
+    expect(scales[0]).toBe(1);expect(scales.at(-1)).toBe(1);
+  });
   it('starts from the exact existing loading circle and loops without a seam',()=>{
     expect(studioLoadingNodes(0,center)).toEqual(loadingFrameNodes(center));
     expect(studioLoadingNodes(STUDIO_LOADING_CYCLE_MS,center)).toEqual(studioLoadingNodes(0,center));

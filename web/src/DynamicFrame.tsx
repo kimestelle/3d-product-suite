@@ -3,14 +3,14 @@ import {frameBounds,framePath, loadingFrameNodes, roundedFrameNodes, type FrameB
 import {entranceEase} from './studioEntrance';
 import {createFrameMorph,createFrameTransition,DEFAULT_FRAME_SHRINK,normalizeFrameShrink} from './frameMorph';
 import {STATIC_MOTION_QUERY} from './motionPolicy';
-import {createStudioExpansion,studioLoadingNodes} from './studioLoading';
+import {createStudioExpansion,studioLoadingNodes,STUDIO_LOADING_CYCLE_MS,STUDIO_LOADING_KEYFRAMES} from './studioLoading';
 import {frameGuidePaths} from './frameGuides';
 import {frameHaloRegion} from './frameHalo';
 import './dynamic-frame.css';
 
 export type FrameRoute = 'landing' | 'about' | 'philosophy' | 'studio';
 export type FrameVisual = {nodes:FrameNodes; ground:string; fill:string; halo:{color:string; blur:number; spread:number; opacity:number}};
-type FrameElements = {root:HTMLElement; path:SVGPathElement; outside?:SVGPathElement; guides?:SVGPathElement; guideCrosses?:SVGPathElement; halo:SVGUseElement; fill:SVGUseElement; light:SVGFilterElement; blur:SVGFEGaussianBlurElement};
+type FrameElements = {root:HTMLElement; path:SVGPathElement; outside?:SVGPathElement; guides?:SVGPathElement; guideCrosses?:SVGPathElement; halo:SVGUseElement; fill:SVGUseElement; light:SVGFilterElement; blur:SVGFEGaussianBlurElement; loader?:HTMLElement};
 type Travel = {from:FrameVisual; weights:Record<FrameRoute,number>; destination:FrameRoute; start:number; duration:number; loading:boolean; opening:boolean; to:FrameVisual; morph:ReturnType<typeof createFrameMorph>};
 const routes:FrameRoute[] = ['landing','about','philosophy','studio'];
 const weights = (page?:FrameRoute):Record<FrameRoute,number> => Object.fromEntries(routes.map(route=>[route,route===page?1:0])) as Record<FrameRoute,number>;
@@ -73,6 +73,7 @@ export class FrameDriver {
   private resizePending=false;
   private loadingElapsed=0;
   private loadingTick:number|null=null;
+  private loadingAnimations:Animation[]=[];
   private studioFailed=false;
   onSettled:(page:FrameRoute)=>void=()=>{};
   onWaiting:(waiting:boolean)=>void=()=>{};
@@ -91,10 +92,10 @@ export class FrameDriver {
     window.addEventListener('resize',this.resize);
     document.addEventListener('visibilitychange',this.visibility);
     this.invalidate();
-    return ()=>{this.alive=false;cancelAnimationFrame(this.frame);this.frame=0;this.preference?.removeEventListener('change',this.preferenceChanged);window.removeEventListener('resize',this.resize);document.removeEventListener('visibilitychange',this.visibility);this.elements=null;};
+    return ()=>{this.alive=false;this.stopLoadingAnimation();cancelAnimationFrame(this.frame);this.frame=0;this.preference?.removeEventListener('change',this.preferenceChanged);window.removeEventListener('resize',this.resize);document.removeEventListener('visibilitychange',this.visibility);this.elements=null;};
   }
-  private preferenceChanged=()=>{this.reduced=!!this.preference?.matches;this.loadingTick=null;this.invalidate();};
-  private visibility=()=>{cancelAnimationFrame(this.frame);this.frame=0;this.loadingTick=null;if(!document.hidden){if(this.travel)this.travel.start+=performance.now()-this.lastTime;this.invalidate();}};
+  private preferenceChanged=()=>{this.captureLoadingPose();this.reduced=!!this.preference?.matches;this.loadingTick=null;this.invalidate();};
+  private visibility=()=>{this.captureLoadingPose();for(const animation of this.loadingAnimations)animation.pause();cancelAnimationFrame(this.frame);this.frame=0;this.loadingTick=null;if(!document.hidden){if(this.travel)this.travel.start+=performance.now()-this.lastTime;this.invalidate();}};
   private resize=()=>{this.resizePending=true;for(const page of routes)this.dirtySources.add(page);for(const measure of this.windows)this.dirtyWindows.add(measure);this.invalidate();};
   watchWindow(page:FrameRoute|undefined,measure:()=>void) {
     this.windows.add(measure);this.windowOwners.set(measure,page);this.dirtyWindows.add(measure);
@@ -127,13 +128,14 @@ export class FrameDriver {
   register(page:FrameRoute,source:()=>FrameVisual|null) {this.sources.set(page,source);this.invalidate(page);return()=>{if(this.sources.get(page)===source)this.sources.delete(page);};}
   registerHost(page:FrameRoute,host:HTMLElement|null) {if(host)this.hosts.set(page,host);else this.hosts.delete(page);this.invalidate();}
   navigate(page:FrameRoute) {
+    this.captureLoadingPose();this.stopLoadingAnimation();
     this.target=page;this.pending=true;this.waiting=false;this.onWaiting(false);
     this.loadingElapsed=0;this.loadingTick=null;
     this.dirtySources.add(page);for(const measure of this.windows)this.dirtyWindows.add(measure);
     this.paint();this.invalidate();
   }
   markReady(page:FrameRoute) {this.ready.add(page);if(page==='studio')this.studioFailed=false;this.invalidate(page);}
-  failStudio() {this.studioFailed=true;this.loadingTick=null;this.invalidate('studio');}
+  failStudio() {this.captureLoadingPose();for(const animation of this.loadingAnimations)animation.pause();this.studioFailed=true;this.loadingTick=null;this.invalidate('studio');}
   retryStudio() {this.ready.delete('studio');this.studioFailed=false;this.loadingTick=null;this.invalidate('studio');}
   private read(page:FrameRoute):FrameVisual|null {
     if(!this.dirtySources.has(page)&&this.measured.has(page))return this.measured.get(page)!;
@@ -190,6 +192,9 @@ export class FrameDriver {
     }
     this.resizePending=false;
     if(this.waiting&&this.ready.has('studio')) {
+      // Web Animations may have advanced while the main thread was parsing a
+      // model. Expand from the visible compositor pose, not its last JS frame.
+      this.captureLoadingPose();this.stopLoadingAnimation();
       this.waiting=false;this.onWaiting(false);
       this.travel=this.begin(this.current,target,now,680,false,true);
     }
@@ -208,13 +213,45 @@ export class FrameDriver {
       } else this.invalidate();
     } else if(this.waiting) {
       const animate=!this.reduced&&!this.studioFailed;
-      if(animate&&this.loadingTick!==null)this.loadingElapsed+=now-this.loadingTick;
+      const compositorTime=this.loadingAnimations[0]?.currentTime;
+      if(typeof compositorTime==='number')this.loadingElapsed=compositorTime;
+      else if(animate&&this.loadingTick!==null)this.loadingElapsed+=now-this.loadingTick;
       this.loadingTick=animate?now:null;
       this.current={...this.current,nodes:studioLoadingNodes(this.loadingElapsed,{x:innerWidth/2,y:innerHeight/2})};
       if(animate)this.invalidate();
     } else {this.current=target;this.currentWeights=weights(this.target);}
     this.paint();
   };
+  private captureLoadingPose() {
+    const elapsed=this.loadingAnimations[0]?.currentTime;
+    if(!this.waiting||!this.current||typeof elapsed!=='number')return;
+    this.loadingElapsed=elapsed;
+    this.current={...this.current,nodes:studioLoadingNodes(elapsed,{x:innerWidth/2,y:innerHeight/2})};
+  }
+  private stopLoadingAnimation() {
+    for(const animation of this.loadingAnimations)animation.cancel();
+    this.loadingAnimations=[];
+    if(this.elements?.loader)this.elements.loader.hidden=true;
+  }
+  private paintLoadingAnimation() {
+    const loader=this.elements?.loader;
+    if(!loader||!this.current)return false;
+    if(!this.waiting){this.stopLoadingAnimation();return false;}
+    if(!this.loadingAnimations.length){
+      const surfaces=Array.from(loader.querySelectorAll<HTMLElement>('[data-loading-surface]'));
+      if(!surfaces.length||surfaces.some(surface=>typeof surface.animate!=='function'))return false;
+      this.loadingAnimations=surfaces.map(surface=>{
+        const animation=surface.animate(STUDIO_LOADING_KEYFRAMES,{duration:STUDIO_LOADING_CYCLE_MS,iterations:Infinity,easing:'linear'});
+        animation.currentTime=this.loadingElapsed;return animation;
+      });
+    }
+    loader.hidden=false;loader.style.color=this.current.fill;
+    for(const animation of this.loadingAnimations){
+      if(this.reduced||this.studioFailed||document.hidden)animation.pause();
+      else if(animation.playState!=='running')animation.play();
+    }
+    return true;
+  }
   private attribute(element:Element,name:string,value:string) {
     let previous=this.painted.get(element);if(!previous){previous=new Map();this.painted.set(element,previous);}
     if(previous.get(name)===value)return;
@@ -223,6 +260,9 @@ export class FrameDriver {
   private paint() {
     if(!this.current||!this.elements)return;
     const {root,path,outside,guides,guideCrosses,fill,halo,light,blur}=this.elements,v=this.current;
+    const compositedLoading=this.paintLoadingAnimation();
+    this.attribute(fill,'visibility',compositedLoading?'hidden':'visible');
+    this.attribute(halo,'visibility',compositedLoading?'hidden':'visible');
     const viewport=`${innerWidth},${innerHeight}`;
     if(this.pathNodes!==v.nodes)this.contourBounds=frameBounds(v.nodes);
     if(this.pathNodes!==v.nodes||this.guideViewport!==viewport) {
@@ -312,8 +352,10 @@ export const FrameOutside=forwardRef<HTMLElement,HTMLAttributes<HTMLElement>&{as
   return <Tag {...props} data-frame-outside style={{...props.style,clipPath:driver?`url(#${id}-outside)`:undefined}} ref={element=>{anchor.current=element;assignRef(ref,element);}}><svg className="dynamic-frame-local-defs" aria-hidden="true"><defs><clipPath id={`${id}-outside`} clipPathUnits="userSpaceOnUse"><use ref={clip} href={`#${driver?.pathId}-outside`} clipRule="evenodd"/></clipPath></defs></svg>{children}</Tag>;
 });
 
+const loadingGlyphPath=framePath(loadingFrameNodes({x:52,y:52}));
 export function FrameRenderer({driver}:{driver:FrameDriver}) {
+  const loader=useRef<HTMLDivElement>(null);
   const root=useRef<HTMLDivElement>(null),path=useRef<SVGPathElement>(null),outside=useRef<SVGPathElement>(null),guides=useRef<SVGPathElement>(null),guideCrosses=useRef<SVGPathElement>(null),halo=useRef<SVGUseElement>(null),fill=useRef<SVGUseElement>(null),light=useRef<SVGFilterElement>(null),blur=useRef<SVGFEGaussianBlurElement>(null);
-  useLayoutEffect(()=>{if(root.current&&path.current&&halo.current&&fill.current&&light.current&&blur.current)return driver.attach({root:root.current,path:path.current,outside:outside.current??undefined,guides:guides.current??undefined,guideCrosses:guideCrosses.current??undefined,halo:halo.current,fill:fill.current,light:light.current,blur:blur.current});},[driver]);
-  return <><div className="dynamic-frame-renderer" ref={root} aria-hidden="true"><svg className="dynamic-frame-artwork"><defs><path id={driver.pathId} ref={path}/><path id={`${driver.pathId}-outside`} ref={outside} fillRule="evenodd"/><filter ref={light} id={`${driver.pathId}-light`} filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" x="0" y="0" width="1" height="1" colorInterpolationFilters="sRGB"><feGaussianBlur ref={blur} stdDeviation="0"/></filter></defs><use ref={halo} href={`#${driver.pathId}`} strokeLinejoin="round" filter={`url(#${driver.pathId}-light)`}/><use ref={fill} href={`#${driver.pathId}`}/></svg></div><svg className="dynamic-frame-guides" aria-hidden="true"><path ref={guides} className="frame-boundary-guides"/><path ref={guideCrosses} className="frame-boundary-crosses"/></svg></>;
+  useLayoutEffect(()=>{if(root.current&&path.current&&halo.current&&fill.current&&light.current&&blur.current)return driver.attach({root:root.current,path:path.current,outside:outside.current??undefined,guides:guides.current??undefined,guideCrosses:guideCrosses.current??undefined,halo:halo.current,fill:fill.current,light:light.current,blur:blur.current,loader:loader.current??undefined});},[driver]);
+  return <><div className="dynamic-frame-renderer" ref={root} aria-hidden="true"><svg className="dynamic-frame-artwork"><defs><path id={driver.pathId} ref={path}/><path id={`${driver.pathId}-outside`} ref={outside} fillRule="evenodd"/><filter ref={light} id={`${driver.pathId}-light`} filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" x="0" y="0" width="1" height="1" colorInterpolationFilters="sRGB"><feGaussianBlur ref={blur} stdDeviation="0"/></filter></defs><use ref={halo} href={`#${driver.pathId}`} strokeLinejoin="round" filter={`url(#${driver.pathId}-light)`}/><use ref={fill} href={`#${driver.pathId}`}/></svg><div className="dynamic-frame-loader" ref={loader} hidden><div className="dynamic-frame-loader-light"><div data-loading-surface><svg viewBox="0 0 104 104"><path d={loadingGlyphPath} stroke="currentColor" strokeWidth="16"/></svg></div></div><div data-loading-surface><svg viewBox="0 0 104 104"><path d={loadingGlyphPath}/></svg></div></div></div><svg className="dynamic-frame-guides" aria-hidden="true"><path ref={guides} className="frame-boundary-guides"/><path ref={guideCrosses} className="frame-boundary-crosses"/></svg></>;
 }

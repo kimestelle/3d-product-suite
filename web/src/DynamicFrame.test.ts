@@ -33,16 +33,19 @@ function advance(ms=16) {
   now+=ms;const batch=Array.from(callbacks.values());callbacks.clear();
   for(const callback of batch)callback(now);
 }
-function setup(initial:FrameRoute='landing',studioReady=false) {
+function setup(initial:FrameRoute='landing',studioReady=false,composited=false) {
   const driver=new FrameDriver(initial,'test-contour');
-  const elements={root:new Element(),path:new Element(),outside:new Element(),guides:new Element(),halo:new Element(),fill:new Element(),light:new Element(),blur:new Element()};
+  const animations=Array.from({length:2},()=>({currentTime:0,playState:'running',cancel:vi.fn(),pause(){this.playState='paused';},play(){this.playState='running';}}));
+  const surfaces=animations.map(animation=>({animate:vi.fn(()=>animation)}));
+  const loader=Object.assign(new Element(),{hidden:true,querySelectorAll:()=>surfaces});
+  const elements={root:new Element(),path:new Element(),outside:new Element(),guides:new Element(),halo:new Element(),fill:new Element(),light:new Element(),blur:new Element(),...(composited?{loader}:{})};
   const hosts=Object.fromEntries(routes.map(page=>[page,new Element()])) as Record<FrameRoute,Element>;
   for(const route of routes){driver.register(route,()=>source(route));driver.registerHost(route,hosts[route] as unknown as HTMLElement);}
   if(studioReady)driver.markReady('studio');
   const dispose=driver.attach(elements as unknown as Parameters<FrameDriver['attach']>[0]);
   const settled=vi.fn(),waiting=vi.fn();driver.onSettled=settled;driver.onWaiting=waiting;
   advance();
-  return {driver,elements,hosts,dispose,settled,waiting};
+  return {driver,elements,hosts,dispose,settled,waiting,animations,loader};
 }
 
 beforeEach(()=>{
@@ -53,6 +56,40 @@ beforeEach(()=>{
   vi.stubGlobal('matchMedia',vi.fn(()=>preference));vi.stubGlobal('performance',{now:()=>now});
   vi.stubGlobal('requestAnimationFrame',(callback:FrameRequestCallback)=>{const id=nextFrame++;callbacks.set(id,callback);return id;});
   vi.stubGlobal('cancelAnimationFrame',(id:number)=>callbacks.delete(id));
+});
+
+describe('Compositor-owned loading perspective',()=>{
+  it('opens from the visible animation time after a delayed main-thread frame',()=>{
+    const {driver,elements,animations,loader,dispose}=setup('landing',false,true);
+    driver.navigate('studio');advance();advance(480);
+    expect(loader.hidden).toBe(false);expect(elements.fill.attrs.get('visibility')).toBe('hidden');
+    for(const animation of animations)animation.currentTime=2170;
+    driver.markReady('studio');advance(400);
+    expect(driver.current!.nodes).toEqual(studioLoadingNodes(2170,{x:width/2,y:height/2}));
+    expect(loader.hidden).toBe(true);expect(elements.fill.attrs.get('visibility')).toBe('visible');
+    for(const animation of animations)expect(animation.cancel).toHaveBeenCalledOnce();
+    advance(680);expect(driver.current).toEqual(source('studio'));dispose();
+  });
+  it('pauses the native animation on failure and hidden tabs, and cancels it on teardown',()=>{
+    const {driver,animations,dispose}=setup('landing',false,true);driver.navigate('studio');advance();advance(480);
+    for(const animation of animations)animation.currentTime=900;
+    driver.failStudio();advance();expect(animations.every(animation=>animation.playState==='paused')).toBe(true);
+    driver.retryStudio();advance();expect(animations.every(animation=>animation.playState==='running')).toBe(true);
+    documentSurface.hidden=true;documentSurface.emit('visibilitychange');
+    expect(animations.every(animation=>animation.playState==='paused')).toBe(true);
+    documentSurface.hidden=false;documentSurface.emit('visibilitychange');advance();
+    expect(animations.every(animation=>animation.playState==='running')).toBe(true);
+    dispose();for(const animation of animations)expect(animation.cancel).toHaveBeenCalledOnce();
+  });
+  it('holds the current native pose for reduced motion without an animation clock',()=>{
+    const {driver,animations,dispose}=setup('landing',false,true);driver.navigate('studio');advance();advance(480);
+    for(const animation of animations)animation.currentTime=1300;
+    preference.matches=true;preference.emit('change');advance();
+    expect(driver.current!.nodes).toEqual(studioLoadingNodes(1300,{x:width/2,y:height/2}));
+    expect(animations.every(animation=>animation.playState==='paused')).toBe(true);expect(callbacks.size).toBe(0);
+    preference.matches=false;preference.emit('change');advance();
+    expect(animations.every(animation=>animation.playState==='running')).toBe(true);dispose();
+  });
 });
 
 describe('Local geometry publication and shared inverse clip',()=>{
