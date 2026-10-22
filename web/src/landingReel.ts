@@ -1,4 +1,6 @@
-export const LANDING_REEL_SRC = '/media/gesso-landing-reel.mp4';
+import {LANDING_REEL_VERSION} from './landingReelMetadata';
+
+export const LANDING_REEL_SRC = `/media/gesso-landing-reel.mp4?v=${LANDING_REEL_VERSION}`;
 export type LandingReelState = {frameReady: boolean; playing: boolean; wanted: boolean; failed: boolean};
 export const LANDING_REEL_STILL: LandingReelState = {frameReady: false, playing: false, wanted: false, failed: false};
 

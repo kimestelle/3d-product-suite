@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type RefObject} from 'react';
-import lampRender from './assets/gesso/landing-reel-poster.png';
+import reelPoster from './assets/gesso/landing-showcase-poster.webp';
+import watchStill from './assets/gesso/form-light-renders/omega-speedmaster.webp';
 import navArrow from './assets/gesso/about-arrow-up-right.svg';
 import {FrameWindow, useFrameSource, useFrameInvalidation} from './DynamicFrame';
 import {landingFrameNodes} from './frameGeometry';
@@ -114,6 +115,7 @@ export default function LandingPage({active}: {active:boolean}) {
   const invalidateLanding = useCallback(() => invalidate('landing'), [invalidate]);
   const aperture = useAperture(rootRef, invalidateLanding, active);
   const reel = useLandingReel(active);
+  const stillRender = reel.failed || (!reel.wanted && !reel.frameReady) ? watchStill : reelPoster;
   const pointerKind = useRef('mouse');
   const frame = useRef<{origin:EntranceOrigin;ground:string;light:string}|null>(null);
   useFrameSource('landing', () => {
@@ -159,9 +161,9 @@ export default function LandingPage({active}: {active:boolean}) {
         onPointerDown={event=>{if(event.pointerType==='touch'&&!(event.target as Element).closest('a,button')) aperture.toggle();}}>
         <h1 className="landing-logo" data-frame-outside aria-label="gesso"><button className="landing-aperture-trigger" type="button" aria-label="Reveal studio entrance" aria-expanded={aperture.open} aria-controls={`${id}-enter`} onClick={event=>{if(event.detail===0) aperture.focus(true);else if(pointerKind.current==='touch') aperture.toggle();}}><span aria-hidden="true">gesso</span></button></h1>
         <FrameWindow className="landing-window-content" vignette>
-          <img className="landing-render" src={lampRender} alt="Artemide Nessino lamp, rendered in gesso" onLoad={()=>setReady(true)} onError={()=>setFailed(true)}/>
-          <video ref={reel.videoRef} className={`landing-video ${reel.frameReady ? 'has-frame' : ''}`}
-            poster={lampRender} muted playsInline loop preload="none" disablePictureInPicture tabIndex={-1} aria-hidden="true"/>
+          <img className="landing-render gesso-product-film" src={stillRender} alt="Chronograph fan art in the velvet jewel-box, rendered in gesso" onLoad={()=>setReady(true)} onError={()=>setFailed(true)}/>
+          <video ref={reel.videoRef} className={`landing-video gesso-product-film ${reel.frameReady ? 'has-frame' : ''}`}
+            poster={reelPoster} muted playsInline loop preload="none" disablePictureInPicture tabIndex={-1} aria-hidden="true"/>
           <LandingVideoOverlay visible={active && aperture.open} playing={reel.playing} failed={reel.failed} videoRef={reel.videoRef} onToggle={reel.toggle}/>
         </FrameWindow>
         <div id={`${id}-enter`} className="landing-entrance" data-frame-outside inert={!aperture.open}>

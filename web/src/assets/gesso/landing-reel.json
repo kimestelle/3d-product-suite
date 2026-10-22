@@ -1,0 +1,16 @@
+{
+  "version": "showcase-2026-10-22",
+  "fps": 30,
+  "width": 1280,
+  "height": 720,
+  "flip": true,
+  "source": "gesso-video-handoff/media/03-renders/loops",
+  "note": "Real Gesso Cycles camera renders from the five showcase campaigns. Audio is removed. Horizontal mirroring is presentation-only; these source files and the encoded reel keep their original orientation. The Leica look-alike is not the Minolta demo camera.",
+  "shots": [
+    {"slug": "omega-speedmaster", "sourceInFrame": 134, "frameCount": 66},
+    {"slug": "ambre-perfume", "sourceInFrame": 134, "frameCount": 66},
+    {"slug": "leica-camera", "sourceInFrame": 134, "frameCount": 66},
+    {"slug": "theo-teapot", "sourceInFrame": 134, "frameCount": 66},
+    {"slug": "sasha-ring", "sourceInFrame": 134, "frameCount": 66}
+  ]
+}
