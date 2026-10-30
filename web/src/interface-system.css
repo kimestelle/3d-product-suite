@@ -319,3 +319,7 @@ select option{background:var(--gesso-surface-field);color:var(--gesso-text-prima
   background-position:left center;
   background-repeat:no-repeat;
 }
+
+/* Main tabs show their workflow order before the label. */
+.gesso-workspace-navigation .gesso-category-button { gap: 8px; }
+.gesso-step-number { font-size: 14px; font-weight: 400; opacity: .65; font-variant-numeric: tabular-nums; }

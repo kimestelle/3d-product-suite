@@ -1,7 +1,6 @@
 import {groups,layers,type EditorGroup} from './navigation';
 import type {CSSProperties} from 'react';
 import optionIcon from './assets/gesso/option-tab.svg';
-import {UiIcon} from './UiIcon';
 import './export-navigation.css';
 
 // Safari ignores CSS blur on SVG children and would draw the halo as a hard band; an SVG filter blurs everywhere.
@@ -31,13 +30,13 @@ export default function EditorNavigation({group,onGroup,exportActive,onExport,ex
       </div>
       {groups.map((item,index)=><button key={item.id} type="button" className="gesso-category-button" data-category={item.id}
         aria-label={item.label} aria-pressed={!exportActive&&group===item.id} aria-keyshortcuts={`Alt+${index+1}`}
-        title={`${item.label} (Option / Alt ${index+1})`} onClick={()=>onGroup(item.id)}>
-        {item.label}<Shortcut digit={index+1}/>
+        title={item.label} onClick={()=>onGroup(item.id)}>
+        <span className="gesso-step-number" aria-hidden="true">{index+1}</span><span>{item.label}</span>
       </button>)}
     </div>
     <div className="gesso-export-actions" role="group" aria-label="Export actions" data-with-dice={!!onRandomSetup} data-disabled={exportDisabled}>
-      {onRandomSetup && <button type="button" className="gesso-random-setup-button" aria-label="Random setup"
-        title="Configure random setup" aria-pressed={randomSetupActive} disabled={exportDisabled} onClick={onRandomSetup}><UiIcon name="dice"/></button>}
+      {onRandomSetup && <button type="button" className="gesso-random-setup-button" aria-label="Generate random"
+        title="Configure random setup" aria-pressed={randomSetupActive} disabled={exportDisabled} onClick={onRandomSetup}>generate random</button>}
       <button type="button" className="gesso-export-tab gesso-export-tab-button" aria-pressed={exportActive} disabled={exportDisabled} onClick={onExport}
         style={{'--export-contour':`path("${exportActive?exportTabContour:exportButtonContour}")`} as CSSProperties}>
         <span className="gesso-export-tab-surface" aria-hidden="true"><svg viewBox="0 0 200 36" preserveAspectRatio="none">

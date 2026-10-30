@@ -1385,3 +1385,39 @@ both browser engines.
 Reason: the static renderer can replay the saved film, but cannot evaluate the full editor’s changes. Committing an edit and then rejecting evaluation left the current scene invalid and stopped the rest of the workflow. Reject at the edit boundary instead. Keep selection, hover, orbit, temporary visibility, navigation, playback, guides and local preview capture available. Connected local editing keeps its existing behavior; this rule applies to the static build, not temporary network failures in a connected session.
 
 Scope: App scene/draft guards, TransformShortcuts, material/part controls, camera/film/world follow-up handlers, and hosted-demo documentation. Baseline: `work/gesso/backend-guard-baseline` in the task workspace; Git retains the previous behavior. Verification: 1,547 frontend tests pass, including rejected-handler regressions; normal and static builds pass. Eleven real-Chrome fixture checks cover rejected edits, numeric rollback, keyboard transforms, unchanged history, inspection and advancing playback with no API requests. A separate production-build check against the actual Ambre bundle confirms rejected rename, world selection and film timing leave the saved film playable; bootstrap, samples and asset manifest remain byte-identical.
+
+
+### 2026-10-30 — D173 — Monochrome public interface and a dithered cover
+
+**In code; supersedes the public color palettes in earlier cover, About and Form + light decisions.** Landing, About and Form + light use black grounds, white interface ink and neutral frame light. Landing actions preserve contrasting black/white pairs on desktop and mobile; public navigation arrows follow white ink. Curve catalog anchor guides also use neutral ink. Product films and render specimens retain their source colors. Studio styles, shared frame geometry, playback and navigation behavior stay intact.
+
+The homepage adds a static four-pixel ordered light/dark dither inside the existing aperture clip at 16% opacity. It follows the real frame on desktop and mobile, passes pointer input through, and adds no animation or render loop. Reel controls remain above the texture.
+
+Reason: Estelle requested black-and-white interface elements outside the studio and a dithered background inside the front-page frame. Scope: landing.css, about.css, shape-light.css, site-grid.css, curve-demo.css and assets/gesso/landing-dither.svg. Recoverable CSS baseline: `/tmp/gesso-monochrome-baseline`; Git retains the previous implementation. Verification: production build passes. Visual browser verification remains uncompleted because installed Chrome aborts at launch and Playwright's bundled browser is unavailable.
+
+
+### 2026-10-30 — D174 — Dither surrounds the homepage frame
+
+**In code; corrects D173's texture placement.** The static grayscale ordered dither sits outside the homepage frame, using FrameOutside and the shared inverse contour. The film inside the frame has no texture overlay. It follows the existing frame morph and remains pointer-transparent on desktop and mobile.
+
+Reason: Estelle clarified that the dither belongs outside the frame. Scope: LandingPage.tsx and landing.css. The monochrome public interface remains as recorded in D173.
+
+
+### 2026-10-30 — D175 — Number the three studio tabs
+
+**In code.** Show 1, 2 and 3 before Product, Stage and Film instead of the visible Option-key hints. Numbers share the label baseline with an 8px gap and quieter 14px type. Tab order, active state and existing keyboard handlers/accessibility shortcut metadata remain intact. Sidebar layer hints remain unchanged.
+
+Reason: Estelle requested numbered main tabs in place of keyboard shortcut annotations. Scope: EditorNavigation.tsx and interface-system.css. Recoverable component baseline: `/tmp/gesso-navigation-baseline.tsx`.
+
+### 2026-10-30 — D176 — Chrome dice and Export
+
+**In code.** The random-setup action uses a three-face beveled chrome die with inset pips. Export retains its existing contour and becomes a silver reflective button with a raised export arrow, dark label and an underlined selected state. Fixed grayscale reflection bands and edge highlights provide material depth without a WebGL context, texture downloads or continuous animation. Hover lifts the die by 1px; press moves inward; reduced motion removes the hover movement.
+
+Reason: Estelle requested 3D chrome dice and Export controls, referencing pen.dev's metallic objects. This is an original code-native treatment, not copied reference assets. Scope: ChromeDice.tsx, EditorNavigation.tsx and export-navigation.css. Existing callbacks, native button semantics, disabled behavior and export-tab transition are preserved. Baseline: `/tmp/gesso-export-before-chrome.css` and `/tmp/gesso-navigation-before-chrome.tsx`.
+
+
+### 2026-10-30 — D177 — Plain Export and a text random action
+
+**In code; supersedes D176.** Remove the chrome treatment, die and export arrow. Restore the original plain Export surface and selected-tab behavior. A smaller white “generate random” text button sits beside Export and opens the existing random-setup rail; it does not generate until the setup action is confirmed. Native disabled and pressed states remain.
+
+Reason: Estelle requested removal of the dice and chrome and a small white text action beside Export. Scope: EditorNavigation.tsx, export-navigation.css and navigation tests; remove ChromeDice.tsx.

@@ -1,6 +1,6 @@
 /* About frame 184:7680: seven columns, 40px margins, 20px gutters.
-   Cobalt ground into azure light; keep the broad, subdued halo. */
-.gesso-about{--about-ground:#1c3e9f;--about-light:#247cda;--about-action:#6487ff;--about-surface:var(--gesso-surface-chrome);--about-ink:var(--gesso-text-primary);position:relative;height:100dvh;overflow:clip;background:transparent;color:var(--about-ink);color-scheme:dark;font:var(--gesso-type-body)}
+   Monochrome ground and light; keep the broad, subdued halo. */
+.gesso-about{--about-ground:#080808;--about-light:#777;--about-action:#fff;--about-surface:var(--gesso-surface-chrome);--about-ink:var(--gesso-text-primary);position:relative;height:100dvh;overflow:clip;background:transparent;color:var(--about-ink);color-scheme:dark;font:var(--gesso-type-body)}
 .gesso-about :is(h1,h2,p,dl,dd){margin:0}
 .gesso-about :is(a,button):focus-visible{outline:2px solid currentColor;outline-offset:var(--gesso-space-4)}
 .about-header{height:80px;position:sticky;top:0;margin:0 var(--site-margin);color:var(--gesso-surface-chalk);z-index:2}

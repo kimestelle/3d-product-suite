@@ -1,8 +1,8 @@
 /* Landing 40:1124: seven columns, 40px margins, 20px gutters.
    The Figma rectangle occupies columns 2–6; the animated SVG has 32-unit side insets. */
 .gesso-landing {
-  --landing-surround: var(--gesso-brand-ground);
-  --landing-light: var(--gesso-brand-light);
+  --landing-surround: #080808;
+  --landing-light: #fff;
   --landing-type: var(--gesso-surface-chalk);
   --aperture-progress: 0;
   --entrance-reveal: 0;
@@ -50,7 +50,7 @@
 .landing-footer > .landing-credit { grid-column: 7; justify-self: end; }
 .landing-reel-status { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .landing-entrance { position: absolute; left: 50%; top: calc(50% + var(--aperture-width) * .0780523); z-index: 3; width: min(440px, calc(100% - 64px)); display: flex; flex-direction: column; align-items: center; gap: var(--gesso-space-16); opacity: var(--entrance-reveal); transform: translate(-50%, var(--entrance-offset)); pointer-events: none; }
-.gesso-landing .landing-enter { font: 400 20px/20px var(--gesso-font-text); white-space: nowrap; display: inline-flex; justify-content: center; align-items: center; gap: var(--gesso-space-8); padding: 3px var(--gesso-space-16) 5px; min-width: 232px; height: 52px; border-radius: 100px; border: 0; background: var(--gesso-surface-scene); color: var(--landing-light); pointer-events: none; }
+.gesso-landing .landing-enter { font: 400 20px/20px var(--gesso-font-text); white-space: nowrap; display: inline-flex; justify-content: center; align-items: center; gap: var(--gesso-space-8); padding: 3px var(--gesso-space-16) 5px; min-width: 232px; height: 52px; border-radius: 100px; border: 0; background: #080808; color: var(--landing-light); pointer-events: none; }
 .landing-repeatability { margin: 0; font: 400 14px/20px var(--gesso-font-text); text-align: center; text-wrap: balance; color: var(--landing-type); }
 .landing-repeatability-compact { display: none; }
 .landing-window.is-open .landing-enter, .landing-enter:focus-visible { pointer-events: auto; }
@@ -82,7 +82,7 @@
   .landing-mobile-action { display: flex; flex: none; flex-direction: column; align-items: center; gap: 20px; color: #fff; }
   .landing-mobile-action p { margin: 0; font: 400 20px/28px var(--gesso-font-text); text-align: center; -webkit-font-smoothing: antialiased; }
   .landing-mobile-action p span { margin-inline: 4px; }
-  .gesso-landing .landing-mobile-enter { display: inline-flex; justify-content: center; align-items: center; min-height: 48px; min-width: 220px; padding: 3px 24px 5px; border-radius: 100px; background: #fff; color: var(--landing-light); font: 400 18px/24px var(--gesso-font-text); }
+  .gesso-landing .landing-mobile-enter { display: inline-flex; justify-content: center; align-items: center; min-height: 48px; min-width: 220px; padding: 3px 24px 5px; border-radius: 100px; background: #fff; color: #080808; font: 400 18px/24px var(--gesso-font-text); }
   .landing-mobile-enter:hover { opacity: .88; }
 }
 @media (prefers-reduced-motion: reduce), (max-width: 760px), (hover: none) and (pointer: coarse) {
@@ -111,3 +111,12 @@
   .landing-video-overlay button { line-height: 14px; }
 }
 @media (prefers-reduced-motion: reduce) { .landing-video-overlay .landing-recording-dot { animation: none !important; } }
+
+/* Static grayscale texture follows the inverse of the shared frame contour. */
+.landing-dither {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: url("./assets/gesso/landing-dither.svg") repeat;
+  opacity: .16;
+}

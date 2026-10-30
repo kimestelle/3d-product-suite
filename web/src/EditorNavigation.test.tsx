@@ -38,8 +38,8 @@ describe('editor export navigation', () => {
     expect(props.onExport).not.toHaveBeenCalled();
     expect(props.onGroup).not.toHaveBeenCalled();
     const html = renderToStaticMarkup(<EditorNavigation {...props}/>);
-    expect(html).toContain('aria-label="Random setup" title="Configure random setup" aria-pressed="true"');
-    expect(html.indexOf('aria-label="Random setup"')).toBeLessThan(html.indexOf('>Export<'));
+    expect(html).toContain('aria-label="Generate random" title="Configure random setup" aria-pressed="true"');
+    expect(html.indexOf('aria-label="Generate random"')).toBeLessThan(html.indexOf('>Export<'));
     expect(html).not.toContain('gesso-export-actions-surface');
     expect(html).toContain('gesso-export-tab-fill');
     const disabled = renderToStaticMarkup(<EditorNavigation {...props} exportDisabled/>);

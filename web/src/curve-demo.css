@@ -1,4 +1,4 @@
-.curve-demo{height:100dvh;display:flex;flex-direction:column;overflow:hidden;background:var(--gesso-surface-chrome);color:var(--gesso-text-primary);font:400 13px/18px var(--gesso-font-text);--curve-rail:340px;--curve-gutter:var(--gesso-space-40)}
+.curve-demo{--gesso-brand-light:#131313;height:100dvh;display:flex;flex-direction:column;overflow:hidden;background:var(--gesso-surface-chrome);color:var(--gesso-text-primary);font:400 13px/18px var(--gesso-font-text);--curve-rail:340px;--curve-gutter:var(--gesso-space-40)}
 .curve-demo button{border:0;box-shadow:none;font:400 12px/18px var(--gesso-font-text)}
 .curve-demo button[aria-pressed=true]{background:var(--gesso-surface-selected);color:var(--gesso-text-primary)}
 .curve-header{display:grid;grid-template-columns:calc(var(--curve-rail) - var(--curve-gutter)) minmax(140px,1fr) auto;align-items:center;height:92px;flex:none;padding:var(--gesso-space-12) var(--curve-gutter) var(--gesso-space-20)}

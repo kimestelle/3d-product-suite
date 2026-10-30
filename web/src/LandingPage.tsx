@@ -2,7 +2,7 @@ import {useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type R
 import reelPoster from './assets/gesso/landing-showcase-poster.webp';
 import watchStill from './assets/gesso/form-light-renders/omega-speedmaster.webp';
 import navArrow from './assets/gesso/about-arrow-up-right.svg';
-import {FrameWindow, useFrameSource, useFrameInvalidation} from './DynamicFrame';
+import {FrameOutside, FrameWindow, useFrameSource, useFrameInvalidation} from './DynamicFrame';
 import {landingFrameNodes} from './frameGeometry';
 import {LandingReel, LANDING_REEL_STILL} from './landingReel';
 import LandingVideoOverlay from './LandingVideoOverlay';
@@ -156,6 +156,7 @@ export default function LandingPage({active}: {active:boolean}) {
 
   return <main ref={rootRef} data-frame-scroll inert={!active} aria-hidden={!active} className="gesso-landing" aria-label="gesso — your product, your world"
     onPointerDown={event=>{pointerKind.current=event.pointerType;if(event.pointerType==='touch'&&!aperture.windowRef.current?.contains(event.target as Node)) aperture.dismiss();}}>
+    <FrameOutside className="landing-dither" aria-hidden="true"/>
     <div className="landing-topline gesso-site-header" data-frame-outside><a className="landing-mobile-home gesso-site-wordmark" href="/landing" aria-label="gesso home">gesso</a><nav className="gesso-site-nav" aria-label="Main navigation"><a className="landing-about-link site-about-link" href="/about">about</a><a className="landing-study-link site-study-link" href="/aperture">form + light</a><a className="landing-studio-link site-studio-link" data-studio-resume href="/?step=product&layer=model">enter studio <img src={navArrow} alt="" width="14" height="20"/></a></nav></div>
 
     <section className="landing-composition" aria-label="Your product, your world">

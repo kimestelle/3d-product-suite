@@ -2,8 +2,8 @@
    composition; the persistent frame morphs between the same 64 cubic anchors. */
 .gesso-shape-light {
   --shape-paper: var(--gesso-surface-chalk);
-  --shape-ground: #4e2d97; /* Violet ground brightens toward orchid, as the cover shifts red to orange. */
-  --shape-halo: #a546dc;
+  --shape-ground: #080808;
+  --shape-halo: #888;
   --shape-gutter: var(--site-margin);
   --shape-light: var(--gesso-surface-chalk);
   --shape-specimen: #d9d9d9;
