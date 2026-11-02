@@ -1,3 +1,4 @@
+import {startupProjectId} from './startupProject';
 import {isCameraHoldMotion} from './cameraMotionPresets';
 import {FrameWindow, useFrameSource, useFrameInvalidation} from './DynamicFrame';
 import {roundedFrameNodes} from './frameGeometry';
@@ -392,7 +393,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     return true;
   };
   const loadProject=(p:Project)=>{cancelSceneCreation();clearMaterialPreview();viewport.current?.resetFraming();viewportB.current?.resetFraming();try{localStorage.setItem('gesso.project',p.id)}catch{}setProject(p);const opened=clone(p.scene);let compacted=false,compactionError='';try{if(!isStaticDemo)compacted=closeSequenceGaps(opened)}catch(reason){compactionError=reason instanceof Error?reason.message:'Could not close film gaps.'}installHistory(compacted?commitHistory(createHistory(p.scene),opened):createHistory(p.scene));setFilmTarget('$camera');setFilmMotionId(null);setFilmCurves(false);setFilmLegacy(false);setFrameSetup(null);frameSetupBaseline.current=null;setFrameSetupError('');filmReturn.current=null;setFrame(1);setPlaying(false);setPicking(null);setPickingSurface(false);setObjects(undefined);setError('');setValidationError('');setParts([]);setUvLayout(null);setSelectedDecalId(null);setSelected(p.scene.product.label?.componentId??p.scene.product.components[0]?.id??null);setFocused(true);setInspecting(false);setHiddenParts([]);setNotice(compacted?'Film gaps closed · Undo to restore':compactionError||'Project opened',compactionError&&!compacted?'error':'success')};
-  useEffect(()=>{const abort=new AbortController();api('/api/bootstrap','GET',undefined,abort.signal).then(async b=>{let remembered:string|null=null;try{remembered=localStorage.getItem('gesso.project')}catch{}let opened=b.project;if(remembered&&remembered!==opened.id&&b.projects.some((p:any)=>p.id===remembered)){try{opened=await api(`/api/projects/${remembered}`,'GET',undefined,abort.signal)}catch{}}if(abort.signal.aborted)return;loadProject(opened);setProjects(b.projects);setWorlds(b.worlds);setCaps(b.capabilities);setJobs(b.jobs)}).catch(e=>{if(!abort.signal.aborted)setError(e.message)});return()=>abort.abort()},[]);
+  useEffect(()=>{const abort=new AbortController();api('/api/bootstrap','GET',undefined,abort.signal).then(async b=>{let remembered:string|null=null;try{remembered=localStorage.getItem('gesso.project')}catch{}let opened=b.project;const initialId=startupProjectId(b.projects,opened.id,remembered);if(initialId!==opened.id){try{opened=await api(`/api/projects/${initialId}`,'GET',undefined,abort.signal)}catch{}}if(abort.signal.aborted)return;loadProject(opened);setProjects(b.projects);setWorlds(b.worlds);setCaps(b.capabilities);setJobs(b.jobs)}).catch(e=>{if(!abort.signal.aborted)setError(e.message)});return()=>abort.abort()},[]);
   useEffect(()=>{const hostElement=host.current;const secondHost=hostB.current;if(!hostElement||!secondHost)return;const view=createViewport(hostElement,{studioMode:true,onPresented:()=>setPresented(value=>({...value,a:true})),onLoading:loading=>setViewportLoading(value=>({...value,a:loading})),onFilmGuide:setFilmGuide,onInteract:()=>{setPlaying(false);setInspecting(true);setStillViewVersion(value=>value+1)},onParts:setParts,onError:setValidationError,onWorldPoint:point=>pickHandler.current('a',point),onSurfacePoint:point=>surfacePickHandler.current('a',point)});const second=createViewport(secondHost,{studioMode:true,onPresented:()=>setPresented(value=>({...value,b:true})),onLoading:loading=>setViewportLoading(value=>({...value,b:loading})),onInteract:()=>{setPlaying(false);setInspecting(true);setStillViewVersion(value=>value+1)},onError:message=>{if(renderSceneRef.current?.comparison)setValidationError(message)},onWorldPoint:point=>pickHandler.current('b',point),onSurfacePoint:point=>surfacePickHandler.current('b',point)});viewport.current=view;viewportB.current=second;
     return()=>{++previewRequest.current;currentPreviewScope.current=null;view.dispose();second.dispose();viewport.current=null;viewportB.current=null}},[]);
   useEffect(()=>{const scene=renderScene;if(!scene)return;const request=++newest.current;const abort=new AbortController();setEvaluating(true);setValidationError('');const timer=setTimeout(()=>{
@@ -606,7 +607,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   const redo=()=>{if(randomPreview||!allowSceneEdit())return;finishFrameSetup();setPlaying(false);setPicking(null);setHistory(redoHistory)};
   const timelineVisible=!showExport&&(filmWorkspace&&!stillFilm||(!stillFilm&&!(productDecals)&&(showTimeline??tab==='renders')));
   const invalidateFrame=useFrameInvalidation();
-  const studioFrameStyle=useRef({ground:'#181818',radius:20});
+  const studioFrameStyle=useRef({ground:'#080808',radius:20});
   useFrameSource('studio',()=>{
     const element=stageHost.current;
     if(!element)return null;
@@ -624,7 +625,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     const element=stageHost.current;
     if(!element)return;
     const styles=getComputedStyle(element);
-    studioFrameStyle.current={ground:styles.getPropertyValue('--chrome').trim()||'#181818',
+    studioFrameStyle.current={ground:styles.getPropertyValue('--chrome').trim()||'#080808',
       radius:parseFloat(styles.getPropertyValue('--gesso-radius-viewport'))||20};
     invalidateFrame('studio');
   },[active,sideEditorVisible,filmWorkspace,timelineVisible,animatorVisible,filmCurves,filmLegacy,showComparison,comparisonMode,showExport,invalidateFrame]);

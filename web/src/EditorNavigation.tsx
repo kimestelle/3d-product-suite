@@ -31,7 +31,7 @@ export default function EditorNavigation({group,onGroup,exportActive,onExport,ex
       {groups.map((item,index)=><button key={item.id} type="button" className="gesso-category-button" data-category={item.id}
         aria-label={item.label} aria-pressed={!exportActive&&group===item.id} aria-keyshortcuts={`Alt+${index+1}`}
         title={item.label} onClick={()=>onGroup(item.id)}>
-        <span className="gesso-step-number" aria-hidden="true">{index+1}</span><span>{item.label}</span>
+        <span className="gesso-step-number" aria-hidden="true">⌥{index+1}</span><span>{item.label}</span>
       </button>)}
     </div>
     <div className="gesso-export-actions" role="group" aria-label="Export actions" data-with-dice={!!onRandomSetup} data-disabled={exportDisabled}>

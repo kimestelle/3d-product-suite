@@ -131,7 +131,7 @@ export default function LandingPage({active}: {active:boolean}) {
     const {origin, ground, light} = frame.current;
     const scale = origin.width / 1000;
     return {nodes:landingFrameNodes({...origin, aperture:aperture.readProgress()}),ground,fill:light,
-      halo:{color:light,blur:104*scale,spread:72*scale,opacity:1}};
+      halo:{color:light,blur:104*scale,spread:72*scale,opacity:.8}};
   });
   useLayoutEffect(() => {
     const root = rootRef.current, window = aperture.windowRef.current;

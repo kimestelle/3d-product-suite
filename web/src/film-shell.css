@@ -10,12 +10,12 @@
 .film-return-context{align-self:flex-start;margin:var(--gesso-space-4) var(--rail-gutter) 0;padding:3px 0 5px;border:0;background:transparent;color:var(--gesso-text-secondary);font-size:11px}
 @media(prefers-reduced-motion:reduce){.gesso-studio .gesso-workspace.with-film-workspace,.film-timeline-dock{transition:none}}
 .gesso-studio .with-film-workspace>.gesso-material-editor{display:none}
-.gesso-studio .with-film-workspace>.gesso-sidebar:first-child .gesso-sidebar-content{padding-top:var(--gesso-space-16);display:flex;flex-direction:column;gap:var(--gesso-space-16)}
+.gesso-studio .with-film-workspace>.gesso-sidebar:first-child .gesso-sidebar-content{padding-top:var(--gesso-space-8);display:flex;flex-direction:column;gap:var(--gesso-space-12)}
 .gesso-studio .with-film-workspace>.gesso-sidebar:first-child .gesso-sidebar-content>*{flex-shrink:0}
-.gesso-studio .with-film-workspace .gesso-panel-title{padding-top:var(--gesso-space-20)}
+.gesso-studio .with-film-workspace .gesso-panel-title{padding-top:var(--gesso-space-12)}
 .gesso-studio .with-film-workspace .gesso-stage{border-radius:20px;margin-bottom:var(--gesso-space-8)}
 .gesso-studio .with-film-workspace .viewport-wrap{border-radius:20px}
-.gesso-studio .with-film-workspace .film-inspector-rail .gesso-sidebar-content{padding-top:var(--gesso-space-20);padding-bottom:var(--gesso-space-24)}
+.gesso-studio .with-film-workspace .film-inspector-rail .gesso-sidebar-content{padding-top:var(--gesso-space-12);padding-bottom:var(--gesso-space-24)}
 .gesso-studio .with-film-workspace .gesso-sidebar-footer{height:32px;min-height:32px;padding-bottom:var(--gesso-space-8)}
 .film-camera-fields{display:flex;flex-direction:column;gap:var(--gesso-space-16);border:0;padding:0;margin:0;min-width:0}
 .gesso-studio .film-inspector .gesso-camera-panel{gap:var(--gesso-space-16)}
@@ -28,7 +28,7 @@
 .film-property-owners{display:flex;flex-direction:column;gap:var(--gesso-space-4)}
 .film-property-owners button{display:flex;justify-content:space-between;align-items:center;gap:var(--gesso-space-8);text-align:left}
 .film-property-owners small{font-size:10px;color:var(--gesso-text-muted)}
-.film-delivery-entry{display:flex;flex-direction:column;gap:var(--gesso-space-8);margin-top:auto;padding-top:var(--gesso-space-20)}
+.film-delivery-entry{display:flex;flex-direction:column;gap:var(--gesso-space-8);margin-top:auto;padding-top:var(--gesso-space-12)}
 .film-delivery-entry>button{display:flex;justify-content:space-between;align-items:center;gap:var(--gesso-space-8);text-align:left}
 .film-delivery-entry>button:first-child{border:0;padding-left:0;padding-right:0;color:var(--gesso-text-secondary)}
 .film-delivery-entry>button:first-child span{font-size:10px;color:var(--gesso-text-muted)}
@@ -47,7 +47,7 @@
 
 
 /* The shot remains visible while its controls scroll below. */
-.film-shot-header{display:flex;flex-direction:column;align-items:stretch;gap:var(--gesso-space-4);flex:none;min-width:0;margin:0;padding:var(--gesso-space-20) var(--rail-gutter) 0;color:var(--gesso-text-primary);font:500 14px/20px var(--gesso-font-text)}
+.film-shot-header{display:flex;flex-direction:column;align-items:stretch;gap:var(--gesso-space-4);flex:none;min-width:0;margin:0;padding:var(--gesso-space-12) var(--rail-gutter) 0;color:var(--gesso-text-primary);font:500 14px/20px var(--gesso-font-text)}
 .film-shot-number{flex:none;color:var(--gesso-text-secondary);font:400 11px/20px var(--gesso-font-text);font-variant-numeric:tabular-nums}
 .film-shot-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 

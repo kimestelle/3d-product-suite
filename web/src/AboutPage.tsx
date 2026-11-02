@@ -41,7 +41,7 @@ export default function AboutPage({active = true}: {active?:boolean}) {
     if (!root.current || !frame.current) return null;
     const {width,height,ground,fill,light} = frame.current, mobile = width <= 760;
     return {nodes:aboutFrameNodes(width,height),ground,fill,
-      halo:{color:light,blur:mobile?50:95,spread:mobile?24:65,opacity:mobile?.4:1}};
+      halo:{color:light,blur:mobile?50:95,spread:mobile?24:65,opacity:mobile?.32:.8}};
   });
   useLayoutEffect(() => {
     const element = root.current;

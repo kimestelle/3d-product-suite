@@ -82,7 +82,7 @@ h2,h3{font-family:var(--gesso-font-text);font-size:14px;line-height:20px;font-we
 .gesso-film-mode button{font-size:12px;line-height:18px;color:var(--gesso-text-secondary)}
 /* The tab row begins under File, retaining one layout-column pitch per tab.
    The sixteen-pixel inset belongs to the tab surface, not the text alignment. */
-.gesso-studio{--gesso-surface-chrome:#181818;--chrome:var(--gesso-surface-chrome);--panel:var(--gesso-surface-chrome);--editor-identity-width:160px;--editor-grid-pitch:calc((100vw - 2 * var(--gutter) + var(--gesso-space-20)) / 7)}
+.gesso-studio{--gutter:24px;--topbar-inset:12px;--gesso-surface-chrome:#080808;--chrome:var(--gesso-surface-chrome);--panel:var(--gesso-surface-chrome);--editor-identity-width:160px;--editor-grid-pitch:calc((100vw - 2 * var(--gutter) + var(--gesso-space-20)) / 7)}
 .gesso-studio > .gesso-topbar[data-frame-outside]{background:#080808}
 /* View-only alignment aid: the same seven-column pitch used by the tab labels.
    Mount in the header stack so the opaque menu remains above the guides. */
@@ -93,7 +93,7 @@ h2,h3{font-family:var(--gesso-font-text);font-size:14px;line-height:20px;font-we
 .gesso-menu-content .gesso-column-guide-toggle{justify-content:space-between}
 .gesso-column-guide-toggle>span{color:var(--gesso-text-secondary)}
 
-.gesso-studio > .gesso-workspace{padding-top:var(--gesso-space-16)}
+.gesso-studio > .gesso-workspace{padding-top:var(--gesso-space-8)}
 .gesso-workspace-navigation{height:52px;align-items:flex-end;padding:var(--gesso-space-8) 0 0;margin-left:calc(var(--editor-identity-width) + var(--gesso-space-16) - var(--gesso-space-16));gap:var(--gesso-space-20)}
 .gesso-workspace-navigation .gesso-navrow{position:relative;isolation:isolate;display:grid;grid-template-columns:repeat(3,var(--editor-grid-pitch));height:44px;flex:0 0 auto}
 /* One halo follows the entire exposed edge: editor ledge, shoulders, then tab.
@@ -110,14 +110,14 @@ h2,h3{font-family:var(--gesso-font-text);font-size:14px;line-height:20px;font-we
 .gesso-workspace-navigation .key-icon{width:12px;height:12px}
 .gesso-workspace-navigation .key-icon img{display:block;opacity:1}
 .gesso-workspace-navigation .gesso-film-mode{height:44px;align-items:center}
-.gesso-sidebar-layers{display:flex;align-items:center;gap:var(--gesso-space-16);flex:none;padding:var(--gesso-space-16) var(--rail-gutter)}
+.gesso-sidebar-layers{display:flex;align-items:center;gap:var(--gesso-space-12);flex:none;padding:var(--gesso-space-8) var(--rail-gutter)}
 .gesso-sidebar-layers button{display:inline-flex;align-items:baseline;gap:var(--gesso-space-2);min-height:28px;border:0;background:transparent;padding:3px 0 5px;color:var(--gesso-text-secondary);font:400 12px/18px var(--gesso-font-text);white-space:nowrap}
 .gesso-sidebar-layers button[aria-pressed=true],.gesso-sidebar-layers button:hover{color:var(--gesso-text-primary)}
 .gesso-sidebar-layers .key-hint{height:12px;gap:0;margin-top:0;color:var(--gesso-text-muted)}
 .gesso-sidebar-layers .key-icon img{display:block;opacity:.5}
 @media(prefers-reduced-motion:reduce),(max-width:899px){.gesso-tab-surface{transition:none}}
 .gesso-sidebar .gesso-panel-title{font:500 14px/20px var(--gesso-font-text);padding:var(--gesso-space-20) var(--rail-gutter) var(--gesso-space-8);color:var(--gesso-text-primary)}
-.gesso-sidebar-content:first-child{padding-top:var(--gesso-space-20)}
+.gesso-sidebar-content:first-child{padding-top:var(--gesso-space-12)}
 .gesso-sidebar-footer{font-size:11px;line-height:16px;color:var(--gesso-text-secondary)}
 .gesso-sidebar-footer>span:last-child{color:var(--gesso-text-muted)}
 .gesso-sidebar .gesso-condensed-sidebar{gap:var(--gesso-space-12)}

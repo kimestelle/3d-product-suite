@@ -75,6 +75,7 @@ export class FrameDriver {
   private loadingTick:number|null=null;
   private loadingAnimations:Animation[]=[];
   private studioFailed=false;
+  private loadingCompositorFailed=false;
   onSettled:(page:FrameRoute)=>void=()=>{};
   onWaiting:(waiting:boolean)=>void=()=>{};
   constructor(initial:FrameRoute,readonly pathId:string) {
@@ -86,7 +87,7 @@ export class FrameDriver {
     try{localStorage.setItem('gesso.frame-shrink.v1',JSON.stringify(this.transitionShrink));}catch{/* Local storage is optional. */}
   }
   attach(elements:FrameElements) {
-    this.elements=elements;this.alive=true;this.painted=new WeakMap();this.hostStates=new WeakMap();this.pathNodes=null;
+    this.elements=elements;this.alive=true;this.loadingCompositorFailed=false;this.painted=new WeakMap();this.hostStates=new WeakMap();this.pathNodes=null;
     this.preference=matchMedia(STATIC_MOTION_QUERY);this.reduced=this.preference.matches;
     this.preference.addEventListener('change',this.preferenceChanged);
     window.addEventListener('resize',this.resize);
@@ -145,11 +146,11 @@ export class FrameDriver {
     const previous=this.measured.get(page);if(previous)return previous;
     // A failed initial render may remove its source. Keep an honest loading
     // destination available so error/retry/back never depend on that renderer.
-    if(page==='studio'&&typeof innerWidth==='number')return {nodes:roundedFrameNodes({left:innerWidth<900?0:340,top:innerWidth<900?0:124,right:innerWidth,bottom:innerHeight},20),ground:'#181818',fill:'#252525',halo:{color:'#181818',blur:0,spread:0,opacity:0}};
+    if(page==='studio'&&typeof innerWidth==='number')return {nodes:roundedFrameNodes({left:innerWidth<900?0:340,top:innerWidth<900?0:124,right:innerWidth,bottom:innerHeight},20),ground:'#080808',fill:'#252525',halo:{color:'#080808',blur:0,spread:0,opacity:0}};
     return null;
   }
   private loading(visual:FrameVisual):FrameVisual {
-    const fill=frameContrastColor(visual.ground,visual.halo.color,3);
+    const fill='#fff';
     return {...visual,nodes:loadingFrameNodes({x:innerWidth/2,y:innerHeight/2}),fill,halo:{...visual.halo,color:fill,blur:20,spread:8,opacity:.5}};
   }
   private begin(from:FrameVisual,to:FrameVisual,now:number,duration:number,loading=false,opening=false):Travel {
@@ -204,7 +205,7 @@ export class FrameDriver {
       const amount=entranceEase(raw);
       const destination=travel.loading?travel.to:target;
       this.current=mix(travel.from,destination,amount,travel.morph(amount));
-      const content=entranceEase(Math.min(1,raw/.8));
+      const content=entranceEase(travel.opening?Math.max(0,Math.min(1,(raw-.24)/.76)):Math.min(1,raw/.8));
       for(const page of routes)this.currentWeights[page]=lerp(travel.weights[page],!travel.loading&&page===travel.destination?1:0,content);
       if(raw===1) {
         this.travel=null;
@@ -218,7 +219,7 @@ export class FrameDriver {
       else if(animate&&this.loadingTick!==null)this.loadingElapsed+=now-this.loadingTick;
       this.loadingTick=animate?now:null;
       this.current={...this.current,nodes:studioLoadingNodes(this.loadingElapsed,{x:innerWidth/2,y:innerHeight/2})};
-      if(animate)this.invalidate();
+      if(animate&&!this.loadingAnimations.length)this.invalidate();
     } else {this.current=target;this.currentWeights=weights(this.target);}
     this.paint();
   };
@@ -235,15 +236,21 @@ export class FrameDriver {
   }
   private paintLoadingAnimation() {
     const loader=this.elements?.loader;
-    if(!loader||!this.current)return false;
+    if(!loader||!this.current||this.loadingCompositorFailed)return false;
     if(!this.waiting){this.stopLoadingAnimation();return false;}
     if(!this.loadingAnimations.length){
       const surfaces=Array.from(loader.querySelectorAll<HTMLElement>('[data-loading-surface]'));
       if(!surfaces.length||surfaces.some(surface=>typeof surface.animate!=='function'))return false;
-      this.loadingAnimations=surfaces.map(surface=>{
-        const animation=surface.animate(STUDIO_LOADING_KEYFRAMES,{duration:STUDIO_LOADING_CYCLE_MS,iterations:Infinity,easing:'linear'});
-        animation.currentTime=this.loadingElapsed;return animation;
-      });
+      try {
+        for(const surface of surfaces) {
+          const animation=surface.animate(STUDIO_LOADING_KEYFRAMES,{duration:STUDIO_LOADING_CYCLE_MS,iterations:Infinity,easing:'linear'});
+          this.loadingAnimations.push(animation);
+          animation.currentTime=this.loadingElapsed;
+        }
+      } catch {
+        this.stopLoadingAnimation();this.loadingCompositorFailed=true;
+        return false;
+      }
     }
     loader.hidden=false;loader.style.color=this.current.fill;
     for(const animation of this.loadingAnimations){
@@ -261,6 +268,7 @@ export class FrameDriver {
     if(!this.current||!this.elements)return;
     const {root,path,outside,guides,guideCrosses,fill,halo,light,blur}=this.elements,v=this.current;
     const compositedLoading=this.paintLoadingAnimation();
+    if(compositedLoading&&this.waiting&&this.frame){cancelAnimationFrame(this.frame);this.frame=0;}
     this.attribute(fill,'visibility',compositedLoading?'hidden':'visible');
     this.attribute(halo,'visibility',compositedLoading?'hidden':'visible');
     const viewport=`${innerWidth},${innerHeight}`;

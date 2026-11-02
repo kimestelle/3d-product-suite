@@ -1428,3 +1428,49 @@ Reason: Estelle requested removal of the dice and chrome and a small white text 
 **In code.** The landing cover pairs “your product” with “infinite worlds” on desktop and mobile. The page title and accessible composition labels use the same wording. Layout, footage and studio links stay intact.
 
 Reason: Estelle requested the revised cover phrase. Scope: LandingPage.tsx and StudioEntry.tsx.
+
+### 2026-11-02 — D179 — Black studio surround and a white compositor-owned loader
+
+**In code; refines D163 and supersedes the gray studio surround.** The studio chrome and shared frame ground use the top bar's #080808. Controls retain their existing field/selection contrast and the product renderer keeps its scene colors. The loading oval always uses white instead of inheriting a public page's gray halo. On expansion, editor content begins fading after the first 24% of the transition so the small oval can settle before controls appear.
+
+When native transform animation owns the waiting oval, stop the duplicate JavaScript frame loop. Read its current pose only on readiness, resize, interruption, visibility or motion-preference changes. Preserve the demand-driven JavaScript fallback. If native animation setup fails partway through, cancel created animations and fall back without repeatedly retrying a broken API. Waiting hides contour guides because there is no measurable specimen. Existing hidden-page viewport pausing, demand-driven scene rendering, pixel budgets and resource teardown remain intact.
+
+Reason: Estelle requested a black Product background, gradual transitions, a white loader and performance safeguards. Scope: App.tsx, interface-system.css, DynamicFrame.tsx, dynamic-frame.css and focused driver tests. Verification: 1,549 frontend tests pass, including native startup failure/cleanup and no queued JS frames while waiting; production build passes. Local browser confirms a white oval on black. This is a targeted loading/navigation optimization, not a claim that every application path has been profiled.
+
+
+### 2026-11-02 — D180 — Lighter public halos
+
+**In code.** Reduce the Landing, About and Form + light halos to 80% of their previous opacity, including compact About and the mobile Form + light shadows. Keep the same grayscale pigments, blur radius, geometry and spread. Studio and its white loading oval are unchanged.
+
+Reason: Estelle asked for slightly lighter halos outside the studio; soften their visual weight without adding larger blur surfaces or more rendering work. Scope: LandingPage.tsx, AboutPage.tsx, ShapeLightPage.tsx and shape-light.css.
+
+
+### 2026-11-02 — D181 — Tighter studio insets
+
+**In code.** Reduce studio outer and rail insets from 40px to 24px, top-bar inset from 20px to 12px, workspace top padding from 16px to 8px, layer-row vertical padding from 16px to 8px and condensed panel-heading padding from 14px to 8px. Film rail headers and initial content use 8–12px gaps instead of 16–20px. Keep type sizes, control hit areas, rail widths and public-page spacing unchanged. The shared frame continues measuring the actual viewport.
+
+Reason: Estelle found the overall studio padding stuffy. Recover space around the work by reducing the largest repeated insets rather than shrinking controls. Scope: interface-system.css, condensed-editor.css and film-shell.css. Baseline: `/tmp/gesso-spacing-baseline.css` and Git.
+
+
+### 2026-11-02 — D182 — Enter the studio with the camera
+
+**In code; local campaign and browser bundle prepared.** On studio initialization prefer the optional saved “Minolta XD7 — demo” campaign, then a valid remembered project, then the backend default. Other workspace setups retain their existing fallback. This changes entry selection only; opening another project during the session remains available. The browser demo bundle now contains the verified saved Minolta campaign: 360 sampled frames and three assets, approximately 22.5 MB. Source scenes remain unchanged; the previous perfume bundle is preserved under `/tmp/gesso-demo-before-camera-*`. Hosting requires a new deployment.
+
+Reason: Estelle requested the camera as the opening studio model. Preserve ruwo/BlendSwap credit and the source's texture/material caveats. Scope: startupProject.ts, App.tsx and the local ignored public/demo bundle.
+
+### 2026-11-02 — D183 — Option symbols precede studio step numbers
+
+**In code; refines D175.** Show ⌥1 Product, ⌥2 Stage and ⌥3 Film with the Option mark before each number. Keep the existing Alt/Option keyboard handlers and accessible labels. Scope: EditorNavigation.tsx.
+
+
+### 2026-11-02 — D184 — The opening camera is the Leica
+
+**In code; supersedes D182's Minolta choice.** Prefer “Leica look-alike camera” on studio entry. Restore the actual saved Leica campaign from the supplied video handoff into the local workspace, retaining its source scene, authored blue studio and Lamashtu/BlendSwap CC0 credit. The browser bundle uses that same Leica scene. The Minolta and previous campaigns remain available and unchanged.
+
+Reason: Estelle clarified which camera she meant. Scope: startupProject.ts, its tests and local project/demo data. No new deployment is implied.
+
+### 2026-11-02 — D185 — Upright Leica with glass and source surface detail
+
+**Local asset and recoverable campaign revision; restoration tools in source.** Reorient the Leica so its base rests below its top plate and lens faces forward. Restore transmission=1, metallic=0 and IOR=1.5 for Lens, Glass and Glass_Exponometer; browser refraction remains an approximation of the original multi-IOR shader. Restore the original metal normal map at source strength .3 and the supplied metal roughness image. Bake the leather's source tangent normal at strength .5 plus inverted height relief into one 2048×1024 normal map on its original leather faces/UVs. Height is approximated as 50 micrometre relief, not a claim to reproduce the original displacement shader. No model geometry or source files are overwritten.
+
+Reason: Estelle requested upright placement, actual lens glass and restored normal/bump mapping. A new content-addressed GLB and saved project revision retain the previous imported asset and scene. Regenerate the local browser bundle from that saved revision. These private workspace/demo assets remain outside Git as established; source tooling records the repair. Scope: extract_leica_maps.py, bake_leica_detail.py, restore_leica_demo.py and local Leica project/demo data.

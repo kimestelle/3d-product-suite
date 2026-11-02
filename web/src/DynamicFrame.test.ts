@@ -59,6 +59,26 @@ beforeEach(()=>{
 });
 
 describe('Compositor-owned loading perspective',()=>{
+  it('leaves no JS animation frame running while the compositor owns the oval',()=>{
+    const {driver,animations,dispose}=setup('landing',false,true);
+    driver.navigate('studio');advance();advance(480);
+    expect(driver.current!.fill).toBe('#fff');expect(callbacks.size).toBe(0);
+    animations[0].currentTime=2000;
+    advance(2000);expect(callbacks.size).toBe(0);
+    driver.markReady('studio');expect(callbacks.size).toBe(1);advance();
+    expect(driver.current!.nodes).toEqual(studioLoadingNodes(2000,{x:width/2,y:height/2}));
+    dispose();expect(callbacks.size).toBe(0);
+  });
+  it('cancels partial native startup and keeps the fallback clock when animation creation fails',()=>{
+    const {driver,loader,animations,dispose}=setup('landing',false,true);
+    loader.querySelectorAll()[1].animate.mockImplementation(()=>{throw new Error('Unavailable animation');});
+    driver.navigate('studio');advance();advance(480);
+    expect(animations[0].cancel).toHaveBeenCalledOnce();expect(loader.hidden).toBe(true);
+    expect(callbacks.size).toBe(1);
+    const before=framePath(driver.current!.nodes);advance(300);
+    expect(framePath(driver.current!.nodes)).not.toBe(before);
+    dispose();expect(callbacks.size).toBe(0);
+  });
   it('opens from the visible animation time after a delayed main-thread frame',()=>{
     const {driver,elements,animations,loader,dispose}=setup('landing',false,true);
     driver.navigate('studio');advance();advance(480);
@@ -232,18 +252,18 @@ describe('Shared frame route transitions',()=>{
 
 describe('Studio readiness and interruption',()=>{
   it.each([
-    ['#131313','#131313','#f9faf7'],
-    ['#131313','rgb(19, 19, 19)','#f9faf7'],
-    ['#f9faf7','#f9faf7','#131313'],
-    ['#131313','transparent','#f9faf7'],
-    ['#131313','#ff5724','#ff5724'],
+    ['#131313','#131313','#fff'],
+    ['#131313','rgb(19, 19, 19)','#fff'],
+    ['#fff','#fff','#fff'],
+    ['#131313','transparent','#fff'],
+    ['#131313','#ff5724','#fff'],
   ])('keeps the loading glyph visible on %s when the source halo is %s',(ground,halo,expected)=>{
     const {driver,elements,dispose}=setup('studio');
     const visual={...source('studio'),ground,halo:{color:halo,blur:0,spread:0,opacity:0}};
     driver.register('studio',()=>visual);driver.navigate('studio');advance();advance(480);
     expect(driver.current!.fill).toBe(expected);expect(elements.fill.attrs.get('fill')).toBe(expected);
     expect(driver.current!.halo.color).toBe(expected);
-    expect(frameContrastColor(ground)).toBe(ground==='#f9faf7'?'#131313':'#f9faf7');
+    expect(frameContrastColor(ground)).toBe(ground==='#fff'?'#131313':'#f9faf7');
     dispose();
   });
   it('paints a centered, contrasting loader on the first frame of a direct studio visit',()=>{

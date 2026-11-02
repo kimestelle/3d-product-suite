@@ -31,3 +31,6 @@
 .dynamic-frame-load-error{max-width:320px;font-size:12px}
 .dynamic-frame-page .gesso-menu a{display:block;padding:var(--gesso-space-8) var(--gesso-space-12);color:inherit;font:inherit;text-decoration:none}
 .dynamic-frame-page .gesso-menu a:hover{background:#333}
+/* Waiting has no measurable specimen; do not draw stale contour guides while
+   the small oval moves independently on the compositor. */
+.dynamic-frame-renderer[data-frame-phase=waiting]~.dynamic-frame-guides{visibility:hidden}

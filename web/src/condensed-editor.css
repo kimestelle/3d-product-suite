@@ -1,6 +1,6 @@
 /* Object selection and section headings stay within reach. */
 .gesso-sidebar .gesso-condensed-sidebar{overflow:hidden;display:flex;flex-direction:column;gap:var(--gesso-space-10)}
-.gesso-sidebar .gesso-panel-title{padding-top:var(--gesso-space-14);padding-bottom:var(--gesso-space-14);font-weight:400}
+.gesso-sidebar .gesso-panel-title{padding-top:var(--gesso-space-8);padding-bottom:var(--gesso-space-8);font-weight:400}
 .gesso-panel.gesso-condensed-product,.gesso-panel.gesso-condensed-world{display:flex;flex-direction:column;min-height:0;flex:1;gap:var(--gesso-space-12)}
 .gesso-condensed-product .gesso-fixed-parts{flex-shrink:0;display:flex;flex-direction:column;gap:var(--gesso-space-6)}
 .gesso-fixed-parts .gesso-part-tree{max-height:min(180px,22vh);overflow:auto;margin:0;padding:var(--gesso-space-8);background:var(--gesso-surface-field);border-radius:8px;overscroll-behavior:contain;scrollbar-width:thin}

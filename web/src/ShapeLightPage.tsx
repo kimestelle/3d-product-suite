@@ -150,7 +150,7 @@ function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|
       // concentrating the existing purple into a brighter, tighter rim.
       const lightScale=Math.min(1.25,layout.width/1280,layout.height/832);
       visual.current={nodes,ground,fill:compact?'transparent':specimen,
-        halo:{color:halo,blur:136*lightScale,spread:64*lightScale,opacity:compact?0:1}};
+        halo:{color:halo,blur:136*lightScale,spread:64*lightScale,opacity:compact?0:.8}};
       // The shared renderer measures section clips before text writes can
       // invalidate layout. Shape, text and material still commit in this frame.
       if(geometryChanged||scroll!==lastScroll)invalidate('philosophy');
