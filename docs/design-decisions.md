@@ -1474,3 +1474,16 @@ Reason: Estelle clarified which camera she meant. Scope: startupProject.ts, its 
 **Local asset and recoverable campaign revision; restoration tools in source.** Reorient the Leica so its base rests below its top plate and lens faces forward. Restore transmission=1, metallic=0 and IOR=1.5 for Lens, Glass and Glass_Exponometer; browser refraction remains an approximation of the original multi-IOR shader. Restore the original metal normal map at source strength .3 and the supplied metal roughness image. Bake the leather's source tangent normal at strength .5 plus inverted height relief into one 2048×1024 normal map on its original leather faces/UVs. Height is approximated as 50 micrometre relief, not a claim to reproduce the original displacement shader. No model geometry or source files are overwritten.
 
 Reason: Estelle requested upright placement, actual lens glass and restored normal/bump mapping. A new content-addressed GLB and saved project revision retain the previous imported asset and scene. Regenerate the local browser bundle from that saved revision. These private workspace/demo assets remain outside Git as established; source tooling records the repair. Scope: extract_leica_maps.py, bake_leica_detail.py, restore_leica_demo.py and local Leica project/demo data.
+
+
+### 2026-11-02 — D186 — Auden watch is the default studio model
+
+**Local project and entry selection; supersedes D184's opening camera.** Import the GLB supplied in gesso-auden-watch.zip as a separate “Auden watch” campaign using the normal product importer. Prefer that project on studio entry; preserve the remembered-project fallback where it is absent. Keep the supplied geometry/material bytes and existing Leica project. Prepare the matching browser demo bundle. The archive contains no author/licence statement, so record user-supplied provenance without asserting ownership or a broader licence. No deployment is implied.
+
+Reason: Estelle requested this watch as the default. Scope: startupProject.ts, startupProject.test.ts and ignored local project/demo data.
+
+### 2026-11-02 — D187 — Light the Auden dial with broad reflections
+
+**Saved local campaign revision.** Replace the watch's inherited three-directional fixture with a warm-neutral dial softbox (7 W / .45 m), cool-neutral frontal fill (3 W / .55 m) and a smaller side emitter (5 W / .18 m). Ambient strength .55. Aim at the dial, keeping the supplied materials intact. Broad reflection gradients reveal the green radial dial/facets and silver case; reduce the first lighting pass's glare. Preserve the previous project revisions and rebuild the local browser demo from the saved scene.
+
+Reason: Estelle could not see the watch-face facets. This is watch-specific authored lighting, not a global exposure or material change. Local browser inspection checks dial visibility; no Cycles appearance match is asserted. Hosting remains unchanged.
