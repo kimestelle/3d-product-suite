@@ -615,6 +615,7 @@ def validate_scene(scene):
             else:
                 _require("image" not in shot, "Scene shots cannot hide image content")
             next_frame = shot["endFrame"] + 1
+            _require(shot["camera"].get("interpolation", "ease") in ("ease", "linear"), "Camera interpolation must be ease or linear")
             for pose in (shot["camera"]["from"], shot["camera"]["to"]):
                 _vector(pose["positionM"], "camera position")
                 _vector(pose["targetM"], "camera target")
@@ -795,7 +796,8 @@ def evaluate(scene, frame, *, include_placement=False):
         pose["rotationXyzw"] = _mul(pose["rotationXyzw"],q)
     parts = evaluate_parts(scene, components, animated, _euler_xyz_degrees, _quaternion_from_xyz_degrees)
     camera_duration = shot['camera'].get('durationFrames', shot['endFrame'] - shot['startFrame'] + 1)
-    u = _smooth((frame-shot["startFrame"])/(camera_duration-1)) if camera_duration > 1 else 0.
+    camera_t = max(0., min(1., (frame-shot["startFrame"])/(camera_duration-1))) if camera_duration > 1 else 0.
+    u = camera_t if shot["camera"].get("interpolation") == "linear" else _smooth(camera_t)
     before, after = shot["camera"]["from"], shot["camera"]["to"]
     camera = {key: [x+(y-x)*u for x,y in zip(before[key],after[key])] for key in ("positionM","targetM")}
     camera["focalLengthMm"] = before["focalLengthMm"] + (after["focalLengthMm"]-before["focalLengthMm"])*u

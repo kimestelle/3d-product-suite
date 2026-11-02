@@ -13,13 +13,13 @@ const radians = (degrees: number) => degrees * Math.PI / 180;
 
 /** Conservative source bounds, including placement, assembly and static part edits.
  * Imported metadata is already measured in metres; no meshes or authored motion are evaluated. */
-export function productBounds(scene: any): Box3 {
+export function productBounds(scene: any, focusId?: string): Box3 {
   const bounds = new Box3(), removed = removedPartIds(scene), support = scene.environment.plinth;
   const origin = new Vector3().fromArray(support.translationM);
   origin.y += support.sizeM[1] / 2;
   origin.add(new Vector3().fromArray(scene.placement.translationM));
   for (const part of scene.product.components) {
-    if (removed.has(part.id)) continue;
+    if (removed.has(part.id) || focusId && focusId!==part.id && !focusId.startsWith(`${part.id}::node:`)) continue;
     const rotation = new Quaternion().fromArray(part.assembly.rotationXyzw);
     const componentMatrix = new Matrix4().compose(
       new Vector3().fromArray(part.assembly.translationM).multiplyScalar(scene.placement.scale ?? 1).add(origin),
@@ -44,6 +44,15 @@ export function productBounds(scene: any): Box3 {
       };
       for (const node of nodes) {
         if (!node.hasMesh || removed.has(sourcePartId(part.id, node.nodeIndex))) continue;
+        if(focusId && focusId!==part.id) {
+          let ancestor:SourceNode|undefined=node;const visited=new Set<number>();let included=false;
+          while(ancestor&&!visited.has(ancestor.nodeIndex)) {
+            visited.add(ancestor.nodeIndex);
+            if(sourcePartId(part.id,ancestor.nodeIndex)===focusId){included=true;break;}
+            ancestor=ancestor.parentIndex===null?undefined:byId.get(ancestor.parentIndex);
+          }
+          if(!included)continue;
+        }
         const nodeBounds = new Box3(new Vector3().fromArray(node.boundsM[0]), new Vector3().fromArray(node.boundsM[1]));
         for (const corner of corners(nodeBounds)) bounds.expandByPoint(corner.applyMatrix4(matrixFor(node.nodeIndex)));
       }

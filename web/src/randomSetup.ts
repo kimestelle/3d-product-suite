@@ -12,6 +12,8 @@ import {applyDramaticSpot, colorFromHex, defaultLighting, isLightTarget, lightId
 export type RandomSetupPolicy = 'keep' | 'fill' | 'random';
 export type RandomSetupCategory = 'stage' | 'lighting' | 'framing' | 'motion' | 'materials' | 'colors';
 export type RandomSetupSettings = {
+  workflow?: 'product-film';
+  focusTarget?: string;
   policies: Record<RandomSetupCategory, RandomSetupPolicy>;
   stageIds: string[];
   paletteIds: string[];

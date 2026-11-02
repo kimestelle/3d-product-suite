@@ -6,7 +6,7 @@ export type CameraEnd = 'from' | 'to';
 export type CameraPose = {positionM: number[]; targetM: number[]; focalLengthMm: number};
 
 export type DepthOfFieldSettings = {enabled: boolean; fStop: number; focusDistanceM?: number};
-export type CameraDefinition = {from: CameraPose; to: CameraPose; depthOfField?: DepthOfFieldSettings};
+export type CameraDefinition = {from: CameraPose; to: CameraPose; interpolation?: 'ease' | 'linear'; depthOfField?: DepthOfFieldSettings};
 
 function validateDepthOfField(camera: CameraDefinition) {
   if (camera.depthOfField === undefined) return;
@@ -37,6 +37,7 @@ function validateDepthOfField(camera: CameraDefinition) {
 }
 
 export function validateCamera(camera: CameraDefinition) {
+  if(camera.interpolation!==undefined&&!['ease','linear'].includes(camera.interpolation))throw new Error('Choose ease or linear camera interpolation.');
   for (const pose of [camera.from, camera.to]) {
     if (![...pose.positionM, ...pose.targetM, pose.focalLengthMm].every(Number.isFinite)) throw new Error('Camera values must be finite numbers.');
     if (pose.focalLengthMm < 1) throw new Error('Focal length must be at least 1 mm.');

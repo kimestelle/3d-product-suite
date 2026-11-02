@@ -9,7 +9,7 @@ export function cameraSourceEndFrame(shot: any): number {
 export function cameraPoseAtFrame(shot: any, frame: number): CameraPose {
   const duration = shot.camera.durationFrames ?? shot.endFrame - shot.startFrame + 1;
   const t = duration === 1 ? 0 : Math.max(0, Math.min(1, (frame - shot.startFrame) / Math.max(1, duration - 1)));
-  const u = t * t * (3 - 2 * t);
+  const u = shot.camera.interpolation === 'linear' ? t : t * t * (3 - 2 * t);
   const from = shot.camera.from as CameraPose, to = shot.camera.to as CameraPose;
   return {
     positionM: from.positionM.map((value, index) => value + (to.positionM[index] - value) * u),

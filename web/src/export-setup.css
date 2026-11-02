@@ -50,3 +50,4 @@
 .gesso-setup-refine>div{padding-top:12px}
 .gesso-setup-palette{display:flex;gap:0;height:12px;margin-top:4px;overflow:hidden;border-radius:2px}
 .gesso-setup-palette i{display:block;width:24px;height:12px}
+.gesso-export-setup .gesso-product-film-focus{grid-template-columns:40px minmax(0,1fr)}

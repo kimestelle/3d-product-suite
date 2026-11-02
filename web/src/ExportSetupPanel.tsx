@@ -1,5 +1,5 @@
 import {useState, type ReactNode} from 'react';
-import {displayPartName} from './hierarchy';
+import {displayPartName, sceneParts} from './hierarchy';
 import {partTargetIds} from './partTargets';
 import {sequenceEnd} from './sequence';
 import {RANDOM_SETUP_PALETTES, RANDOM_SETUP_STAGES, randomFramingRuleError, type RandomSetupCategory, type RandomSetupSettings} from './randomSetup';
@@ -20,6 +20,8 @@ export interface ExportSetupPanelProps {
   busy?: boolean;
   error?: string;
   onGenerate: () => void;
+  onKeep?: () => void;
+  keepDisabled?: boolean;
 }
 const scopes: Array<{id: RandomSetupCategory; label: string}> = [
   {id: 'stage', label: 'Stage'}, {id: 'lighting', label: 'Lighting'}, {id: 'colors', label: 'Colors'},
@@ -68,7 +70,7 @@ function Summary({scene, worlds}: {scene: any; worlds: ExportSetupPanelProps['wo
   </dl>;
 }
 
-export default function ExportSetupPanel({sourceScene, tab, onTab, settings, onSettings, worlds, changes, hasDraft, dirty = false, busy = false, error, onGenerate}: ExportSetupPanelProps) {
+export default function ExportSetupPanel({sourceScene, tab, onTab, settings, onSettings, worlds, changes, hasDraft, dirty = false, busy = false, error, onGenerate, onKeep, keepDisabled=false}: ExportSetupPanelProps) {
   const [custom, setCustom] = useState(false);
   const selectedScope = custom ? 'custom' : randomScopeSelection(settings);
   const targets = new Set(partTargetIds(sourceScene));
@@ -89,6 +91,29 @@ export default function ExportSetupPanel({sourceScene, tab, onTab, settings, onS
     materials: <><Pool label="Objects that can change" choices={parts} selected={settings.materialPartIds} onChange={value => update('materialPartIds', value)}/>
       <Pool label="Material types" choices={materials} selected={settings.materialTypes} onChange={value => update('materialTypes', value)}/><p className="gesso-setup-note">Replaces finishes and their textures. Placed artwork and decals stay.</p></>,
   };
+  if(tab==='random'&&settings.workflow==='product-film') return <section className="gesso-export-setup" aria-label="Generate product film">
+    <div className="gesso-export-setup-body">
+      <h2>Product film</h2>
+      <p className="gesso-setup-note">Establish the body, reveal the subject, settle on a hero view.</p>
+      <fieldset className="gesso-setup-controls" disabled={busy}>
+        <label className="gesso-setup-field gesso-product-film-focus"><span>Focus</span><select aria-label="Film focus" value={settings.focusTarget??'$product'} onChange={event=>onSettings({...settings,focusTarget:event.target.value})}>
+          <option value="$product">Whole product body</option>
+          {sceneParts(sourceScene).filter(part=>targets.has(part.id)).map(part=><option key={part.id} value={part.id}>{part.name}</option>)}
+        </select></label>
+      </fieldset>
+      <p className="gesso-setup-note">Front-side exterior views. Product, stage, lighting and materials stay as set. Focus uses the selected part’s bounds; it does not infer useful details.</p>
+      {hasDraft&&<section className="gesso-setup-changes" aria-label="Preview changes"><h3>In this preview</h3><ul>{changes.map((change,index)=><li key={index}>{change}</li>)}</ul></section>}
+      <button type="button" className="text-button" disabled={busy} onClick={()=>onSettings({...settings,workflow:undefined})}>Advanced randomization</button>
+    </div>
+    <footer className="gesso-export-setup-footer">
+      <p className="gesso-setup-preserved">Original film kept · unsaved preview</p>
+      {error&&<p className="gesso-setup-error" role="alert">{error}</p>}
+      {dirty&&hasDraft&&<p className="gesso-setup-note" role="status">Focus changed · generate to preview</p>}
+      <button type="button" className="gesso-setup-generate" disabled={busy} onClick={onGenerate}>{busy?'Generating…':hasDraft&&!dirty?'Regenerate film':'Generate film'}</button>
+      {hasDraft&&onKeep&&<button type="button" className="text-button" disabled={busy||dirty||!!error||keepDisabled} onClick={onKeep}>Keep film</button>}
+      <button type="button" className="text-button" disabled={busy} onClick={()=>onTab('current')}>Return to original film</button>
+    </footer>
+  </section>;
   return <section className="gesso-export-setup" aria-label="Export scene setup">
     <fieldset className="gesso-export-setup-selectors" disabled={busy}>
       <ExportSetupSelect tab={tab} onTab={onTab} disabled={busy}/>

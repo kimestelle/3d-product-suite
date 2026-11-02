@@ -1,3 +1,4 @@
+import {generateProductReel, productReelSettings} from './productReel';
 import {startupProjectId} from './startupProject';
 import {isCameraHoldMotion} from './cameraMotionPresets';
 import {FrameWindow, useFrameSource, useFrameInvalidation} from './DynamicFrame';
@@ -32,7 +33,7 @@ import {labelFor, legacyMotions} from './FilmWorkspaceShared';
 import './film-shell.css';
 import ExportPanel from './ExportPanel';
 import ExportSetupPanel, {type ExportSetupTab} from './ExportSetupPanel';
-import {defaultRandomSetupSettings, generateRandomSetup, type RandomSetupSettings} from './randomSetup';
+import {generateRandomSetup, type RandomSetupSettings} from './randomSetup';
 import {createExportDraft, currentExportDraft, editExportDraft, type ExportDraft} from './exportDraft';
 import FilmModeTabs from './FilmModeTabs';
 import {ExportPreviewMask, ExportPreviewTransport} from './ExportPreview';
@@ -133,7 +134,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   const [randomSettings,setRandomSettings]=useState<{source:Scene;settings:RandomSetupSettings}|null>(null);
   const [randomDraft,setRandomDraft]=useState<ExportDraft<Scene>|null>(null);
   const [randomSetupError,setRandomSetupError]=useState('');
-  const defaultSetup=useMemo(()=>scene?defaultRandomSetupSettings(scene):null,[scene]);
+  const defaultSetup=useMemo(()=>scene?productReelSettings(scene):null,[scene]);
   const setupSettings=randomSettings&&randomSettings.source===scene?randomSettings.settings:defaultSetup;
   const exportDraft=currentExportDraft(randomDraft,scene,project?.id??'');
   const randomPreview=showExport&&exportSetupTab==='random';
@@ -155,13 +156,13 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     setPlaybackFrame(next==='current'?Math.min(exportPlayhead.current?.frame??frame,scene?sequenceEnd(scene):frame):1);
   };
   const updateRandomSettings=(settings:RandomSetupSettings)=>{setRandomSettings({source:scene,settings});setRandomSetupError('');};
-  const generateExportSetup=()=>{
-    if(!scene||!project||!setupSettings||busy||!allowSceneEdit())return;
+  const generateExportSetup=(chosenSettings=setupSettings)=>{
+    if(!scene||!project||!chosenSettings||busy||!allowSceneEdit())return;
     setPlaying(false);setRandomSetupError('');
     try{
       const seed=crypto.getRandomValues(new Uint32Array(1))[0];
-      const result=generateRandomSetup(scene,setupSettings,seed,worlds);
-      setRandomDraft(createExportDraft(scene,project.id,result,setupSettings));setPlaybackFrame(1);
+      const result=chosenSettings.workflow==='product-film'?generateProductReel(scene,chosenSettings,seed):generateRandomSetup(scene,chosenSettings,seed,worlds);
+      setRandomDraft(createExportDraft(scene,project.id,result,chosenSettings));setPlaybackFrame(1);
       viewport.current?.resetFraming();viewportB.current?.resetFraming();
     }catch(reason){setRandomSetupError(reason instanceof Error?reason.message:'The setup could not be generated. Try different options.');}
   };
@@ -856,7 +857,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
           <img className="gesso-avatar" src={avatar} alt=""/>
         </div>
       </div>
-      <EditorNavigation group={tab} onGroup={chooseWorkspace} exportActive={showExport} onExport={()=>openExport()} onRandomSetup={()=>openExport(mode,'random')} randomSetupActive={randomPreview} exportDisabled={!scene||busy}/>
+      <EditorNavigation group={tab} onGroup={chooseWorkspace} exportActive={showExport} onExport={()=>openExport()} onRandomSetup={()=>{if(transformModeRef.current||materialPreviewRef.current){openExport(mode,'random');return;}const settings=productReelSettings(scene);setRandomSettings({source:scene,settings});openExport(mode,'random');generateExportSetup(settings);}} randomSetupActive={randomPreview} exportDisabled={!scene||busy}/>
       <EditorMenu name={menu} onClose={()=>setMenu(null)}>{shownMenu=><>
         {shownMenu==='File'&&<><div className="gesso-menu-heading">{project?.name??'Opening project…'}</div><button disabled={!!transformMode||!dirty||busy||evaluating} onClick={()=>{void save();setMenu(null)}}>Save revision <kbd>⌘ S</kbd></button><button onClick={()=>{navigate('product','Model');setShowProductImport(true);setMenu(null)}}>Import product…</button><button disabled={!scene||busy} onClick={()=>openExport()}>Export…</button>    <div className="project-switch"><Field label="Campaign"><select aria-label="Campaign" title={dirty?'Save this revision before switching campaigns':undefined} disabled={busy||dirty} value={project?.id??''} onChange={e=>openCampaign(e.target.value)}>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>{dirty&&<p className="gesso-note">Save this revision to switch campaigns.</p>}<button className="text-button" disabled={busy} onClick={()=>perform(async()=>{const p=await api('/api/projects','POST',{name:`Campaign ${projects.length+1}`,scene});loadProject(p);setProjects(await api('/api/projects'))})}>＋ Duplicate as new campaign</button></div>
 </>}
@@ -904,7 +905,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
         </div>
         <footer className="gesso-sidebar-footer"><span>{productWorkspace||animatorVisible?`${availableParts.length} parts · millimeters`:project?.name??'Local workspace'}</span><span className="gesso-feedback" data-tone={evaluating?'note':validationError?'error':'success'} title={validationError||'Live preview'}>{evaluating?'Updating…':validationError?'Needs attention':'Live'}</span></footer>
       </aside>
-      {showExport&&scene&&setupSettings&&<aside className="gesso-sidebar gesso-export-setup-sidebar" data-frame-outside aria-label="Export source"><ExportSetupPanel sourceScene={scene} tab={exportSetupTab} onTab={chooseExportSetup} settings={setupSettings} onSettings={updateRandomSettings} worlds={worlds} changes={exportDraft?.changes??[]} hasDraft={!!exportDraft} dirty={randomSettingsDirty} busy={busy} error={randomSetupError||(randomPreview?validationError:'')} onGenerate={generateExportSetup}/></aside>}
+      {showExport&&scene&&setupSettings&&<aside className="gesso-sidebar gesso-export-setup-sidebar" data-frame-outside aria-label="Export source"><ExportSetupPanel sourceScene={scene} tab={exportSetupTab} onTab={chooseExportSetup} settings={setupSettings} onSettings={updateRandomSettings} worlds={worlds} changes={exportDraft?.changes??[]} hasDraft={!!exportDraft} dirty={randomSettingsDirty} busy={busy} error={randomSetupError||(randomPreview?validationError:'')} onGenerate={()=>generateExportSetup()} keepDisabled={!valid||evaluating||visibleViewportLoading||!!validationError} onKeep={()=>{if(!exportDraft||randomSettingsDirty||!valid||evaluating||visibleViewportLoading||validationError||!allowSceneEdit())return;setPlaying(false);setHistory(h=>commitHistory(h,exportDraft.scene));setRandomDraft(null);setExportSetupTab('current');navigate('renders','Framing');setNotice('Generated film applied · Undo to restore','success')}}/></aside>}
       <main className={`gesso-stage ${timelineVisible&&!filmWorkspace?'with-timeline':''} ${filmWorkspace?'with-film-timeline':animatorVisible?'with-keyframes':''}`} aria-label={showExport?"Export preview":"Product window"}>
         {showComparison&&!showExport&&<div className="comparison-toolbar" data-frame-outside><div className="segmented" aria-label="Comparison display">{(['a','b','split'] as const).map(mode=><button key={mode} aria-pressed={comparisonMode===mode} onClick={()=>changeComparisonMode(mode)}>{mode==='split'?'Split':mode.toUpperCase()}</button>)}</div><span className="comparison-status">{valid&&comparisonInfo?.alignmentStatus==='reviewed'?'Placement reviewed':'Draft placement'}</span><button onClick={()=>{navigate('world','Environment')}}>Adjust placement</button></div>}
         <FrameWindow className={`viewport-wrap ${showComparison?'has-comparison':''} ${filmGuidesVisible?'with-film-guides':''}`} ref={stageHost}>

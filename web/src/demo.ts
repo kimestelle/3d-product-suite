@@ -287,7 +287,8 @@ export async function evaluateDemoScene(scene: any, bundle: DemoBundle): Promise
       pose.rotationXyzw = mul(pose.rotationXyzw, q);
     }
     const shot = scene.shots.find((entry: any) => sample.frame >= entry.startFrame && sample.frame <= entry.endFrame);
-    const u = smooth((sample.frame - shot.startFrame) / Math.max(1, shot.endFrame - shot.startFrame));
+    const cameraT = Math.max(0, Math.min(1, (sample.frame - shot.startFrame) / Math.max(1, (shot.camera.durationFrames ?? shot.endFrame - shot.startFrame + 1) - 1)));
+    const u = shot.camera.interpolation === 'linear' ? cameraT : smooth(cameraT);
     const before = shot.camera.from, after = shot.camera.to;
     const camera = Object.fromEntries(['positionM', 'targetM'].map(key => [key, before[key].map((n: number, i: number) => n + (after[key][i] - n) * u)]));
     camera.focalLengthMm = before.focalLengthMm + (after.focalLengthMm - before.focalLengthMm) * u;
