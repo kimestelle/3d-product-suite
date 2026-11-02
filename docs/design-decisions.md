@@ -1421,3 +1421,10 @@ Reason: Estelle requested 3D chrome dice and Export controls, referencing pen.de
 **In code; supersedes D176.** Remove the chrome treatment, die and export arrow. Restore the original plain Export surface and selected-tab behavior. A smaller white “generate random” text button sits beside Export and opens the existing random-setup rail; it does not generate until the setup action is confirmed. Native disabled and pressed states remain.
 
 Reason: Estelle requested removal of the dice and chrome and a small white text action beside Export. Scope: EditorNavigation.tsx, export-navigation.css and navigation tests; remove ChromeDice.tsx.
+
+
+### 2026-11-02 — D178 — Your product, infinite worlds
+
+**In code.** The landing cover pairs “your product” with “infinite worlds” on desktop and mobile. The page title and accessible composition labels use the same wording. Layout, footage and studio links stay intact.
+
+Reason: Estelle requested the revised cover phrase. Scope: LandingPage.tsx and StudioEntry.tsx.

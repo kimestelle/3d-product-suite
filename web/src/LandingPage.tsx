@@ -154,12 +154,12 @@ export default function LandingPage({active}: {active:boolean}) {
     return () => {observer.disconnect();globalThis.removeEventListener('resize', measure);root.removeEventListener('scroll', measure);root.removeEventListener(PAGE_SCROLL_RESET_EVENT, measure);};
   }, [active, aperture.windowRef, aperture.readProgress, invalidateLanding]);
 
-  return <main ref={rootRef} data-frame-scroll inert={!active} aria-hidden={!active} className="gesso-landing" aria-label="gesso — your product, your world"
+  return <main ref={rootRef} data-frame-scroll inert={!active} aria-hidden={!active} className="gesso-landing" aria-label="gesso — your product, infinite worlds"
     onPointerDown={event=>{pointerKind.current=event.pointerType;if(event.pointerType==='touch'&&!aperture.windowRef.current?.contains(event.target as Node)) aperture.dismiss();}}>
     <FrameOutside className="landing-dither" aria-hidden="true"/>
     <div className="landing-topline gesso-site-header" data-frame-outside><a className="landing-mobile-home gesso-site-wordmark" href="/landing" aria-label="gesso home">gesso</a><nav className="gesso-site-nav" aria-label="Main navigation"><a className="landing-about-link site-about-link" href="/about">about</a><a className="landing-study-link site-study-link" href="/aperture">form + light</a><a className="landing-studio-link site-studio-link" data-studio-resume href="/?step=product&layer=model">enter studio <img src={navArrow} alt="" width="14" height="20"/></a></nav></div>
 
-    <section className="landing-composition" aria-label="Your product, your world">
+    <section className="landing-composition" aria-label="Your product, infinite worlds">
       <h1 className="landing-mobile-logo" data-frame-outside aria-label="gesso"><span aria-hidden="true">gesso</span></h1>
       <a className="landing-side landing-product" data-frame-outside href="/?step=product&layer=model"><span>your product</span></a>
 
@@ -187,10 +187,10 @@ export default function LandingPage({active}: {active:boolean}) {
       </div>
 
       <div className="landing-mobile-action" data-frame-outside>
-        <p>your product <span aria-label="by">×</span> your world</p>
+        <p>your product <span aria-label="by">×</span> infinite worlds</p>
         <a className="landing-mobile-enter" data-studio-resume href="/?step=product&layer=model">use on desktop!</a>
       </div>
-      <a className="landing-side landing-world" data-frame-outside href="/?step=world&layer=environment"><span>your world</span></a>
+      <a className="landing-side landing-world" data-frame-outside href="/?step=world&layer=environment"><span>infinite worlds</span></a>
     </section>
 
     <footer className="landing-footer" data-frame-outside>

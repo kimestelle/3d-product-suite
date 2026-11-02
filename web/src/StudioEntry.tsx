@@ -14,7 +14,7 @@ export function frameRoute(path:string):FrameRoute|null {
   if(/^\/aperture\/?$/.test(path))return 'philosophy';
   return path==='/'?'studio':null;
 }
-const titles:Record<FrameRoute,string>={landing:'gesso — your product, your world',about:'About — gesso',philosophy:'Form + light — gesso',studio:'gesso studio'};
+const titles:Record<FrameRoute,string>={landing:'gesso — your product, infinite worlds',about:'About — gesso',philosophy:'Form + light — gesso',studio:'gesso studio'};
 const currentUrl=()=>location.pathname+location.search+location.hash;
 
 class SceneLoadBoundary extends Component<{onError:(message:string)=>void;children:ReactNode},{failed:boolean}> {
