@@ -9,7 +9,11 @@ export function captureDevicePolicy(value = process.env.GESSO_CAPTURE_DEVICE || 
 export function launchModes(policy, platform = process.platform) {
   policy = captureDevicePolicy(policy);
   const common = ['--disable-dev-shm-usage'];
-  const hardware = { mode: 'hardware', args: [...common, ...(platform === 'darwin' ? ['--use-angle=metal'] : [])] };
+  // Linux headless hosts have no X server. Request ANGLE's offscreen Vulkan
+  // path; the actual capture canvas below must still prove hardware WebGL2.
+  const hardwareArgs = platform === 'darwin' ? ['--use-angle=metal'] : platform === 'linux'
+    ? ['--enable-gpu', '--use-angle=vulkan', '--enable-features=Vulkan', '--disable-vulkan-surface'] : [];
+  const hardware = { mode: 'hardware', args: [...common, ...hardwareArgs] };
   const software = { mode: 'software', args: [...common, '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] };
   return policy === 'auto' ? [hardware, software] : [policy === 'hardware' ? hardware : software];
 }

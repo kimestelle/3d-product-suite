@@ -28,3 +28,14 @@ worldlabs-experiment
 **/*.key
 **/.DS_Store
 *.egg-info
+outputs
+docs/audits
+.aws
+**/.aws
+.codex
+**/.codex
+.agents
+**/.agents
+**/AGENTS.md
+**/*.zip
+gesso-*.mp4

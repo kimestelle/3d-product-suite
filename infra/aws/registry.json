@@ -1,0 +1,97 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Private immutable Gesso release images and a main-only GitHub OIDC publisher. No compute resources or workspace data are created.",
+  "Parameters": {
+    "RepositoryName": {
+      "Type": "String",
+      "Default": "gesso-render",
+      "AllowedPattern": "[a-z0-9]+(?:[._/-][a-z0-9]+)*",
+      "MinLength": 2,
+      "MaxLength": 256
+    },
+    "GitHubRepository": {
+      "Type": "String",
+      "Default": "kimestelle/3d-product-suite",
+      "AllowedPattern": "[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",
+      "Description": "Exact owner/repository allowed to publish from main. No wildcards."
+    },
+    "GitHubOidcSubject": {
+      "Type": "String",
+      "Default": "repo:kimestelle@137699667/3d-product-suite@1421629111:ref:refs/heads/main",
+      "AllowedPattern": "^$|^repo:[A-Za-z0-9_.@-]+/[A-Za-z0-9_.@-]+:ref:refs/heads/main$",
+      "Description": "Exact main subject. Default pins this repository's immutable GitHub IDs. For another repository/custom claims, supply its exact subject. Explicit empty uses the legacy owner/repository path."
+    },
+    "ExistingGitHubOidcProviderArn": {
+      "Type": "String",
+      "Default": "",
+      "AllowedPattern": "^$|^arn:aws:iam::[0-9]{12}:oidc-provider/token.actions.githubusercontent.com$",
+      "Description": "Reuse the account's existing GitHub provider ARN. Empty creates a provider; an account cannot register the URL twice."
+    }
+  },
+  "Conditions": {
+    "CreateGitHubProvider": {"Fn::Equals": [{"Ref": "ExistingGitHubOidcProviderArn"}, ""]},
+    "CustomGitHubSubject": {"Fn::Not": [{"Fn::Equals": [{"Ref": "GitHubOidcSubject"}, ""]}]}
+  },
+  "Resources": {
+    "Repository": {
+      "Type": "AWS::ECR::Repository",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "RepositoryName": {"Ref": "RepositoryName"},
+        "ImageTagMutability": "IMMUTABLE",
+        "ImageScanningConfiguration": {"ScanOnPush": true},
+        "EncryptionConfiguration": {"EncryptionType": "AES256"},
+        "Tags": [{"Key": "Application", "Value": "gesso"}]
+      }
+    },
+    "GitHubProvider": {
+      "Type": "AWS::IAM::OIDCProvider",
+      "Condition": "CreateGitHubProvider",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "Url": "https://token.actions.githubusercontent.com",
+        "ClientIdList": ["sts.amazonaws.com"]
+      }
+    },
+    "GitHubPublishRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "Description": "Publish verified Gesso image releases from the exact GitHub main subject using temporary OIDC credentials.",
+        "MaxSessionDuration": 3600,
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Action": "sts:AssumeRoleWithWebIdentity",
+            "Principal": {"Federated": {"Fn::If": ["CreateGitHubProvider", {"Ref": "GitHubProvider"}, {"Ref": "ExistingGitHubOidcProviderArn"}]}},
+            "Condition": {"StringEquals": {
+              "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+              "token.actions.githubusercontent.com:sub": {"Fn::If": ["CustomGitHubSubject", {"Ref": "GitHubOidcSubject"}, {"Fn::Sub": "repo:${GitHubRepository}:ref:refs/heads/main"}]}
+            }}
+          }]
+        },
+        "Policies": [{
+          "PolicyName": "PublishOneRepository",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {"Sid": "RegistryAuthentication", "Effect": "Allow", "Action": "ecr:GetAuthorizationToken", "Resource": "*"},
+              {"Sid": "ReleaseImages", "Effect": "Allow", "Action": ["ecr:BatchCheckLayerAvailability", "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage", "ecr:BatchGetImage", "ecr:DescribeImages"], "Resource": {"Fn::GetAtt": ["Repository", "Arn"]}}
+            ]
+          }
+        }],
+        "Tags": [{"Key": "Application", "Value": "gesso"}]
+      }
+    }
+  },
+  "Outputs": {
+    "RepositoryName": {"Value": {"Ref": "Repository"}},
+    "RepositoryUri": {"Value": {"Fn::GetAtt": ["Repository", "RepositoryUri"]}},
+    "RepositoryArn": {"Value": {"Fn::GetAtt": ["Repository", "Arn"]}},
+    "GitHubPublishRoleArn": {"Value": {"Fn::GetAtt": ["GitHubPublishRole", "Arn"]}},
+    "GitHubOidcProviderArn": {"Value": {"Fn::If": ["CreateGitHubProvider", {"Ref": "GitHubProvider"}, {"Ref": "ExistingGitHubOidcProviderArn"}]}},
+    "ExpectedGitHubSubject": {"Value": {"Fn::If": ["CustomGitHubSubject", {"Ref": "GitHubOidcSubject"}, {"Fn::Sub": "repo:${GitHubRepository}:ref:refs/heads/main"}]}}
+  }
+}

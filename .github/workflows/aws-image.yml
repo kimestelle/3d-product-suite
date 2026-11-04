@@ -1,0 +1,173 @@
+name: Verify and publish AWS image
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Push the verified image to the private ECR repository
+        type: boolean
+        default: false
+      aws_region:
+        description: AWS region containing the registry stack
+        type: string
+        default: us-east-1
+      role_arn:
+        description: GitHubPublishRoleArn from the registry stack (publish only)
+        type: string
+        default: ''
+      repository_name:
+        description: RepositoryName from the registry stack (publish only)
+        type: string
+        default: gesso-render
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gesso-aws-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    # A branch name in a manually dispatched workflow must agree with IAM trust.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ inputs.aws_region }}
+      PUBLISH_IMAGE: ${{ inputs.publish }}
+      PUBLISH_ROLE_ARN: ${{ inputs.role_arn }}
+      ECR_REPOSITORY: ${{ inputs.repository_name }}
+    steps:
+      - name: Check out the selected main commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Validate publication inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, re
+          if not re.fullmatch(r'[a-z]{2}-[a-z-]+-[0-9]+', os.environ['AWS_REGION']):
+              raise SystemExit('Enter an AWS region name.')
+          if os.environ['PUBLISH_IMAGE'] == 'true':
+              role = re.fullmatch(r'arn:aws:iam::([0-9]{12}):role/[A-Za-z0-9+=,.@_/-]+', os.environ['PUBLISH_ROLE_ARN'])
+              if not role:
+                  raise SystemExit('Publishing requires the registry stack GitHubPublishRoleArn.')
+              if not re.fullmatch(r'[a-z0-9]+(?:[._/-][a-z0-9]+)*', os.environ['ECR_REPOSITORY']):
+                  raise SystemExit('Enter the registry stack RepositoryName.')
+              with open(os.environ['GITHUB_ENV'], 'a') as output:
+                  output.write('EXPECTED_AWS_ACCOUNT=' + role[1] + '\n')
+          PY
+          mkdir -p "$RUNNER_TEMP/gesso-aws-proof"
+      - name: Build the Linux AMD64 image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --platform linux/amd64 --pull \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --tag "gesso-aws:$GITHUB_SHA" .
+      - name: Start a disposable authenticated workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 -c 'import secrets; print(secrets.token_hex(32))' > "$RUNNER_TEMP/gesso-ci-key"
+          sudo chown 10001:10001 "$RUNNER_TEMP/gesso-ci-key"
+          sudo chmod 0400 "$RUNNER_TEMP/gesso-ci-key"
+          docker run --detach --name gesso-image-smoke --platform linux/amd64 \
+            --shm-size 1g --pids-limit 1024 --security-opt no-new-privileges \
+            --tmpfs /data:rw,nosuid,size=256m \
+            --mount "type=bind,source=$RUNNER_TEMP/gesso-ci-key,target=/run/secrets/gesso-access-key,readonly" \
+            --env GESSO_ACCESS_KEY_FILE=/run/secrets/gesso-access-key \
+            --env GESSO_PUBLIC_URL=https://gesso-ci.invalid \
+            --env GESSO_BACKEND_URL=https://gesso-ci-api.invalid \
+            --env GESSO_CYCLES_DEVICE=CPU --env GESSO_CAPTURE_DEVICE=software \
+            "gesso-aws:$GITHUB_SHA"
+      - name: Verify health and the workspace authentication boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker exec --user gesso gesso-image-smoke \
+            python scripts/smoke_container_http.py --url http://127.0.0.1:8787 \
+            | tee "$RUNNER_TEMP/gesso-aws-proof/http.json"
+      - name: Render a Cycles frame and verify software WebGL2
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker exec --user gesso gesso-image-smoke \
+            python scripts/check_render_runtime.py --url http://127.0.0.1:8787 \
+            --capture-device software --output /tmp/gesso-runtime-proof.json
+          docker cp gesso-image-smoke:/tmp/gesso-runtime-proof.json "$RUNNER_TEMP/gesso-aws-proof/runtime.json"
+          echo 'Image verified on CPU + software WebGL2. GPU proof is still required on the AWS host.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Assume the main-only ECR publisher
+        if: inputs.publish
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          aws-region: ${{ inputs.aws_region }}
+          role-to-assume: ${{ inputs.role_arn }}
+          role-session-name: gesso-image-${{ github.run_id }}
+          role-duration-seconds: 1800
+          allowed-account-ids: ${{ env.EXPECTED_AWS_ACCOUNT }}
+          unset-current-credentials: true
+      - name: Publish the verified immutable release
+        if: inputs.publish
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          registry="$EXPECTED_AWS_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com"
+          tag="sha-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$registry"
+          docker tag "gesso-aws:$GITHUB_SHA" "$registry/$ECR_REPOSITORY:$tag"
+          docker push "$registry/$ECR_REPOSITORY:$tag"
+          digest=$(aws ecr describe-images --region "$AWS_REGION" --repository-name "$ECR_REPOSITORY" \
+            --image-ids "imageTag=$tag" --query 'imageDetails[0].imageDigest' --output text)
+          if [[ ! "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo 'ECR did not return a verified image digest.' >&2
+            exit 1
+          fi
+          export GESSO_RELEASE_URI="$registry/$ECR_REPOSITORY@$digest"
+          export GESSO_RELEASE_TAG="$tag"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          release={'sourceCommit':os.environ['GITHUB_SHA'], 'imageUri':os.environ['GESSO_RELEASE_URI'],
+                   'imageTag':os.environ['GESSO_RELEASE_TAG'], 'platform':'linux/amd64',
+                   'verifiedRuntime':'Cycles CPU + software WebGL2; GPU requires host verification'}
+          (Path(os.environ['RUNNER_TEMP'])/'gesso-aws-proof/release.json').write_text(json.dumps(release,indent=2)+'\n')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              output.write('image_uri='+release['imageUri']+'\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as output:
+              output.write('\nImage URI for the workspace stack:\n\n`'+release['imageUri']+'`\n')
+          PY
+      - name: Retain failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/gesso-aws-proof"
+          docker logs gesso-image-smoke > "$RUNNER_TEMP/gesso-aws-proof/container.log" 2>&1 || true
+          docker cp gesso-image-smoke:/tmp/gesso-runtime-proof.json "$RUNNER_TEMP/gesso-aws-proof/runtime.json" || true
+      - name: Store image verification receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aws-image-proof-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gesso-aws-proof
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Release the disposable workspace and registry session
+        if: always()
+        shell: bash
+        run: |
+          docker rm --force gesso-image-smoke || true
+          if [ "$PUBLISH_IMAGE" = true ] && [ -n "${EXPECTED_AWS_ACCOUNT:-}" ]; then
+            docker logout "$EXPECTED_AWS_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com" || true
+          fi
+          sudo rm -f "$RUNNER_TEMP/gesso-ci-key"

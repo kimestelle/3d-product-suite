@@ -11,6 +11,9 @@ test('capture policy only accepts explicit supported modes', () => {
   assert.deepEqual(launchModes('auto', 'darwin').map(mode => mode.mode), ['hardware', 'software']);
   assert.ok(launchModes('hardware', 'darwin')[0].args.includes('--use-angle=metal'));
   assert.ok(!launchModes('hardware', 'linux')[0].args.some(arg => arg.includes('swiftshader')));
+  assert.ok(launchModes('hardware', 'linux')[0].args.includes('--enable-gpu'));
+  assert.ok(launchModes('hardware', 'linux')[0].args.includes('--use-angle=vulkan'));
+  assert.ok(!launchModes('software', 'linux')[0].args.includes('--use-angle=vulkan'));
 });
 
 test('renderer detection distinguishes actual hardware from software and unknown contexts', () => {

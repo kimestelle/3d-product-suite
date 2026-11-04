@@ -8,7 +8,7 @@ World comparisons support an official World Labs visual mesh and a mesh reconstr
 
 `npm run build:demo --prefix web` builds a view-only browser bundle of the original MORA fixture for GitHub Pages or Vercel. Navigation, inspection, saved-film playback and local preview stills work without the Python API. Scene edits show a backend-required error before changing the scene or history. Uploads, persistent saves, generation and final rendering also require the backend. See [static hosting and deployment setup](docs/static-demo.md).
 
-To connect that Vercel editor to the full Python backend, use the [Render deployment setup](docs/backend-deployment.md). It includes persistent storage, workspace access, Blender/FFmpeg and an API rewrite; deployment still requires your Render account.
+For AWS GPU deployment, use the [AWS setup](docs/aws-deployment.md): a single NVIDIA host, retained encrypted workspace, private image releases and actual Cycles/WebGL runtime checks. The [Render setup](docs/backend-deployment.md) remains available for a simpler CPU host. Both keep the existing Vercel editor and require the selected cloud account.
 
 ## Run locally
 
