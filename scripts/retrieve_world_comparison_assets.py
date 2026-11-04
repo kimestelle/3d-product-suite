@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import struct
 import sys
 import tempfile
@@ -83,7 +84,8 @@ def retrieve_existing_assets(output, client):
         raise RetrievalError("The comparison output already exists; preserve it and use a fresh run.")
     requested = []
     # Check both existing-world responses before downloading either asset.
-    for world_id, filename in REQUESTED_WORLDS:
+    for ordinal, (world_id, filename) in enumerate(REQUESTED_WORLDS, 1):
+        print(f"Phase: metadata {ordinal}/{len(REQUESTED_WORLDS)}", flush=True)
         world = client.get_world(world_id)
         if not isinstance(world, dict) or world.get("world_id") != world_id:
             raise RetrievalError("The provider did not return the requested existing world.")
@@ -97,9 +99,11 @@ def retrieve_existing_assets(output, client):
         staging = Path(temporary) / "artifact"
         staging.mkdir()
         records = []
-        for world_id, filename, url in requested:
+        for ordinal, (world_id, filename, url) in enumerate(requested, 1):
             destination = staging / filename
+            print(f"Phase: download {ordinal}/{len(REQUESTED_WORLDS)}", flush=True)
             downloaded = client._download(url, destination)
+            print(f"Phase: validation {ordinal}/{len(REQUESTED_WORLDS)}", flush=True)
             payload = worlds._read_asset(destination)
             digest = hashlib.sha256(payload).hexdigest()
             if downloaded != {"sha256": digest, "bytes": len(payload)}:
@@ -111,6 +115,7 @@ def retrieve_existing_assets(output, client):
                     "providerApiMethods": ["GET"], "providerWorldReads": len(REQUESTED_WORLDS),
                     "providerWorkCreated": False, "additionalProviderCredits": 0,
                     "maxAssetBytes": worlds.MAX_ASSET_BYTES, "assets": records}
+        print("Phase: publish verified artifact", flush=True)
         with (staging / "manifest.json").open("x", encoding="utf-8") as handle:
             json.dump(manifest, handle, indent=2, allow_nan=False)
             handle.write("\n")
@@ -120,16 +125,40 @@ def retrieve_existing_assets(output, client):
     return manifest
 
 
+def safe_failure_details(error):
+    """Whitelist class/status/transport categories, never the raw exception."""
+    name = type(error).__name__
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", name):
+        name = "Exception"
+    details = ["exception=" + name]
+    text = str(error)
+    status = re.search(r"\bHTTP ([1-5][0-9]{2})\b", text)
+    if status:
+        details.append("http_status=" + status.group(1))
+    known_labels = {
+        "WORLDLABS_API_KEY is not configured on the server": "credential_not_configured",
+        "World Labs API returned invalid JSON": "provider_invalid_json",
+        "World Labs API connection failed; paid submissions are never automatically retried": "provider_connection_failed",
+        "Provider asset download failed; no credentials were sent to the asset host": "asset_download_failed",
+        "Provider world asset exceeds the import size limit": "asset_size_limit",
+    }
+    if text in known_labels:
+        details.append("category=" + known_labels[text])
+    return " ".join(details)
+
+
 def main():
     try:
+        print("Phase: initialize read-only client", flush=True)
         client = ReadOnlyWorldLabsClient.from_environment(timeout=90)
         result = retrieve_existing_assets(OUTPUT_DIRECTORY, client)
     except RetrievalError as error:
         print(str(error), file=sys.stderr)
         return 1
-    except Exception:
+    except Exception as error:
         # Exceptions may contain response text, URLs or transport details.
-        print("Read-only asset retrieval failed; no provider generation or export was requested.", file=sys.stderr)
+        print("Read-only asset retrieval failed; no provider generation or export was requested. "
+              + safe_failure_details(error), file=sys.stderr)
         return 1
     print(f"Verified {len(result['assets'])} existing vertex-colored meshes; no provider work was created.")
     return 0
