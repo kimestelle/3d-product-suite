@@ -2,6 +2,7 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {describe, expect, it} from 'vitest';
 import ExportPanel, {type ExportPanelProps} from './ExportPanel';
+import PostProcessingPanel from './PostProcessingPanel';
 const props: ExportPanelProps = {
   scene: {render: {width: 1080, height: 1920, fps: 24, samples: 32}, shots: [{endFrame: 360}]},
   projectName: 'Lamp campaign', frame: 125, initialMode: 'still', capabilities: {blenderAvailable: true, ffmpegAvailable: true}, jobs: [], currentDigest: 'current',
@@ -41,5 +42,20 @@ describe('Export sidebar content', () => {
       expect(html).toContain(`<summary>${mode === 'still' ? 'Composition' : 'Composition + sound'}</summary>`);
       expect(html).toContain('Existing output controls');
     }
+  });
+  it('exposes the shared post-processing controls before export settings in both output modes', () => {
+    for(const mode of ['still','video'] as const){
+      const html=renderToStaticMarkup(<ExportPanel {...props} initialMode={mode} compositionSettings={<p>Composition details</p>}
+        postProcessing={<PostProcessingPanel scene={{postProcessing:{enabled:true,exposureEV:.45}}} onChange={()=>{}}/>}/>);
+      expect(html).toContain('aria-label="Post-processing"');expect(html).toContain('aria-label="Image exposure"');expect(html).toContain('value="0.45"');
+      expect(html.indexOf('aria-label="Post-processing"')).toBeLessThan(html.indexOf('<form'));
+      expect(html.indexOf('aria-label="Post-processing"')).toBeLessThan(html.indexOf('gesso-export-composition-settings'));
+    }
+  });
+  it('keeps preview post-processing usable when local export tools are missing', () => {
+    const html=renderToStaticMarkup(<ExportPanel {...props} capabilities={{blenderAvailable:false,blenderIssue:'Blender executable was not found'}}
+      postProcessing={<PostProcessingPanel scene={{postProcessing:{enabled:true}}} onChange={()=>{}} analyzePostProcessing={async()=>{throw new Error('Explicit action only');}}/>}/>);
+    expect(html).toContain('aria-label="Enable post-processing" checked=""');expect(html).toContain('<button type="button">Auto balance</button>');
+    expect(html).toContain('disabled="">Render still');
   });
 });

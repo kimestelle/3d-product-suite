@@ -101,7 +101,7 @@ export default function ExportSetupPanel({sourceScene, tab, onTab, settings, onS
           {sceneParts(sourceScene).filter(part=>targets.has(part.id)).map(part=><option key={part.id} value={part.id}>{part.name}</option>)}
         </select></label>
       </fieldset>
-      <p className="gesso-setup-note">Front-side exterior views. Product, stage, lighting and materials stay as set. Focus uses the selected part’s bounds; it does not infer useful details.</p>
+      <p className="gesso-setup-note">{sourceScene.environment?.kind==='splat'?'Gaussian worlds keep one saved camera position. Optical zoom and aim stay within its source view; unseen room geometry is not inferred.':'Front-side exterior views.'} Similar views share a directional move; substantial scale or subject changes can cut to a new direction. Wider framing gets more movement. Product, stage, lighting and materials stay as set. Focus uses the selected part’s bounds; it does not infer useful details.</p>
       {hasDraft&&<section className="gesso-setup-changes" aria-label="Preview changes"><h3>In this preview</h3><ul>{changes.map((change,index)=><li key={index}>{change}</li>)}</ul></section>}
       <button type="button" className="text-button" disabled={busy} onClick={()=>onSettings({...settings,workflow:undefined})}>Advanced randomization</button>
     </div>

@@ -71,6 +71,51 @@ function viewport(width = 800, height = 400) {
 afterEach(() => {vi.restoreAllMocks(); vi.unstubAllGlobals();});
 
 describe('current viewport still capture', () => {
+  it('uses canonical Gaussian detail only for the accurate pass, then settles preview before returning',async()=>{
+    const {view,renderer}=viewport();const preview={},canonical={},drawn:any[]=[];view.splat=preview;
+    const restore=vi.fn(()=>{view.splat=preview;});
+    vi.spyOn(view,'useFullResolutionSplat').mockImplementation(async()=>{view.splat=canonical;return restore;});
+    renderer.render.mockImplementation(()=>drawn.push(view.splat));
+    await view.captureStill();
+    expect(drawn).toEqual([canonical,preview]);expect(restore).toHaveBeenCalledOnce();expect(view.splat).toBe(preview);
+  });
+  it('keeps captured pixels intact until the lightweight sort can atomically replace them',async()=>{
+    const {view,renderer,canvas,events}=viewport(),preview={},canonical={},previewSort=deferred(),drawn:any[]=[];
+    view.splat=preview;
+    vi.spyOn(view,'useFullResolutionSplat').mockImplementation(async()=>{view.splat=canonical;return ()=>{view.splat=preview;};});
+    view.spark={visible:true,renderSize:new THREE.Vector2(),update:vi.fn().mockResolvedValueOnce(undefined).mockImplementationOnce(()=>previewSort.promise)};
+    const render=renderer.render.getMockImplementation()!;
+    renderer.render.mockImplementation((...args)=>{drawn.push(view.splat);render(...args);});
+    const task=view.captureStill();await flush();
+    expect(drawn).toEqual([canonical]);expect(events).toEqual(['render:2048x1024','copy']);
+    expect([canvas.width,canvas.height]).toEqual([2048,1024]);
+    previewSort.resolve();await task;
+    expect(drawn).toEqual([canonical,preview]);
+    expect(events).toEqual(['render:2048x1024','copy','render:800x400','encode']);
+    expect([canvas.width,canvas.height]).toEqual([800,400]);
+    expect(view.spark.update).toHaveBeenCalledTimes(2);
+  });
+  it('finishes lightweight restoration before a capture cancelled during its sort rejects',async()=>{
+    const {view,canvas}=viewport(),preview={},canonical={},previewSort=deferred(),abort=new AbortController();
+    view.splat=preview;
+    const restore=vi.fn(()=>{view.splat=preview;});
+    vi.spyOn(view,'useFullResolutionSplat').mockImplementation(async()=>{view.splat=canonical;return restore;});
+    view.spark={visible:true,renderSize:new THREE.Vector2(),update:vi.fn().mockResolvedValueOnce(undefined).mockImplementationOnce(()=>previewSort.promise)};
+    const task=view.captureStill(abort.signal),cancelled=expect(task).rejects.toMatchObject({name:'AbortError'});
+    await flush();abort.abort();
+    expect(view.splat).toBe(preview);expect(restore).toHaveBeenCalledOnce();expect(view.stillRendering).toBe(true);
+    previewSort.resolve();await cancelled;
+    expect([canvas.width,canvas.height]).toEqual([800,400]);
+    expect(view.stillRendering).toBe(false);expect(view.stillCapture).toBeNull();
+  });
+  it('restores the lightweight Gaussian on a failed accurate pass and keeps thumbnail captures light',async()=>{
+    const {view,renderer}=viewport();const preview={},canonical={};view.splat=preview;
+    const restore=vi.fn(()=>{view.splat=preview;});
+    const full=vi.spyOn(view,'useFullResolutionSplat').mockImplementation(async()=>{view.splat=canonical;return restore;});
+    renderer.render.mockImplementationOnce(()=>{throw new Error('render failed');});
+    await expect(view.captureStill()).rejects.toThrow('render failed');expect(restore).toHaveBeenCalledOnce();expect(view.splat).toBe(preview);
+    full.mockClear();await view.capturePreview();expect(full).not.toHaveBeenCalled();
+  });
   it('makes a 320px PNG cover through the same render path and restores the live buffer', async () => {
     const {view,canvas,events,png,product,renderer}=viewport(1200,800);
     const visible:boolean[]=[];renderer.render.mockImplementation(()=>visible.push(product.visible));

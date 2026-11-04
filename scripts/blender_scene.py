@@ -582,33 +582,31 @@ def spot_light(name, position, target, power, cone_deg, blend, radius, color):
     return obj
 
 
-def configure_scene(source, width, height, samples):
+def configure_scene(source, width, height, samples, output=None, frames=()):
     scene = bpy.context.scene
     settings = source["render"]
     scene.unit_settings.system = "METRIC"
     scene.unit_settings.length_unit = "METERS"
     scene.unit_settings.scale_length = 1
     scene.render.engine = "CYCLES"
-    # CPU without denoising remains the reference profile. GESSO_CYCLES_DEVICE=METAL
-    # and GESSO_CYCLES_DENOISE=1 opt into local acceleration; both are recorded in
-    # render-config.json so an accelerated job is never mistaken for a reference one.
-    scene.cycles.device = "CPU"
-    if os.environ.get("GESSO_CYCLES_DEVICE", "").upper() == "METAL":
-        preferences = bpy.context.preferences.addons["cycles"].preferences
-        preferences.compute_device_type = "METAL"
-        preferences.get_devices()
-        for device in preferences.devices:
-            device.use = device.type != "CPU"
-        scene.cycles.device = "GPU"
+    # Reuse render data within the worker's bounded frame batch. Cycles still
+    # updates the dependency graph for every sampled camera/object/light pose.
+    scene.render.use_persistent_data = os.environ.get("GESSO_CYCLES_PERSISTENT_DATA", "1").lower() not in ("0", "false", "off")
+    devices = renderer_helper("render_devices")
+    policy = devices.execution_policy(output or Path.cwd())
+    previous = devices.previous_execution(output, frames) if output is not None else None
+    preferences = bpy.context.preferences.addons["cycles"].preferences
+    execution = devices.configure_cycles_device(scene, preferences, policy["cycles"], previous, denoising=policy["denoising"])
+    scene["gesso_execution_json"] = json.dumps(execution, sort_keys=True)
     scene.cycles.samples = samples or settings["samples"]
     scene.cycles.seed = settings["seed"]
     scene.cycles.use_animated_seed = False
     # Avoid optional OIDN/OptiX dependencies: some Blender 4.3.2 builds omit them.
     # The same sampled scene and seed therefore use the same portable settings.
-    scene.cycles.use_denoising = os.environ.get("GESSO_CYCLES_DENOISE", "") == "1"
+    scene.cycles.use_denoising = policy["denoising"]
     if scene.cycles.use_denoising:
         scene.cycles.denoiser = "OPENIMAGEDENOISE"
-        scene.cycles.denoising_use_gpu = True
+        scene.cycles.denoising_use_gpu = False
     scene.cycles.max_bounces = 8
     scene.cycles.transmission_bounces = 8
     scene.render.resolution_x = width or settings["width"]
@@ -1767,7 +1765,7 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete(use_global=False)
-    scene = configure_scene(source, args.width, args.height, args.samples_per_pixel)
+    scene = configure_scene(source, args.width, args.height, args.samples_per_pixel, args.output, frames)
     objects = {}
     product_components = []
     for component in source["product"]["components"]:
@@ -1846,9 +1844,11 @@ def main():
         "blenderVersion": bpy.app.version_string,
         "engine": scene.render.engine,
         "device": scene.cycles.device,
+        "execution": json.loads(scene["gesso_execution_json"]),
         "seed": scene.cycles.seed,
         "samples": scene.cycles.samples,
         "denoising": scene.cycles.use_denoising,
+        "persistentData": scene.render.use_persistent_data,
         "width": scene.render.resolution_x,
         "height": scene.render.resolution_y,
         "fps": scene.render.fps,
@@ -1880,6 +1880,11 @@ def main():
             for obj in scene.objects if obj.type == "LIGHT"
         ],
     }
+    if source.get("postProcessing"):
+        settings = renderer_helper("post_processing").validate_post_processing(source["postProcessing"])
+        scene["gesso_post_processing_json"] = json.dumps(settings, sort_keys=True)
+        scene["gesso_post_processing_policy"] = "Display-sRGB finishing is applied once by the Film export worker after AgX; direct Blender renders need the same post-render recipe. Flat image/black shots bypass finishing."
+        render_config["postProcessing"] = {"settings": settings, "space": "display-sRGB-after-AgX", "appliedBy": "film-export-worker", "directBlendRenderAppliesGrade": False}
     scene["render_config_json"] = json.dumps(render_config, sort_keys=True)
     (args.output / "render-config.json").write_text(json.dumps(render_config, indent=2) + "\n", encoding="utf-8")
     # Keep the native artifact self-contained if bundled assets are added later.
@@ -1888,10 +1893,25 @@ def main():
     if args.frames:
         destination = args.output / "frames"
         destination.mkdir(exist_ok=True)
+        raw_processor, raw_identity = None, None
+        if source.get("postProcessing"):
+            processor = renderer_helper("post_processing")
+            job_path = args.output / "job.json"
+            if processor.has_post_processing(source["postProcessing"]) and job_path.is_file():
+                job = json.loads(job_path.read_text())
+                digest = hashlib.sha256(json.dumps(source, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+                if (job["sceneDigest"] != digest or job["rendererDigest"] != hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+                        or job["renderProfile"]["width"] != scene.render.resolution_x
+                        or job["renderProfile"]["height"] != scene.render.resolution_y
+                        or job["renderProfile"]["samples"] != scene.cycles.samples):
+                    raise ValueError("Raw frame receipts require the pinned job source, renderer and render profile")
+                raw_processor, raw_identity = processor, processor.raw_frame_identity(job)
         for frame in args.frames:
             scene.frame_set(frame)
             scene.render.filepath = str(destination / f"{frame:06d}.png")
             bpy.ops.render.render(write_still=True)
+            if raw_processor is not None:
+                raw_processor.record_raw_frame_receipt(args.output, raw_identity, frame)
             print(f"FRAME_COMPLETE {frame}", flush=True)
     print(f"SCENE_COMPLETE {args.output / 'scene.blend'}", flush=True)
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+from collections import OrderedDict
 import copy
 import gzip
 import hashlib
@@ -14,9 +15,14 @@ import re
 import stat
 import struct
 import tempfile
+import threading
 
 MAX_ASSET_BYTES = 128 * 1024 * 1024
 MAX_DECODED_SPZ_BYTES = 512 * 1024 * 1024
+_WORLD_ASSET_CACHE_MAX_ENTRIES = 128
+_WORLD_ASSET_CACHE_MAX_RECORD_BYTES = 4096
+_WORLD_ASSET_CACHE = OrderedDict()
+_WORLD_ASSET_CACHE_LOCK = threading.Lock()
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 _REQUIRED_GAUSSIAN = {"x", "y", "z", "f_dc_0", "f_dc_1", "f_dc_2", "opacity",
                       "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3"}
@@ -85,6 +91,22 @@ def validate_asset_record(asset, *, kind=None):
     return asset
 
 
+def validate_preview_asset(environment):
+    """Return preview bytes with the canonical Gaussian's sole alignment.
+
+    A preview pins a source file, not another editable world transform. Its
+    coordinates must already match the canonical source when the pair is made.
+    """
+    if "previewAsset" not in environment:
+        return None
+    _require(environment.get("kind") == "splat", "Only Gaussian worlds may declare previewAsset")
+    descriptor = environment["previewAsset"]
+    _require(isinstance(descriptor, dict) and set(descriptor) == {"path", "sha256", "format"},
+             "Gaussian previewAsset must contain only path, sha256 and format; alignment belongs to asset")
+    canonical = validate_asset_record(environment.get("asset"), kind="splat")
+    return validate_asset_record({**canonical, **descriptor}, kind="splat")
+
+
 def validate_product_asset_record(asset):
     """Product geometry is already normalized to centered Y-up metres."""
     _require(isinstance(asset, dict), "Product asset record is required")
@@ -98,18 +120,64 @@ def validate_product_asset_record(asset):
     return asset
 
 
+def _asset_file_identity(info):
+    _require(stat.S_ISREG(info.st_mode), "World asset must be a regular file")
+    _require(0 < info.st_size <= MAX_ASSET_BYTES, f"World asset must be nonempty and at most {MAX_ASSET_BYTES // 1024 // 1024} MiB")
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def _asset_stat(path):
+    try:
+        return _asset_file_identity(path.stat())
+    except OSError as error:
+        raise ValueError(f"Cannot read world asset: {error.strerror or type(error).__name__}") from error
+
+
 def _read_asset(path):
     path = Path(path)
+    identity = _asset_stat(path)
     try:
-        info = path.stat()
-        _require(stat.S_ISREG(info.st_mode), "World asset must be a regular file")
-        _require(0 < info.st_size <= MAX_ASSET_BYTES, f"World asset must be nonempty and at most {MAX_ASSET_BYTES // 1024 // 1024} MiB")
         with path.open("rb") as handle:
+            _require(_asset_file_identity(os.fstat(handle.fileno())) == identity, "World asset changed while reading")
             payload = handle.read(MAX_ASSET_BYTES + 1)
+            _require(_asset_file_identity(os.fstat(handle.fileno())) == identity, "World asset changed while reading")
         _require(0 < len(payload) <= MAX_ASSET_BYTES, "World asset exceeds the size limit")
+        _require(len(payload) == identity[2] and _asset_stat(path) == identity, "World asset changed while reading")
         return payload
     except OSError as error:
         raise ValueError(f"Cannot read world asset: {error.strerror or type(error).__name__}") from error
+
+
+def _verify_world_asset(path, asset):
+    """Reuse small verification facts only while the same local file is intact.
+
+    Scene-dependent product/material validation stays uncached. Every lookup
+    checks regular-file bounds and identity twice; misses validate a stable read,
+    SHA-256 and format, then recheck identity before publication. No asset bytes,
+    decoded buffers, scene documents, or validation failures enter this LRU.
+    """
+    identity = _asset_stat(path)
+    key = (str(path), asset["sha256"], asset["format"], MAX_DECODED_SPZ_BYTES, *identity)
+    with _WORLD_ASSET_CACHE_LOCK:
+        cached = _WORLD_ASSET_CACHE.get(key)
+        if cached is not None:
+            _WORLD_ASSET_CACHE.move_to_end(key)
+            cached = copy.deepcopy(cached)
+    if cached is not None:
+        _require(_asset_stat(path) == identity, "World asset changed during verification")
+        return cached
+    payload = _read_asset(path)
+    _require(hashlib.sha256(payload).hexdigest() == asset["sha256"], "Asset hash does not match the immutable scene revision")
+    metadata = _validate_content(payload, asset["format"])
+    _require(_asset_stat(path) == identity, "World asset changed during verification")
+    verified = {"bytes": len(payload), **metadata}
+    if len(_canonical(verified)) <= _WORLD_ASSET_CACHE_MAX_RECORD_BYTES:
+        with _WORLD_ASSET_CACHE_LOCK:
+            _WORLD_ASSET_CACHE[key] = copy.deepcopy(verified)
+            _WORLD_ASSET_CACHE.move_to_end(key)
+            while len(_WORLD_ASSET_CACHE) > _WORLD_ASSET_CACHE_MAX_ENTRIES:
+                _WORLD_ASSET_CACHE.popitem(last=False)
+    return verified
 
 
 def _data_uri(uri):
@@ -148,18 +216,21 @@ def _validate_glb(payload, source_name=""):
     magic, version, length = struct.unpack_from("<4sII", payload)
     _require(magic == b"glTF" and version == 2 and length == len(payload), "Expected a complete GLB version 2 file")
     chunks, offset = [], 12
+    view = memoryview(payload)
     while offset < len(payload):
         _require(offset + 8 <= len(payload), "GLB chunk header is truncated")
         size, type_ = struct.unpack_from("<II", payload, offset)
         offset += 8
         _require(size % 4 == 0 and offset + size <= len(payload), "GLB chunk length is invalid")
-        chunks.append((type_, payload[offset:offset + size]))
+        # Validate the original BIN storage without duplicating a room's large
+        # geometry/texture chunk. Only its bounded JSON chunk needs decoding.
+        chunks.append((type_, view[offset:offset + size]))
         offset += size
     _require(chunks and chunks[0][0] == 0x4E4F534A, "GLB must start with its JSON chunk")
     _require(len(chunks) <= 2 and (len(chunks) == 1 or chunks[1][0] == 0x004E4942), "GLB contains unsupported chunks")
     _require(len(chunks[0][1]) <= 16 * 1024 * 1024, "GLB JSON chunk is too large")
     try:
-        document = json.loads(chunks[0][1].decode("utf-8"))
+        document = json.loads(bytes(chunks[0][1]).decode("utf-8"))
         _require(isinstance(document, dict) and document.get("asset", {}).get("version") == "2.0", "GLB JSON must declare glTF 2.0")
         _check_glb_tree(document)
         binary = chunks[1][1] if len(chunks) == 2 else b""
@@ -352,8 +423,13 @@ def _immutable_write(path, payload):
 
 
 def import_world(source_path, library_root, *, name, provenance, source_up="Y", scale_to_meters=1, fixture=False,
-                 translation_m=None, rotation_xyzw=None):
-    """Import approved local bytes; this never calls a world-generation provider."""
+                 translation_m=None, rotation_xyzw=None, preview_source_path=None):
+    """Import approved local bytes; this never calls a world-generation provider.
+
+    Optional Gaussian preview bytes must use the canonical source coordinates.
+    The pair stores one alignment, and the original source remains authoritative
+    for stills, camera-matched plates and export.
+    """
     _require(isinstance(name, str) and 0 < len(name.strip()) <= 160, "World name must be 1 to 160 characters")
     validate_provenance(provenance)
     _require(type(fixture) is bool, "World fixture must be boolean")
@@ -367,12 +443,24 @@ def import_world(source_path, library_root, *, name, provenance, source_up="Y", 
              "rotationXyzw": copy.deepcopy([0, 0, 0, 1] if rotation_xyzw is None else rotation_xyzw)}
     validate_asset_record(asset, kind="mesh" if format_ == "glb" else "splat")
     configuration = {"name": name.strip(), "provenance": copy.deepcopy(provenance), "asset": asset, "fixture": fixture}
+    preview_payload = None
+    if preview_source_path is not None:
+        _require(format_ in ("spz", "ply"), "Only Gaussian worlds may declare previewAsset")
+        preview_format = Path(preview_source_path).suffix.lower().lstrip(".")
+        preview_payload = _read_asset(preview_source_path)
+        _validate_content(preview_payload, preview_format, Path(preview_source_path).name)
+        preview_digest = hashlib.sha256(preview_payload).hexdigest()
+        preview = {"path": f"assets/{preview_digest}.{preview_format}", "sha256": preview_digest, "format": preview_format}
+        validate_preview_asset({"kind": "splat", "asset": asset, "previewAsset": preview})
+        configuration["previewAsset"] = preview
     world_id = "world-" + hashlib.sha256(_canonical(configuration)).hexdigest()[:24]
     environment = {"revisionId": world_id, "kind": "mesh" if format_ == "glb" else "splat",
                    "displayName": name.strip(), "reviewStatus": "unreviewed", "asset": asset,
                    "worldColor": [0.18, 0.2, 0.18],
                    "plinth": {"id": "plinth", "sizeM": [0.25, 0.07, 0.2], "translationM": [0, -0.035, 0]},
                    "provenance": copy.deepcopy(provenance)}
+    if preview_payload is not None:
+        environment["previewAsset"] = copy.deepcopy(configuration["previewAsset"])
     if fixture:
         environment["fixture"] = True
     entry = {"id": world_id, "name": name.strip(), "environment": environment}
@@ -381,6 +469,8 @@ def import_world(source_path, library_root, *, name, provenance, source_up="Y", 
     asset_path = safe_asset_path(root, asset["path"])
     entry_path = safe_asset_path(root, f"worlds/{world_id}.json")
     _immutable_write(asset_path, payload)
+    if preview_payload is not None:
+        _immutable_write(safe_asset_path(root, environment["previewAsset"]["path"]), preview_payload)
     _immutable_write(entry_path, _canonical(entry) + b"\n")
     return entry
 
@@ -399,6 +489,7 @@ def list_worlds(library_root):
             env = entry["environment"]
             _require(env.get("revisionId") == entry["id"] and env.get("kind") in ("mesh", "splat"), "World library environment is invalid")
             validate_asset_record(env.get("asset"), kind=env["kind"])
+            validate_preview_asset(env)
             validate_provenance(env.get("provenance"))
             verify_scene_assets({"environment": env}, root)
         except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
@@ -411,8 +502,11 @@ def verify_scene_assets(scene, source_dir):
     """Validate the bytes referenced by a scene without changing its document."""
     environment = scene["environment"]
     references = []
+    preview = validate_preview_asset(environment)
     if environment["kind"] != "authored":
         references.append((validate_asset_record(environment.get("asset"), kind=environment["kind"]), None))
+        if preview is not None:
+            references.append((preview, None))
         if "collider" in environment:
             references.append((validate_asset_record(environment["collider"].get("asset"), kind="mesh"), None))
     if "comparison" in scene:
@@ -448,6 +542,10 @@ def verify_scene_assets(scene, source_dir):
     records = {}
     for asset, component in references:
         path = safe_asset_path(source_dir, asset["path"])
+        if component is None:
+            verified = _verify_world_asset(path, asset)
+            records[asset["path"]] = {"path": asset["path"], "sha256": asset["sha256"], "format": asset["format"], **verified}
+            continue
         payload = _read_asset(path)
         _require(hashlib.sha256(payload).hexdigest() == asset["sha256"], "Asset hash does not match the immutable scene revision")
         if component == "product-artwork":
@@ -461,8 +559,6 @@ def verify_scene_assets(scene, source_dir):
         elif component == "hdri":
             from .polyhaven import validate_hdri
             metadata = validate_hdri(payload)
-        elif component is None:
-            metadata = _validate_content(payload, asset["format"])
         else:
             from .products import inspect_product_glb, validate_product_dimensions, validate_product_material_nodes, validate_product_source_nodes
             metadata = inspect_product_glb(payload)

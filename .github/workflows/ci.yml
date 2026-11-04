@@ -40,4 +40,4 @@ jobs:
       - run: npm ci --prefix web --ignore-scripts
       - run: npm test --prefix web
       - run: npm run build --prefix web
-      - run: node scripts/capture_splats.test.mjs
+      - run: node --test scripts/capture_splats.test.mjs scripts/capture_gpu.test.mjs scripts/gaussian_world_copy.test.mjs

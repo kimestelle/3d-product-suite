@@ -32,6 +32,8 @@ def versions(command, **kwargs):
 
 class JobTests(unittest.TestCase):
     def setUp(self):
+        patcher = patch.object(jobs, "BATCH_SIZE", 12)
+        patcher.start(); self.addCleanup(patcher.stop)
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
@@ -71,6 +73,119 @@ class JobTests(unittest.TestCase):
     def encode_command(self):
         return next(command for command in self.commands if "-c:v" in command)
 
+    def test_grading_finishes_scene_frames_before_hashing_and_resumes_without_double_grade(self):
+        from PIL import Image
+        self.scene["postProcessing"] = {"enabled": True, "exposureEV": 1}
+        self.source.write_text(json.dumps(self.scene)); self.init()
+        self.run_worker()
+        with Image.open(self.output / "frames" / "000001.png") as image:
+            self.assertEqual(image.getpixel((0,0)), (140,140,140))
+        receipt = json.loads((self.output / "post-processing-frames.json").read_text())
+        self.assertEqual(receipt["1"], self.manifest()["frameDigests"]["1"])
+        self.commands.clear(); self.run_worker()
+        self.assertEqual(self.commands, [])
+        with Image.open(self.output / "frames" / "000001.png") as image:
+            self.assertEqual(image.getpixel((0,0)), (140,140,140))
+
+    def test_unreceipted_grade_is_rerendered_from_raw_source_after_interruption(self):
+        from PIL import Image
+        self.scene["postProcessing"] = {"enabled": True, "exposureEV": 1}
+        self.source.write_text(json.dumps(self.scene)); self.init()
+        atomic = jobs._atomic_json
+        failed = False
+        def stop_at_receipt(path, data):
+            nonlocal failed
+            if Path(path).name == "post-processing-frames.json" and not failed:
+                failed = True
+                raise RuntimeError("worker interrupted after grade")
+            return atomic(path, data)
+        with patch.object(jobs, "_atomic_json", side_effect=stop_at_receipt):
+            with self.assertRaisesRegex(RuntimeError, "interrupted after grade"):
+                self.run_worker()
+        self.run_worker()
+        with Image.open(self.output / "frames" / "000001.png") as image:
+            self.assertEqual(image.getpixel((0,0)), (140,140,140))
+
+    def test_modified_finishing_recipe_is_rejected_before_running_renderer(self):
+        self.scene["postProcessing"] = {"enabled": True, "exposureEV": 1}
+        self.source.write_text(json.dumps(self.scene)); self.init()
+        job = self.manifest()
+        job["postProcessing"]["exposureEV"] = 2
+        jobs._atomic_json(self.output / "job.json", job)
+        with patch.object(jobs, "_check_tool") as check, self.assertRaisesRegex(ValueError, "immutable source revision"):
+            jobs.run_job(self.output)
+        check.assert_not_called()
+
+    def test_cancelled_batch_recovers_renderer_receipted_raw_frames_without_rerendering(self):
+        from PIL import Image
+        from film.post_processing import raw_frame_identity, record_raw_frame_receipt
+        batcher = patch.object(jobs, "BATCH_SIZE", 48)
+        batcher.start(); self.addCleanup(batcher.stop)
+        for index, shot in enumerate(self.scene["shots"]):
+            shot.update(startFrame=index * 20 + 1, endFrame=(index + 1) * 20)
+        self.scene["postProcessing"] = {"enabled": True, "exposureEV": 1}
+        self.source.write_text(json.dumps(self.scene)); self.init()
+        def partial_batch(command, output, log_name, **kwargs):
+            self.commands.append(command)
+            (output / "scene.blend").write_bytes(b"BLENDER-v403" + b"fixture")
+            identity = raw_frame_identity(self.manifest())
+            for number in range(1, 40):
+                (output / "frames" / f"{number:06d}.png").write_bytes(png_bytes())
+                record_raw_frame_receipt(output, identity, number)
+            jobs.cancel_job(output)
+            raise jobs._Cancelled()
+        self.assertEqual(self.run_worker(partial_batch)["state"], "cancelled")
+        self.commands.clear()
+        self.assertEqual(self.run_worker()["state"], "succeeded")
+        rendered = [int(frame) for command in self.commands if "--frames" in command
+                    for frame in command[command.index("--frames") + 1].split(",")]
+        self.assertEqual(rendered, list(range(40, 61)))
+        with Image.open(self.output / "frames" / "000001.png") as image:
+            self.assertEqual(image.getpixel((0, 0)), (140, 140, 140))
+        self.assertFalse((self.output / "raw-frame-digests.json").exists())
+
+    def test_raw_recovery_rejects_wrong_job_identity_and_replaced_pixels(self):
+        from film.post_processing import raw_frame_identity, record_raw_frame_receipt
+        self.scene["postProcessing"] = {"enabled": True, "exposureEV": 1}
+        self.source.write_text(json.dumps(self.scene)); self.init()
+        (self.output / "frames").mkdir()
+        path = self.output / "frames" / "000001.png"
+        path.write_bytes(png_bytes())
+        identity = raw_frame_identity(self.manifest())
+        record_raw_frame_receipt(self.output, {**identity, "jobId": "another-job"}, 1)
+        self.assertEqual(jobs._recover_raw_scene_frames(self.output, self.manifest()), [])
+        record_raw_frame_receipt(self.output, identity, 1)
+        path.write_bytes(png_bytes(value=99))
+        self.assertEqual(jobs._recover_raw_scene_frames(self.output, self.manifest()), [])
+        self.assertFalse((self.output / "post-processing-frames.json").exists())
+
+    def test_raw_receipt_does_not_authorize_double_grade_after_final_receipt_interruption(self):
+        from PIL import Image
+        from film.post_processing import raw_frame_identity, record_raw_frame_receipt
+        self.scene["postProcessing"] = {"enabled": True, "exposureEV": 1}
+        self.source.write_text(json.dumps(self.scene)); self.init()
+        atomic = jobs._atomic_json
+        def receipted_render(command, output, log_name, **kwargs):
+            self.process(command, output, log_name, **kwargs)
+            if "--frames" in command:
+                for number in map(int, command[command.index("--frames") + 1].split(",")):
+                    record_raw_frame_receipt(output, raw_frame_identity(self.manifest()), number)
+        def interrupt(path, value):
+            if Path(path).name == "post-processing-frames.json":
+                raise RuntimeError("stopped before final receipt")
+            return atomic(path, value)
+        with patch.object(jobs, "_atomic_json", side_effect=interrupt):
+            with self.assertRaisesRegex(RuntimeError, "stopped before final receipt"):
+                self.run_worker(receipted_render)
+        self.commands.clear()
+        self.run_worker()
+        rendered = [int(frame) for command in self.commands if "--frames" in command
+                    for frame in command[command.index("--frames") + 1].split(",")]
+        self.assertIn(1, rendered)
+        self.assertFalse(set(range(2, 13)) & set(rendered))
+        with Image.open(self.output / "frames" / "000001.png") as image:
+            self.assertEqual(image.getpixel((0, 0)), (140, 140, 140))
+
     def test_scene_without_audio_encodes_with_the_unchanged_command(self):
         self.init()
         self.run_worker()
@@ -79,6 +194,15 @@ class JobTests(unittest.TestCase):
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
             "-framerate", str(self.scene["render"]["fps"]), "-start_number", "1", "-i", str(output / "frames" / "%06d.png"),
             "-frames:v", "30", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(output / ".film.partial.mp4")])
+
+    def test_reel_stills_copy_approved_png_bytes_without_extra_encoder_processes(self):
+        self.init()
+        self.run_worker()
+        encoders = [command for command in self.commands if "--python" not in command]
+        self.assertEqual(len(encoders), 2, "Only movie and contact sheet need FFmpeg")
+        for index, number in enumerate((5, 15, 25), start=1):
+            self.assertEqual((self.output / f"still-{index:02d}.png").read_bytes(),
+                             (self.output / "frames" / f"{number:06d}.png").read_bytes())
 
     def attach_audio(self, **overrides):
         payload = b"RIFF\x24\0\0\0WAVEfmt " + b"\0" * 20 + b"data\0\0\0\0"
@@ -104,9 +228,9 @@ class JobTests(unittest.TestCase):
             "-frames:v", "30", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
             "-filter:a", "volume=0.8,apad", "-map", "0:v:0", "-map", "1:a:0", "-c:a", "aac", "-b:a", "192k", "-shortest",
             str(output / ".film.partial.mp4")])
-        stills = [command for command in self.commands if "-update" in command]
-        self.assertEqual(len(stills), 4)
-        self.assertFalse(any("-map" in command for command in stills))
+        contact_sheet = [command for command in self.commands if "-update" in command]
+        self.assertEqual(len(contact_sheet), 1)
+        self.assertFalse(any("-map" in command for command in contact_sheet))
 
     def test_negative_offset_trims_the_soundtrack_and_prores_keeps_pcm(self):
         asset = self.attach_audio(offsetS=-2, gain=1)
@@ -383,12 +507,12 @@ with jobs._lock(output, '.worker.lock', blocking=False) as handle:
         self.init()
         original_frames = jobs._frames
         calls = 0
-        def reconcile(output, profile):
+        def reconcile(output, profile, **kwargs):
             nonlocal calls
             calls += 1
             if calls == 1:
                 jobs.cancel_job(output)
-            return original_frames(output, profile)
+            return original_frames(output, profile, **kwargs)
         with patch.object(jobs, "_frames", side_effect=reconcile), patch.object(jobs.subprocess, "run") as tool:
             result = jobs.run_job(self.output)
         tool.assert_not_called()
@@ -452,6 +576,23 @@ class PngValidationTests(unittest.TestCase):
                 with self.subTest(index=index):
                     path.write_bytes(invalid)
                     self.assertFalse(jobs.validate_png(path))
+
+
+class RenderBatchDefaults(unittest.TestCase):
+    def test_scene_setup_is_amortized_over_48_frames(self):
+        self.assertEqual(jobs.BATCH_SIZE, 48)
+        self.assertEqual(len(list(range(0, 360, jobs.BATCH_SIZE))), 8)
+
+    def test_inspection_returns_digest_of_the_single_validated_file_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "frame.png"
+            payload = png_bytes()
+            path.write_bytes(payload)
+            with patch.object(Path, "read_bytes", return_value=payload) as reads:
+                self.assertEqual(jobs._inspect_png(path, 4, 6), hashlib.sha256(payload).hexdigest())
+            self.assertEqual(reads.call_count, 1)
+            path.write_bytes(png_bytes(raw=b"incomplete"))
+            self.assertIsNone(jobs._inspect_png(path, 4, 6))
 
 
 if __name__ == "__main__":

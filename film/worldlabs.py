@@ -23,6 +23,7 @@ import urllib.parse
 import urllib.request
 
 from film import worlds
+from film.world_quality import inspect_visual_world
 
 API_ROOT = "https://api.worldlabs.ai/marble/v1"
 DOCUMENTATION_CHECKED_AT = "2026-10-16"
@@ -421,12 +422,14 @@ class WorldLabsClient:
             self._download(mesh_url, paths["mesh"])
             self._download(splat_url, paths["splat"])
             # Validate both before writing either library entry.
-            worlds._validate_content(worlds._read_asset(paths["mesh"]), "glb", paths["mesh"].name)
+            visual_quality = inspect_visual_world(worlds._read_asset(paths["mesh"]), source_name=paths["mesh"].name)
             worlds._validate_content(worlds._read_asset(paths["splat"]), "spz", paths["splat"].name)
             entries = {}
             for kind, path in paths.items():
                 specific = dict(provenance, representation="hq-visual-glb" if kind == "mesh" else "gaussian-spz")
                 specific["meshVariant" if kind == "mesh" else "splatResolution"] = mesh_variant if kind == "mesh" else resolution
+                if kind == "mesh":
+                    specific["visualQuality"] = visual_quality
                 specific["alignmentBasis"] = ("Caller-supplied mesh metric scale and ground offset; defaults 1 and 0 are uncalibrated"
                                                 if kind == "mesh" else "World Labs SPZ metric semantics, ground offset, then OpenCV-to-OpenGL rotation")
                 representation_scale = mesh_scale_to_meters if kind == "mesh" else scale

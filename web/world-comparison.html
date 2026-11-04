@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>World comparison · gesso</title>
+  </head>
+  <body>
+    <main>
+      <header class="review-header"><a href="/">gesso studio ↗</a><p>environment review</p><h1>World comparison</h1></header>
+      <p class="review-intro">Inspect existing world representations and a separate authored geometry control. The product is hidden; saved projects stay unchanged.</p>
+      <section class="review-controls" aria-label="Comparison controls">
+        <label>World<select id="world" aria-label="World" disabled></select></label>
+        <label>Representation<select id="representation" aria-label="Representation" disabled></select></label>
+        <div><span class="control-label">View</span><div id="views" role="group" aria-label="Fixed camera view"></div></div>
+        <button id="refresh" type="button" disabled>Refresh assets</button>
+      </section>
+      <section class="review-stage" aria-label="Source-space preview">
+        <div id="viewport" aria-label="World comparison viewport"></div>
+        <div class="review-readout"><span id="status" role="status" aria-live="polite">Loading local workspace…</span><button id="cancel" type="button" hidden>Cancel</button></div>
+      </section>
+      <div id="error" role="alert" hidden></div>
+      <p id="method" class="review-method">Same source-space camera; metric alignment unreviewed. Mesh / Gaussian coordinate agreement is approximate. Gaussian density variants use the same transform. No grading or depth of field.</p>
+      <p id="source" class="review-source"></p>
+      <section class="capture-section" aria-label="Captured comparison">
+        <div class="section-heading"><h2>Compare captured views</h2><button id="capture" type="button" disabled>Capture all representations</button><button id="manifest" type="button" disabled>Download record</button></div>
+        <p id="capture-note">Each image uses the same fixed camera and the editor’s actual renderer. Captures run one at a time.</p>
+        <div id="results" class="review-results"></div>
+      </section>
+      <section class="model-section" aria-label="Model benchmark availability">
+        <h2>Other models</h2>
+        <table><thead><tr><th>Candidate</th><th>Result</th><th>Required input / access</th><th>Published examples</th></tr></thead><tbody>
+          <tr><td>Atlas</td><td>Not run</td><td>Account access to the depth-guided generation task</td><td><a href="https://www.worldlabs.ai/blog/atlas" target="_blank" rel="noopener noreferrer">Atlas examples ↗</a></td></tr>
+          <tr><td>GenRecon</td><td>Not run</td><td>CUDA worker and consistent images with camera poses</td><td><a href="https://kasothaphie.github.io/GenRecon/" target="_blank" rel="noopener noreferrer">GenRecon examples ↗</a></td></tr>
+          <tr><td>WorldSculpt</td><td>Not run</td><td>CUDA worker, camera poses, instance masks and 3D boxes</td><td><a href="https://alaya-lab.github.io/WorldSculpt/" target="_blank" rel="noopener noreferrer">WorldSculpt examples ↗</a></td></tr>
+        </tbody></table>
+        <p>These models have not run here. Published examples use different inputs and are separate from the local captures. This page makes no external generation requests.</p>
+      </section>
+    </main>
+    <script type="module" src="/src/worldComparison.ts"></script>
+  </body>
+</html>

@@ -128,7 +128,7 @@ describe('viewport still controls', () => {
   it('uses native controls and no image, canvas, export job, or download until requested', () => {
     const fixture = setup();
     const html = renderToStaticMarkup(<ViewportStill scopeKey={{revision: 1}} disabledReason="The viewport is loading" onRender={fixture.onRender}/>);
-    expect(html).toContain('Preview'); expect(html).toContain('Render still');
+    expect(html).toContain('Preview'); expect(html).toContain('Preview snapshot');
     expect(html).toContain('The viewport is loading'); expect(html).toContain('disabled=""');
     expect(html).not.toContain('<canvas'); expect(html).not.toContain('<img'); expect(html).not.toContain('Download');
     expect(fixture.onRender).not.toHaveBeenCalled();

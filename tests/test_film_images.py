@@ -189,6 +189,29 @@ class FilmImageTests(unittest.TestCase):
             self.assertEqual(rendered.tobytes(), approved.convert("RGB").tobytes())
         self.assertEqual((output / "frames" / "000003.png").read_bytes(), (output / "frames" / "000005.png").read_bytes())
 
+    def test_finishing_only_touches_scene_frames_and_flat_image_pixels_bypass_it(self):
+        self.image_shot()
+        live = copy.deepcopy(self.scene["shots"][0])
+        live.pop("image")
+        live.update(id="live", kind="scene", startFrame=7, endFrame=7)
+        self.scene["shots"].append(live)
+        self.scene["postProcessing"] = {"enabled": True, "exposureEV": 1}
+        source = self.root / "graded.scene.json"
+        source.write_text(json.dumps(self.scene))
+        output = self.root / "graded-job"
+        job = jobs.create_job(source, output)
+        remaining = jobs._render_non_scene_frames(output, job["renderProfile"], list(range(1, 9)))
+        self.assertEqual(remaining, [7])
+        flat = (output / "frames" / "000003.png").read_bytes()
+        black = (output / "frames" / "000002.png").read_bytes()
+        Image.new("RGB", (8, 8), (60, 60, 60)).save(output / "frames" / "000007.png")
+        jobs._post_process_scene_frames(output, job, remaining)
+        self.assertEqual((output / "frames" / "000003.png").read_bytes(), flat)
+        self.assertEqual((output / "frames" / "000002.png").read_bytes(), black)
+        with Image.open(output / "frames" / "000007.png") as graded:
+            self.assertEqual(graded.getpixel((4, 4)), (120, 120, 120))
+        self.assertEqual(jobs._verified_frames(output, job), list(range(1, 9)))
+
 
 class FilmImageApiTests(unittest.TestCase):
     # Reuse only the real HTTP harness, not its unrelated test cases.

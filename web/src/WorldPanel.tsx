@@ -1,3 +1,5 @@
+import PostProcessingPanel from './PostProcessingPanel';
+import type {PostProcessingAnalysis} from './postProcessing';
 import {EditorCabinetBody} from './editorMotion';
 import {useEffect, useRef, useState, type ReactNode} from 'react';
 import {createPortal} from 'react-dom';
@@ -31,6 +33,8 @@ export interface WorldPanelProps extends CurrentWorldCapture {
   onCancelPick?: () => void;
   onFrameObjects?: () => void;
   ready?: boolean;
+  analyzePostProcessing?: () => Promise<PostProcessingAnalysis>;
+  postProcessingReady?:boolean;
 }
 function Field({label, children}: {label: string; children: ReactNode}) {return <label className="gesso-field"><span>{label}</span>{children}</label>;}
 const NumberField = NumberControl;
@@ -64,12 +68,74 @@ function ProductPlacement({scene, onChange, pickingSurface = false, onPickSurfac
   </section>;
 }
 
-export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onImport, onFitProduct, fitDisabled, onFrameProp, selectedObjectId = null, onSelectObject, editorHost, children, captureCurrentWorld, worldPreviewReady, worldPreviewRevision, resolved, pickingSurface, onPickSurface, onCancelPick, onFrameObjects, ready}: WorldPanelProps) {
+function isPairedGaussian(world:WorldCoverItem):boolean {
+  const environment=world.environment;
+  return environment?.kind==='splat'&&environment?.provenance?.representation==='gaussian-spz'
+    &&environment.provenance.splatResolution==='full_res'&&!!environment.previewAsset;
+}
+
+/** Prefer a full Gaussian with its lightweight preview when one is available.
+ * Source siblings remain available through the representation selector.
+ * Preserve manual imports, fixtures, orphaned diagnostics and the current world. */
+export function stageWorldLibrary(worlds:WorldCoverItem[],currentId?:string):WorldCoverItem[] {
+  const pairedWorlds=new Set(worlds.filter(world=>!world.environment?.fixture&&isPairedGaussian(world))
+    .map(world=>world.environment.provenance.providerWorldId).filter((id:unknown)=>typeof id==='string'&&id.trim()));
+  const hqWorlds=new Set(worlds.filter(world=>world.environment?.kind==='mesh'&&!world.environment?.fixture
+    &&world.environment?.provenance?.representation==='hq-visual-glb')
+    .map(world=>world.environment.provenance.providerWorldId).filter((id:unknown)=>typeof id==='string'&&id.trim()));
+  return worlds.filter(world=>{
+    if(world.environment?.provenance?.referenceOnly===true)return world.id===currentId;
+    if(world.id===currentId||world.environment?.fixture)return true;
+    const provenance=world.environment?.provenance;
+    if(pairedWorlds.has(provenance?.providerWorldId)&&['hq-visual-glb','gaussian-spz','gaussian-reconstructed-mesh'].includes(provenance?.representation))return isPairedGaussian(world);
+    const auxiliary=provenance?.representation==='gaussian-spz'||provenance?.representation==='gaussian-reconstructed-mesh';
+    return !auxiliary||!hqWorlds.has(provenance?.providerWorldId);
+  });
+}
+
+function worldRepresentationLabel(world: WorldCoverItem): string | undefined {
+  const environment = world.environment, provenance = environment?.provenance;
+  if (environment?.fixture) return;
+  if (environment?.kind === 'mesh' && provenance?.representation === 'hq-visual-glb'
+      && provenance.meshVariant !== 'vertex_colored') return 'Textured mesh';
+  if (environment?.kind === 'splat' && provenance?.representation === 'gaussian-spz') return 'Gaussian source';
+}
+
+/** Offer the real source sibling without replacing the selected representation
+ * or turning diagnostic reconstructions into additional environment choices. */
+export function WorldRepresentationSelect({worlds, current, onWorld}: {worlds: WorldCoverItem[]; current: WorldCoverItem; onWorld: (id: string) => void}) {
+  const providerId = current.environment?.provenance?.providerWorldId;
+  if (typeof providerId !== 'string' || !providerId.trim() || !worldRepresentationLabel(current)) return null;
+  const choices = worlds.filter(world => world.environment?.provenance?.providerWorldId === providerId && worldRepresentationLabel(world));
+  if (!choices.some(world => world.id === current.id)
+      || !choices.some(world => worldRepresentationLabel(world) === 'Textured mesh')
+      || !choices.some(world => worldRepresentationLabel(world) === 'Gaussian source')) return null;
+  const counts = choices.reduce((result, world) => {
+    const label = worldRepresentationLabel(world)!;
+    result.set(label, (result.get(label) ?? 0) + 1); return result;
+  }, new Map<string, number>());
+  return <section className="gesso-section" aria-label="World representation">
+    <Field label="World representation"><select aria-label="World representation" value={current.id} onChange={event => {
+      const id = event.target.value;
+      if (id !== current.id && choices.some(world => world.id === id)) onWorld(id);
+    }}>
+      {choices.map(world => {
+        const label = worldRepresentationLabel(world)!;
+        return <option key={world.id} value={world.id}>{counts.get(label)! > 1 ? `${label} · ${world.name} · ${world.id}` : label}</option>;
+      })}
+    </select></Field>
+    <p className="gesso-meta gesso-note">Gaussian source keeps the captured surroundings. Near-field depth, product reflections and transmission are not equivalent to the mesh.</p>
+  </section>;
+}
+
+export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onImport, onFitProduct, fitDisabled, onFrameProp, selectedObjectId = null, onSelectObject, editorHost, children, captureCurrentWorld, worldPreviewReady, worldPreviewRevision, resolved, pickingSurface, onPickSurface, onCancelPick, onFrameObjects, ready, analyzePostProcessing,postProcessingReady}: WorldPanelProps) {
   const root = useRef<HTMLDivElement>(null);
   const [selectedLight, setSelectedLight] = useState('key');
   const [addLightOpen, setAddLightOpen] = useState(false);
   useEffect(() => {setSelectedLight('key'); setAddLightOpen(false);}, [scene.sceneId]);
   const environment = scene.environment;
+  const fitNeedsGeometry=environment.kind==='splat'&&!environment.collider;
+  const visualQuality=environment.provenance?.visualQuality;
   const matchedWorld = matchWorldRevision(worlds, environment);
   const currentWorld: WorldCoverItem = {
     id: environment.kind === 'authored' ? 'authored' : matchedWorld?.id ?? 'current',
@@ -80,7 +146,7 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
   const worldItems: WorldCoverItem[] = [
     {id: 'authored', name: 'Authored studio', environment: {kind: 'authored', worldColor: environment.worldColor, plinth: environment.plinth, props: environment.props}},
     // Changing the world retains the project's shared contact surface and props.
-    ...worlds.map(world => ({...world, environment: {...world.environment, plinth: environment.plinth, props: environment.props}})),
+    ...stageWorldLibrary(worlds,currentWorld.id).map(world => ({...world, environment: {...world.environment, plinth: environment.plinth, props: environment.props}})),
     ...(currentWorld.id === 'current' ? [currentWorld] : []),
   ].map(item => item.id === currentWorld.id ? currentWorld : {...item, productDimensionsM: scene.product.dimensionsM});
   const {covers, observe} = useWorldCovers(worldItems, currentWorld, {captureCurrentWorld, worldPreviewReady, worldPreviewRevision});
@@ -116,6 +182,7 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
       <EditorCabinetBody open id={`world-section-${layer}`}>
       {layer==='Environment' && <>
       {!scene.comparison && <>
+        <WorldRepresentationSelect worlds={worlds} current={currentWorld} onWorld={onWorld}/>
         <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">Surroundings</span></div>
           <div className="gesso-world-cover-library gesso-selection-surface" role="group" aria-label="World library">
             {worldItems.map(world => <button key={world.id} ref={element => observe(world.id, element)} type="button"
@@ -135,9 +202,24 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
         </section></details>}
       </>}
       {environment.asset && onFitProduct && <section className="gesso-section">
-        <div className="product-fit-controls"><button type="button" disabled={fitDisabled} onClick={onFitProduct}>Fit product to scene</button>
+        <div className="product-fit-controls"><button type="button" disabled={fitDisabled||fitNeedsGeometry} onClick={onFitProduct}>Fit product to scene</button>
           <span className="gesso-meta">{formatScalePercent(scene.placement.scale ?? 1)}%</span></div>
-        <p className="gesso-meta gesso-note">Fits the product inside the shot. Proportions and source dimensions stay unchanged.</p>
+        <p className="gesso-meta gesso-note">{fitNeedsGeometry?'Fitting needs a mesh world, or a Gaussian world with a collider.':'Fits the product inside the shot. Proportions and source dimensions stay unchanged.'}</p>
+      </section>}
+      {environment.kind==='mesh'&&<section className="gesso-section" aria-label="World preview quality">
+        <Field label="World detail"><select aria-label="World detail" value={environment.previewQuality??'balanced'} onChange={event=>{const value=event.target.value;onChange(next=>{next.environment.previewQuality=value;});}}>
+          <option value="balanced">Balanced · 2K textures</option><option value="detail">Detail · up to 4K textures</option>
+        </select></Field>
+        <p className="gesso-meta gesso-note">Detail uses more graphics memory. Original world assets and final render textures stay unchanged.</p>
+        {visualQuality?.schemaVersion===1&&Number.isSafeInteger(visualQuality.triangleCount)&&<details className="gesso-disclosure"><summary>Source detail</summary>
+          <p className="gesso-meta">{visualQuality.triangleCount.toLocaleString()} triangles · {Number.isSafeInteger(visualQuality.maxColourTextureEdge)&&visualQuality.maxColourTextureEdge>0?`${visualQuality.maxColourTextureEdge}px largest color map`:'no readable color map'}</p>
+          {Array.isArray(visualQuality.warnings)&&visualQuality.warnings.map((warning:unknown,index:number)=>typeof warning==='string'?<p key={index} className="gesso-meta gesso-note">{warning}</p>:null)}
+        </details>}
+      </section>}
+      {environment.kind==='splat'&&environment.previewAsset&&<section className="gesso-section" aria-label="Gaussian quality">
+        <div className="gesso-section-heading"><span className="gesso-section-label">Gaussian quality</span></div>
+        <p className="gesso-meta">Lightweight preview · full-resolution stills</p>
+        <p className="gesso-meta gesso-note">Editing uses the lightweight Gaussian. Preview snapshots and exports use the full source with the same camera and alignment.</p>
       </section>}
       <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">Background</span></div><ColorField label="World color" value={environment.worldColor} onChange={color => onChange(next => {next.environment.worldColor = color;})}/>
         <p className="gesso-meta gesso-note">Visible beyond the world geometry. Also colors ambient light in the final render.</p>
@@ -153,6 +235,7 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
       <ProductPlacement scene={scene} onChange={onChange} pickingSurface={pickingSurface} onPickSurface={onPickSurface} onCancelPick={onCancelPick} onFrameObjects={onFrameObjects} ready={ready}/>
       </>}
       {layer==='Lights' && <>
+      <PostProcessingPanel scene={scene} onChange={onChange} analyzePostProcessing={analyzePostProcessing} ready={postProcessingReady??ready}/>
       <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">Environment light</span></div>
         {lighting.hdri && <>
           <p className="gesso-meta">{lighting.hdri.name}</p>

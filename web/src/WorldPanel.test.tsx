@@ -1,10 +1,15 @@
 import {renderToStaticMarkup} from 'react-dom/server';
-import {describe, expect, it} from 'vitest';
+import {Children, type ReactElement} from 'react';
+import {describe, expect, it, vi} from 'vitest';
 import fixture from '../../examples/bottle.scene.json';
-import WorldPanel, {type WorldLayer} from './WorldPanel';
+import WorldPanel, {stageWorldLibrary,WorldRepresentationSelect,type WorldLayer} from './WorldPanel';
 import WorldObjectEditor from './WorldObjectEditor';
 import {addLight, addProp, applyDramaticSpot} from './world';
 function render(layer: WorldLayer, scene: any = fixture, selectedObjectId: string | null = null) {return renderToStaticMarkup(<WorldPanel selectedObjectId={selectedObjectId} scene={scene} layer={layer} worlds={[]} onChange={() => {}} onWorld={() => {}} onImport={() => {}}><button>Compare worlds</button></WorldPanel>);}
+function representationWorld(id: string, representation: string, providerWorldId = 'water', overrides: any = {}) {
+  return {id, name: `Room ${id}`, environment: {...fixture.environment, kind: representation === 'gaussian-spz' ? 'splat' : 'mesh',
+    revisionId: id, provenance: {representation, providerWorldId, ...(representation === 'hq-visual-glb' ? {meshVariant: 'textured'} : {})}, ...overrides}};
+}
 describe('World panel', () => {
   it('keeps the selected stage visual above every section and shows worlds as image choices', () => {
     for (const layer of ['Environment', 'Props', 'Lights'] as const) {
@@ -18,6 +23,93 @@ describe('World panel', () => {
     expect(html).toContain('aria-label="Use Gallery"');
     expect(html).toContain('aria-label="Use Authored studio" aria-pressed="true"');
     expect(html).not.toContain('<option value="authored"');
+  });
+  it('shows one provider mesh per generated world while retaining fixture and manual imports',()=>{
+    const make=(id:string,kind:string,representation?:string,providerWorldId?:string,fixture=false)=>({id,name:id,environment:{...fixtureEnvironment,kind,revisionId:id,fixture,
+      provenance:{representation,providerWorldId}}});
+    const fixtureEnvironment=fixture.environment;
+    const worlds=[make('water-hq','mesh','hq-visual-glb','water'),make('water-splat','splat','gaussian-spz','water'),make('water-reconstruction','mesh','gaussian-reconstructed-mesh','water'),
+      make('room-hq','mesh','hq-visual-glb','room'),make('room-splat','splat','gaussian-spz','room'),make('fixture-splat','splat','gaussian-spz','water',true),make('manual-splat','splat'),make('orphan-reconstruction','mesh','gaussian-reconstructed-mesh','other')];
+    const before=structuredClone(worlds);
+    expect(stageWorldLibrary(worlds).map(world=>world.id)).toEqual(['water-hq','room-hq','fixture-splat','manual-splat','orphan-reconstruction']);
+    const html=renderToStaticMarkup(<WorldPanel scene={fixture} layer="Environment" worlds={worlds} onChange={()=>{}} onWorld={()=>{}} onImport={()=>{}}/>);
+    for(const id of ['water-hq','room-hq','fixture-splat','manual-splat','orphan-reconstruction'])expect(html).toContain(`data-world-id="${id}"`);
+    for(const id of ['water-splat','water-reconstruction','room-splat'])expect(html).not.toContain(`data-world-id="${id}"`);
+    expect(worlds).toEqual(before);
+  });
+  it('keeps a currently selected generated diagnostic visible and preserves the complete comparison list',()=>{
+    const worlds=['hq-visual-glb','gaussian-spz','gaussian-reconstructed-mesh'].map((representation,index)=>({id:`world-${index}`,name:`World ${index}`,environment:{...fixture.environment,
+      kind:index===1?'splat':'mesh',revisionId:`world-${index}`,provenance:{representation,providerWorldId:'same-world'}}}));
+    const scene={...fixture,environment:worlds[1].environment};
+    const html=renderToStaticMarkup(<WorldPanel scene={scene} layer="Environment" worlds={worlds} onChange={()=>{}} onWorld={()=>{}} onImport={()=>{}}><span>{worlds.length} comparison representations</span></WorldPanel>);
+    expect(html).toContain('data-world-id="world-0"');expect(html).toContain('data-world-id="world-1" aria-label="Use World 1" aria-pressed="true"');
+    expect(html).not.toContain('data-world-id="world-2"');expect(html).toContain('3 comparison representations');expect(worlds).toHaveLength(3);
+  });
+  it('prefers paired native Gaussians while retaining the selected older representation and other worlds',()=>{
+    const mesh=representationWorld('mesh','hq-visual-glb'),source=representationWorld('source','gaussian-spz');
+    const paired=representationWorld('paired','gaussian-spz','water',{
+      previewAsset:{sha256:'a'.repeat(64),path:`assets/${'a'.repeat(64)}.spz`,format:'spz'},
+      provenance:{representation:'gaussian-spz',providerWorldId:'water',splatResolution:'full_res'},
+    });
+    const other=representationWorld('other-mesh','hq-visual-glb','other');
+    const worlds=[mesh,source,paired,other],before=structuredClone(worlds);
+    expect(stageWorldLibrary(worlds).map(world=>world.id)).toEqual(['paired','other-mesh']);
+    expect(stageWorldLibrary(worlds,mesh.id).map(world=>world.id)).toEqual(['mesh','paired','other-mesh']);
+    const html=renderToStaticMarkup(<WorldPanel scene={{...fixture,environment:paired.environment}} layer="Environment" worlds={worlds} onChange={()=>{}} onWorld={()=>{}} onImport={()=>{}}/>);
+    expect(html).toContain('aria-label="Gaussian quality"');
+    expect(html).toContain('Preview snapshots and exports use the full source with the same camera and alignment.');
+    expect(html).toContain('<option value="mesh">Textured mesh</option>');
+    expect(worlds).toEqual(before);
+  });
+  it('offers actual mesh and Gaussian siblings for the selected provider world without switching on render', () => {
+    const mesh = representationWorld('water-mesh', 'hq-visual-glb'), source = representationWorld('water-source', 'gaussian-spz');
+    const worlds = [mesh, source, representationWorld('other-source', 'gaussian-spz', 'other'), representationWorld('water-reconstruction', 'gaussian-reconstructed-mesh')];
+    const onWorld = vi.fn(), before = structuredClone(worlds);
+    const html = renderToStaticMarkup(<WorldPanel scene={{...fixture, environment: mesh.environment}} layer="Environment" worlds={worlds} onChange={() => {}} onWorld={onWorld} onImport={() => {}}/>);
+    expect(html).toContain('aria-label="World representation"');
+    expect(html).toContain('<option value="water-mesh" selected="">Textured mesh</option>');
+    expect(html).toContain('<option value="water-source">Gaussian source</option>');
+    expect(html).not.toContain('<option value="other-source"');
+    expect(html).not.toContain('<option value="water-reconstruction"');
+    expect(html).toContain('Near-field depth, product reflections and transmission are not equivalent to the mesh.');
+    expect(onWorld).not.toHaveBeenCalled(); expect(worlds).toEqual(before);
+  });
+  it('keeps the selected Gaussian source and routes explicit representation changes through the existing world callback', () => {
+    const mesh = representationWorld('water-mesh', 'hq-visual-glb'), source = representationWorld('water-source', 'gaussian-spz');
+    const onWorld = vi.fn();
+    const tree = WorldRepresentationSelect({worlds: [mesh, source], current: source, onWorld})!;
+    const field = (Children.toArray(tree.props.children) as ReactElement<any>[]).find(child => child.props.label === 'World representation')!;
+    const select = field.props.children as ReactElement<any>;
+    expect(select.props.value).toBe(source.id);
+    expect(renderToStaticMarkup(tree)).toContain('<option value="water-source" selected="">Gaussian source</option>');
+    select.props.onChange({target: {value: source.id}});
+    select.props.onChange({target: {value: 'unrelated-source'}});
+    expect(onWorld).not.toHaveBeenCalled();
+    select.props.onChange({target: {value: mesh.id}});
+    expect(onWorld).toHaveBeenCalledExactlyOnceWith(mesh.id);
+  });
+  it('retains and identifies every matching representation revision', () => {
+    const worlds = [representationWorld('mesh-r1', 'hq-visual-glb'), representationWorld('mesh-r2', 'hq-visual-glb'),
+      representationWorld('source-r1', 'gaussian-spz'), representationWorld('source-r2', 'gaussian-spz')];
+    const html = renderToStaticMarkup(<WorldRepresentationSelect worlds={worlds} current={worlds[1]} onWorld={() => {}}/>);
+    for (const world of worlds) expect(html).toContain(`value="${world.id}"`);
+    expect(html).toContain('<option value="mesh-r2" selected="">Textured mesh · Room mesh-r2 · mesh-r2</option>');
+    expect(html).toContain('Gaussian source · Room source-r2 · source-r2');
+    expect(stageWorldLibrary(worlds).map(world => world.id)).toEqual(['mesh-r1', 'mesh-r2']);
+  });
+  it('omits representation switching for manual, fixture, unmatched or incomplete provider worlds', () => {
+    const mesh = representationWorld('mesh', 'hq-visual-glb'), source = representationWorld('source', 'gaussian-spz');
+    const manual = representationWorld('manual', 'manual', 'water');
+    const cases = [
+      {current: mesh, worlds: [mesh]},
+      {current: mesh, worlds: [mesh, representationWorld('foreign', 'gaussian-spz', 'other')]},
+      {current: mesh, worlds: [mesh, {...source, environment: {...source.environment, fixture: true}}]},
+      {current: manual, worlds: [mesh, source, manual]},
+      {current: {...mesh, environment: {...mesh.environment, fixture: true}}, worlds: [mesh, source]},
+      {current: {...mesh, id: 'missing-revision'}, worlds: [mesh, source]},
+    ];
+    for (const props of cases) expect(renderToStaticMarkup(<WorldRepresentationSelect {...props} onWorld={() => {}}/>)).toBe('');
+    expect(render('Environment')).not.toContain('World representation');
   });
   it('offers a proportional product fit for an imported world and waits for its preview', () => {
     const scene = {...fixture, placement: {translationM: [0, 0, 0], scale: .5}, environment: {...fixture.environment, kind: 'mesh', asset: {scaleToMeters: 1, translationM: [0, 0, 0], rotationXyzw: [0, 0, 0, 1]}}};

@@ -66,6 +66,7 @@ def run_still_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cance
             evaluate(scene, frame)
             if scene["environment"]["kind"] == "splat":
                 jobs.validate_plate_inputs(output, job, [frame])
+            jobs._recover_raw_scene_frames(output, job, [frame])
             if job["state"] == "succeeded" and _valid_outputs(output, job):
                 return job
             for prior in job["attempts"]:
@@ -81,14 +82,14 @@ def run_still_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cance
             attempt["tools"] = dict(job["tools"])
             profile = job["renderProfile"]
             path = output / "frames" / f"{frame:06d}.png"
-            recorded = job.get("frameDigests", {}).get(str(frame))
-            needs_frame = not jobs.validate_png(path, profile["width"], profile["height"])
-            if recorded and path.is_file() and jobs._sha256(path) != recorded:
-                needs_frame = True
+            # The shared verifier requires finishing receipts for scene frames.
+            # A crash between grading and recording forces a raw re-render.
+            needs_frame = frame not in jobs._verified_frames(output, job)
             scene_frames = jobs._render_non_scene_frames(output, profile, [frame]) if needs_frame else []
             if scene_frames or jobs._blend_needs_rebuild(output, job):
                 jobs._run_process(jobs._render_command(blender, output, profile, scene_frames),
                                   output, "blender.log", worker_fd=worker_lock.fileno())
+                jobs._post_process_scene_frames(output, job, scene_frames)
             jobs._check_cancel(output)
             if not jobs.validate_png(path, profile["width"], profile["height"]) or not jobs._blend_valid(output / "scene.blend"):
                 raise RuntimeError("Renderer did not produce a valid still and saved scene")

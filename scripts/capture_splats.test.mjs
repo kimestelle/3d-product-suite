@@ -6,11 +6,24 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { deflateSync } from 'node:zlib';
-import { atomicWrite, captureAuthHeaders, openManifest, parseArgs, requestedFrames, sampleDigests, validatePng, verifyServedAsset } from './capture_splats.mjs';
+import { atomicWrite, captureAuthHeaders, openManifest, parseArgs, projectBrowserCache, requestedFrames, sampleDigests, validatePng, verifyServedAsset } from './capture_splats.mjs';
 
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const camera = { positionM: [1, 2, 3], targetM: [0, 1, 0], focalLengthMm: 50 };
 const sampled = { frames: [1, 2, 3].map((frame) => ({ frame, camera })) };
+
+test('browser runtime honors explicit configuration and only selects the pinned local revision', async t => {
+  const root = await temporary(t);
+  assert.equal(await projectBrowserCache(root, '/opt/hosted-browser'), '/opt/hosted-browser');
+  assert.equal(await projectBrowserCache(root, ''), undefined);
+  const metadata = path.join(root, 'web/node_modules/playwright-core');
+  await fs.mkdir(metadata, { recursive: true });
+  await fs.writeFile(path.join(metadata, 'browsers.json'), JSON.stringify({ browsers: [{ name: 'chromium-headless-shell', revision: '1187' }] }));
+  await fs.mkdir(path.join(root, '.cache/playwright/chromium_headless_shell-1000'), { recursive: true });
+  assert.equal(await projectBrowserCache(root, ''), undefined);
+  await fs.mkdir(path.join(root, '.cache/playwright/chromium_headless_shell-1187'));
+  assert.equal(await projectBrowserCache(root, ''), path.join(root, '.cache/playwright'));
+});
 
 function crc32(bytes) {
   let result = 0xffffffff;

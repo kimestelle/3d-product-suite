@@ -76,6 +76,46 @@ describe('owned GLB preview textures', () => {
     expect(second.close).toHaveBeenCalledOnce();
   });
 
+  it('retains 4k world detail when the unique image pixel budget allows it', async () => {
+    const original = new Bitmap(4096, 4096), map = texture(original), shared = texture(original);
+    const decode = vi.fn(); vi.stubGlobal('createImageBitmap', decode);
+    const root = rootWith(new THREE.MeshPhysicalMaterial({map, normalMap:shared}));
+    expect((await capPreviewTextures(root, {maxEdge:4096, maxTotalPixels:32 * 1024 * 1024})).resizedImages).toBe(0);
+    expect(decode).not.toHaveBeenCalled(); expect(original.close).not.toHaveBeenCalled();
+  });
+
+  it('budgets all unique image maps, preserving detail ratios without counting clones twice', async () => {
+    const first = new Bitmap(4096, 4096), second = new Bitmap(2048, 2048);
+    const map = texture(first), clone = map.clone(), separateSource = texture(first), small = texture(second);
+    const decode = vi.fn(async (_image, options) => new Bitmap(options.resizeWidth, options.resizeHeight));
+    vi.stubGlobal('createImageBitmap', decode);
+    const report = await capPreviewTextures(rootWith(new THREE.MeshPhysicalMaterial({
+      map, normalMap:clone, roughnessMap:separateSource, metalnessMap:small,
+    })), {maxEdge:4096, maxTotalPixels:5 * 1024 * 1024});
+    expect(report).toEqual({resizedImages:2, failedImages:0,
+      originalPixels:20 * 1024 * 1024, previewPixels:5 * 1024 * 1024});
+    expect(decode).toHaveBeenCalledTimes(2);
+    expect(map.image.width).toBe(2048); expect(small.image.width).toBe(1024);
+    expect(map.image).toBe(clone.image); expect(map.image).toBe(separateSource.image);
+    expect(first.close).toHaveBeenCalledOnce(); expect(second.close).toHaveBeenCalledOnce();
+  });
+
+  it('respects an aggregate budget for very thin maps without zero-size images', async () => {
+    const first = new Bitmap(8192, 1), second = new Bitmap(8192, 64);
+    const map = texture(first), normalMap = texture(second);
+    vi.stubGlobal('createImageBitmap', vi.fn(async (_image, options) => new Bitmap(options.resizeWidth, options.resizeHeight)));
+    await capPreviewTextures(rootWith(new THREE.MeshPhysicalMaterial({map, normalMap})), {maxEdge:8192, maxTotalPixels:65536});
+    expect(map.image.width * map.image.height + normalMap.image.width * normalMap.image.height).toBeLessThanOrEqual(65536);
+    expect(map.image.height).toBe(1); expect(normalMap.image.height).toBeGreaterThanOrEqual(1);
+  });
+
+  it.each([{maxEdge:0}, {maxEdge:Infinity}, {maxEdge:16384}, {maxEdge:512.5},
+    {maxTotalPixels:NaN}, {maxTotalPixels:0}, {maxTotalPixels:128 * 1024 * 1024}])('rejects invalid texture limits %j', async options => {
+    const decode = vi.fn(); vi.stubGlobal('createImageBitmap', decode);
+    await expect(capPreviewTextures(rootWith(), options)).rejects.toBeInstanceOf(RangeError);
+    expect(decode).not.toHaveBeenCalled();
+  });
+
   it('does no decoding when already aborted', async () => {
     const controller = new AbortController(); controller.abort();
     const decode = vi.fn(); vi.stubGlobal('createImageBitmap', decode);

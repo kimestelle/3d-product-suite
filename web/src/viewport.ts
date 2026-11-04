@@ -1,3 +1,6 @@
+import {viewportSceneKey} from './viewportSceneKey';
+import {gaussianRenderAsset,loadGaussianSourceBytes} from './gaussianSources';
+import {resolvePostProcessing,postProcessingIsNeutral,analyzeDisplayPixels,type PostProcessingSettings,type PostProcessingAnalysis} from './postProcessing';
 import {createModelOutline,renderModelOutline} from './modelOutline';
 import * as THREE from 'three';
 import {createComponentGeometry, createStudioSweepGeometry, loadVerifiedGlb, prepareImportedMesh, disposeSceneObject, sceneAssetUrl} from './sceneObjects';
@@ -14,7 +17,7 @@ import {partPose, sourcePart, sourcePartPivot, removedPartIds as removedProductP
 import {DepthOfFieldPreview} from './DepthOfFieldPreview';
 import {sampledDepthOfField, sparkApertureAngle, type DepthOfFieldSample} from './focusOptics';
 import {FilmImageRenderer, type FilmClip} from './FilmImageRenderer';
-import {previewResolution} from './previewResolution';
+import {previewResolution,PreviewQualityController} from './previewResolution';
 import {fitProductToWorld} from './productWorldFit';
 import {capPreviewTextures} from './previewTextures';
 import {createCameraTargetPointerGesture, filmGateRect, filmGuideZoom, projectFilmGuide, type CameraTargetGesture, type CameraTargetPointer, type FilmPresentationGuide} from './filmGuides';
@@ -88,7 +91,10 @@ type StillPresentation = {
   pixelRatio: number;
   assertCurrent: () => void;
   copyPixels: () => void;
+  /** Paired Gaussians restore their lightweight source before the low pass. */
+  deferPreviewRestore?: boolean;
 };
+type PreviewDataConnection=EventTarget&{saveData?:boolean};
 
 /** The browser only consumes poses sampled by film.scene; it evaluates no motion. */
 export class StudioViewport {
@@ -156,6 +162,7 @@ export class StudioViewport {
   private selectedId: string | null = null;
   private spark: SparkRenderer | null = null;
   private splat: SplatMesh | null = null;
+  private restoreCaptureSplat: (()=>void) | null = null;
   private disposed = false;
   private visible = true;
   private dirty = false;
@@ -189,10 +196,22 @@ export class StudioViewport {
   private transformPlacement: { pivot: THREE.Vector3; scale: number } | null = null;
   private surfacePickEnabled = false;
   private latestSample: any = null;
+  private imageFinish:PostProcessingSettings=resolvePostProcessing();
+  private bypassImageFinish=false;
+  private loadedVisualKey:string|null=null;
+  private previewQuality:PreviewQualityController|null=null;
+  private previewConnection:PreviewDataConnection|null=null;
+  private onPreviewDataChange=()=>this.previewQuality?.setSaveData(this.previewConnection?.saveData===true);
 
   constructor(canvas: HTMLCanvasElement, options: ViewportOptions = {}) {
     this.canvas = canvas;
     this.options = options;
+    if(!options.capture){
+      this.previewQuality=new PreviewQualityController(()=>{this.dirty=true;this.scheduleRender();});
+      this.previewConnection=(navigator as Navigator&{connection?:PreviewDataConnection}).connection??null;
+      this.onPreviewDataChange();
+      this.previewConnection?.addEventListener?.('change',this.onPreviewDataChange);
+    }
     this.renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: !options.capture, preserveDrawingBuffer: !!options.capture });
     this.renderer.setPixelRatio(1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -212,6 +231,7 @@ export class StudioViewport {
     if (!options.capture && typeof IntersectionObserver !== 'undefined') {
       this.intersectionObserver = new IntersectionObserver(entries => {
         this.visible = entries[0]?.isIntersecting ?? true;
+        this.updatePreviewQualitySuspension();
         if (this.visible) this.invalidate();
         else this.cancelRender();
       });
@@ -318,6 +338,7 @@ export class StudioViewport {
   }
 
   private onVisibility = () => {
+    this.updatePreviewQualitySuspension();
     if (document.hidden) this.cancelRender();
     else if (this.dirty) this.invalidate();
   };
@@ -425,8 +446,19 @@ export class StudioViewport {
   setSuspended(suspended: boolean): void {
     if (this.options.capture || this.suspended === suspended) return;
     this.suspended = suspended;
+    this.updatePreviewQualitySuspension();
     if (suspended) this.cancelRender();
     else this.invalidate();
+  }
+
+  setPlaybackActive(playing:boolean):void {this.previewQuality?.setPlayback(playing);}
+
+  private updatePreviewQualitySuspension():void {
+    this.previewQuality?.setSuspended(this.disposed||this.suspended||document.hidden||!this.visible||this.stillRendering);
+  }
+
+  private previewBuffer(size:{width:number;height:number}) {
+    return previewResolution(size.width,size.height,typeof window==='undefined'?1:window.devicePixelRatio,this.previewQuality?.quality??'interactive');
   }
 
   /** Product inspection changes presentation only, never the authored scene. */
@@ -482,14 +514,37 @@ export class StudioViewport {
 
   /** One larger pass of the displayed scene, using its existing renderer and assets. */
   captureStill(signal?: AbortSignal): Promise<ViewportStill> {
-    return this.captureImage(signal,2048);
+    return this.captureImage(signal,2048,false,true);
+  }
+
+  setImageFinish(value?:Partial<PostProcessingSettings>):void {
+    this.imageFinish=resolvePostProcessing(value);this.invalidate();
+  }
+
+  async analyzeImageFinish():Promise<PostProcessingAnalysis> {
+    if(this.bypassImageFinish||this.stillCapture)throw new Error('Wait for the current image capture to finish.');
+    if(this.productPreview)throw new Error('Open Stage or Film to balance the scene lighting.');
+    this.bypassImageFinish=true;
+    try {
+      const still=await this.captureImage(undefined,320);
+      const bitmap=await createImageBitmap(still.blob);
+      try {
+        const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;
+        const context=canvas.getContext('2d',{willReadFrequently:true});
+        if(!context)throw new Error('Image measurement is unavailable in this browser.');
+        context.drawImage(bitmap,0,0);
+        const gate=this.filmGuides?filmGateRect(bitmap.width,bitmap.height,this.filmOutputAspect):{x:0,y:0,width:bitmap.width,height:bitmap.height};
+        const x=Math.max(0,Math.floor(gate.x)), y=Math.max(0,Math.floor(gate.y));
+        return analyzeDisplayPixels(context.getImageData(x,y,Math.max(1,Math.min(bitmap.width-x,Math.floor(gate.width))),Math.max(1,Math.min(bitmap.height-y,Math.floor(gate.height)))).data);
+      } finally {bitmap.close();}
+    } finally {this.bypassImageFinish=false;this.invalidate();}
   }
 
   capturePreview(signal?: AbortSignal): Promise<ViewportStill> {
     return this.captureImage(signal,320,true);
   }
 
-  private captureImage(signal: AbortSignal | undefined, maxDimension: number, worldOnly = false): Promise<ViewportStill> {
+  private captureImage(signal: AbortSignal | undefined, maxDimension: number, worldOnly = false, fullGaussian = false): Promise<ViewportStill> {
     if (this.stillCapture) return Promise.reject(new Error('A still is already rendering.'));
     if (this.options.capture) return Promise.reject(new Error('Still previews are unavailable in the export viewport.'));
     const version = this.loadVersion, request = this.frameRequest;
@@ -499,6 +554,7 @@ export class StudioViewport {
     let revision: number | null = null;
     let copy: HTMLCanvasElement | null = null;
     let captureSpark: SparkRenderer | null = null;
+    let restoreSplat:(()=>void)|null=null;
     const hiddenForCover = new Map<THREE.Object3D, boolean>();
     const restoreCover = () => {for(const [object,visible] of hiddenForCover)object.visible=visible;hiddenForCover.clear();};
     const waitWithoutCancellingSource = <T>(promise: Promise<T>): Promise<T> => {
@@ -526,12 +582,15 @@ export class StudioViewport {
     const task = this.frameQueue.catch(() => {}).then(async (): Promise<ViewportStill> => {
       assertCurrent();
       this.stillRendering = true;
+      this.updatePreviewQualitySuspension();
       this.cancelRender();
       // Finish the current camera/pose pair before changing the framebuffer.
       // Later samples remain behind this operation in the same frame queue.
       if (this.liveRender) await this.liveRender;
       const materialPending = this.materialPreviewState?.pending?.promise;
       if (materialPending) await waitWithoutCancellingSource(materialPending);
+      assertCurrent();
+      if(fullGaussian)restoreSplat=await this.useFullResolutionSplat(signal,assertCurrent);
       assertCurrent();
       revision = this.invalidationVersion ?? 0;
       captureSpark = this.spark;
@@ -542,20 +601,30 @@ export class StudioViewport {
       const width = Math.max(1, Math.floor(size!.width * pixelRatio));
       const height = Math.max(1, Math.floor(size!.height * pixelRatio));
       if(worldOnly)for(const object of this.components.values()){hiddenForCover.set(object,object.visible);object.visible=false;}
-      await this.draw(false, version, {
-        pixelRatio, assertCurrent,
-        copyPixels: () => {
-          assertCurrent();
-          copy = document.createElement('canvas');
-          copy.width = width; copy.height = height;
-          const context = copy.getContext('2d');
-          if (!context) throw new Error('Image capture is unavailable in this browser.');
-          // preserveDrawingBuffer remains off: copy in the rendering task,
-          // before another await or the low-resolution restoration clears it.
-          context.drawImage(this.canvas, 0, 0, width, height);
-          restoreCover();
-        },
-      });
+      try {
+        await this.draw(false, version, {
+          pixelRatio, assertCurrent, deferPreviewRestore:!!restoreSplat,
+          copyPixels: () => {
+            assertCurrent();
+            copy = document.createElement('canvas');
+            copy.width = width; copy.height = height;
+            const context = copy.getContext('2d');
+            if (!context) throw new Error('Image capture is unavailable in this browser.');
+            // preserveDrawingBuffer remains off: copy in the rendering task,
+            // before another await or the low-resolution restoration clears it.
+            context.drawImage(this.canvas, 0, 0, width, height);
+            restoreCover();
+          },
+        });
+      } finally {
+        if(restoreSplat){
+          restoreSplat();restoreSplat=null;
+          // Keep the captured framebuffer intact while the lightweight source
+          // sorts. Its ordinary draw clears/resizes only once replacement
+          // pixels are ready, avoiding a second full-source rendering pass.
+          if(!this.disposed&&version===this.loadVersion)await this.draw(false,version);
+        }
+      }
       assertCurrent();
       if (!copy) throw new Error('The still could not be rendered.');
       const image = copy as HTMLCanvasElement;
@@ -566,15 +635,17 @@ export class StudioViewport {
       return {blob, width, height};
     });
     const result = task.finally(() => {
+      restoreSplat?.();
       if(hiddenForCover.size){restoreCover();this.dirty=true;}
       if (copy) { copy.width = 1; copy.height = 1; }
       // Sorting can be cancelled before the framebuffer was enlarged. Restore
       // that render-size hint too, without touching a replacement world's worker.
       if (!this.disposed && captureSpark && this.spark === captureSpark && this.pendingSize) {
-        const preview = previewResolution(this.pendingSize.width, this.pendingSize.height);
+        const preview = this.previewBuffer(this.pendingSize);
         captureSpark.renderSize.set(preview.width, preview.height);
       }
       this.stillRendering = false;
+      this.updatePreviewQualitySuspension();
       if (this.stillCapture === result) this.stillCapture = null;
       this.scheduleRender();
     });
@@ -642,6 +713,7 @@ export class StudioViewport {
   }
 
   private invalidate(): void {
+    this.previewQuality?.activity();
     this.invalidationVersion = (this.invalidationVersion ?? 0) + 1;
     this.dirty = true;
     this.scheduleRender();
@@ -1080,10 +1152,17 @@ export class StudioViewport {
     }
   }
 
-  private async loadVerifiedGlb(asset: any, signal: AbortSignal, url?: string): Promise<THREE.Group> {
+  private async loadVerifiedGlb(asset: any, signal: AbortSignal, url?: string, worldQuality?:'balanced'|'detail'): Promise<THREE.Group> {
     const imported = await loadVerifiedGlb(asset, signal, url);
     try {
-      if (!this.options.capture) await capPreviewTextures(imported, {signal});
+      if (!this.options.capture) {
+        const limits=worldQuality==='detail'?{maxEdge:4096,maxTotalPixels:32*1024*1024}
+          :worldQuality==='balanced'?{maxEdge:2048,maxTotalPixels:16*1024*1024}:{};
+        const report=await capPreviewTextures(imported,{signal,...limits});
+        if(worldQuality&&report.failedImages)throw new Error('The browser could not resize the world textures safely. Reload the preview or choose a smaller world.');
+      }
+      const anisotropy=Math.max(1,Math.min(8,this.renderer?.capabilities?.getMaxAnisotropy()??1));
+      imported.traverse(object=>{const mesh=object as THREE.Mesh;for(const material of Array.isArray(mesh.material)?mesh.material:mesh.material?[mesh.material]:[])for(const value of Object.values(material)){if(value instanceof THREE.Texture)value.anisotropy=anisotropy;}});
       if (signal.aborted) throw new DOMException('Scene loading was superseded.', 'AbortError');
       return imported;
     } catch (error) {
@@ -1747,6 +1826,55 @@ export class StudioViewport {
     ]).sort((a: unknown[], b: unknown[]) => String(a[0]).localeCompare(String(b[0]))));
   }
 
+  /** Borrow the canonical Gaussian for one accurate pass without replacing the
+   * scene, camera, collider, or renderer. The preview stays owned for recovery. */
+  private async useFullResolutionSplat(signal:AbortSignal|undefined,assertCurrent:()=>void):Promise<(()=>void)|null> {
+    const world=this.deferredWorld;
+    if(this.productPreview||!world||world.environment.kind!=='splat'||!world.environment.previewAsset
+      ||world.environment.previewAsset.sha256===world.environment.asset.sha256)return null;
+    const preview=this.splat,root=preview?.parent,spark=this.spark;
+    if(!preview||!root||!spark||!world.ready)throw new Error('Wait for the Gaussian preview to finish loading.');
+    assertCurrent();
+    const abort=new AbortController(),sources=[signal,world.signal].filter(Boolean) as AbortSignal[];
+    const cancelled=()=>abort.abort();
+    for(const source of sources){source.addEventListener('abort',cancelled,{once:true});if(source.aborted)abort.abort();}
+    const detachSignals=()=>{for(const source of sources)source.removeEventListener('abort',cancelled);};
+    let canonical:SplatMesh|null=null;
+    try {
+      const asset=world.environment.asset;
+      const bytes=await loadGaussianSourceBytes(asset,world.assetUrl||this.assetUrl(asset),abort.signal);
+      assertCurrent();
+      const {SplatMesh}=await import('@sparkjsdev/spark');assertCurrent();
+      canonical=new SplatMesh({fileBytes:bytes,fileName:asset.path.split('/').at(-1),lod:false,nonLod:true,enableLod:false});
+      const initialized=canonical.initialized;
+      await new Promise<void>((resolve,reject)=>{
+        const stop=()=>reject(new DOMException('Gaussian capture cancelled.','AbortError'));
+        if(abort.signal.aborted){stop();return;}
+        abort.signal.addEventListener('abort',stop,{once:true});
+        void initialized.then(()=>resolve(),reject).finally(()=>abort.signal.removeEventListener('abort',stop));
+      });
+      assertCurrent();
+      if(this.deferredWorld!==world||this.splat!==preview||this.spark!==spark||preview.parent!==root)
+        throw new Error('The world changed. Render a new still.');
+      const source=canonical;let restored=false;
+      const restore=()=>{
+        if(restored)return;restored=true;
+        if(this.splat===source&&this.deferredWorld===world){root.remove(source);root.add(preview);this.splat=preview;}
+        else preview.dispose();
+        source.dispose();detachSignals();
+        if(this.restoreCaptureSplat===restore)this.restoreCaptureSplat=null;
+        this.dirty=true;
+      };
+      root.remove(preview);root.add(source);this.splat=source;this.restoreCaptureSplat=restore;
+      return restore;
+    }catch(error){
+      // Spark decoding itself is not interruptible. A cancelled source never
+      // enters the scene; release it as soon as initialization settles.
+      if(canonical){const source=canonical;void source.initialized.then(()=>source.dispose(),()=>source.dispose());}
+      detachSignals();throw error;
+    }
+  }
+
   /** Keep large room meshes/splats out of Product and Material until needed.
    * Lighting remains part of the product preview; source assets stay untouched. */
   private ensureWorld(): Promise<void> {
@@ -1764,7 +1892,7 @@ export class StudioViewport {
     const task = Promise.resolve().then(async () => {
       if (!current()) return;
       if (environment.kind === 'mesh') {
-        const imported = await this.loadVerifiedGlb(environment.asset, signal, assetUrl);
+        const imported = await this.loadVerifiedGlb(environment.asset, signal, assetUrl,environment.previewQuality??'balanced');
         if (!current()) { this.disposeObject(imported); return; }
         try { this.prepareImportedMesh(imported); }
         catch (error) { this.disposeObject(imported); throw error; }
@@ -1783,7 +1911,9 @@ export class StudioViewport {
         // LoD work so no later update can overtake that completion boundary.
         this.spark = new SparkRenderer({ renderer: this.renderer, autoUpdate: false, enableLod: false, enableDriveLod: false, enableLodFetching: false, minSortIntervalMs: 0 });
         this.scene.add(this.spark);
-        const splat = new SplatMesh({ url: assetUrl || this.assetUrl(environment.asset), lod: false, nonLod: true, enableLod: false });
+        const renderAsset=gaussianRenderAsset(environment,!!this.options.capture);
+        const sourceUrl=renderAsset===environment.asset?assetUrl||this.assetUrl(renderAsset):this.assetUrl(renderAsset);
+        const splat = new SplatMesh({ url: sourceUrl, lod: false, nonLod: true, enableLod: false });
         this.splat = splat;
         const root = new THREE.Group();
         this.alignWorld(root, environment.asset);
@@ -1849,6 +1979,11 @@ export class StudioViewport {
   }
 
   async load(source: any, assetUrl?: string, initialSample?: any): Promise<void> {
+    // Export quality gates switch an immutable world URL while retaining the
+    // canonical scene. That explicit source must participate in capture reuse.
+    const visualKey=viewportSceneKey(source)+(this.options.capture?`\0${assetUrl??''}`:'');
+    this.setImageFinish(source.postProcessing);
+    if(!this.disposed&&!this.loading&&!this.loadFailed&&this.loadedVisualKey===visualKey)return;
     if (Number.isFinite(source.render?.width) && Number.isFinite(source.render?.height) && source.render.width > 0 && source.render.height > 0) {
       this.filmOutputAspect = source.render.width / source.render.height;
       this.applyFilmProjection(this.camera, this.pendingSize);
@@ -1919,6 +2054,7 @@ export class StudioViewport {
       if (capture) await this.render(true);
       if (version === this.loadVersion && !this.disposed) {
         this.worldReady = !!this.worldRoot;
+        this.loadedVisualKey=visualKey;
         this.options.onReady?.();
       }
     } catch (error: any) {
@@ -1941,6 +2077,7 @@ export class StudioViewport {
 
   async frame(sample: any): Promise<void> {
     if (this.disposed) throw new Error('Viewport has been disposed.');
+    this.previewQuality?.activity();
     this.latestSample = sample;
     const request = ++this.frameRequest;
     const version = this.loadVersion;
@@ -2079,7 +2216,7 @@ export class StudioViewport {
   private async draw(settle: boolean, version: number, still?: StillPresentation): Promise<void> {
     if (!this.canDraw() || version !== this.loadVersion || !this.pendingSize) return;
     const size = this.pendingSize;
-    const ratio = still?.pixelRatio ?? (this.options.capture ? 1 : previewResolution(size.width, size.height).pixelRatio);
+    const ratio = still?.pixelRatio ?? (this.options.capture ? 1 : this.previewBuffer(size).pixelRatio);
     const presentationVersion = this.presentationVersion ?? 0;
     if (this.filmContent && !this.productPreview && this.filmClip && this.filmClip.kind !== 'scene') {
       this.imageRenderer ??= new FilmImageRenderer();
@@ -2147,15 +2284,16 @@ export class StudioViewport {
     // Atomic presentation: setSize clears WebGL. Nothing asynchronous may run
     // between that clear and the replacement render in this same browser task.
     still?.assertCurrent();
-    let changedBuffer = false;
+    let changedBuffer = false, copiedPixels = false;
     try {
       changedBuffer = true;
       this.setDrawingBuffer(size, ratio);
       this.drawScenePixels(camera, size, optics, focalLengthMm, !!spark && spark.visible !== false);
       still?.copyPixels();
+      copiedPixels = !!still;
     } finally {
-      if (still && changedBuffer && !this.disposed) {
-        const previewRatio = previewResolution(size.width, size.height).pixelRatio;
+      if (still && changedBuffer && !this.disposed && (!still.deferPreviewRestore || !copiedPixels)) {
+        const previewRatio = this.previewBuffer(size).pixelRatio;
         this.setDrawingBuffer(size, previewRatio);
         spark?.renderSize.set(Math.floor(size.width * previewRatio), Math.floor(size.height * previewRatio));
         try {
@@ -2189,9 +2327,11 @@ export class StudioViewport {
 
   private drawScenePixels(camera: THREE.PerspectiveCamera, size: {width: number; height: number},
     optics: DepthOfFieldSample | null, focalLengthMm: number, splatBackground: boolean): void {
-    if (optics?.enabled && !this.options.capture) {
+    const finish=this.bypassImageFinish||this.productPreview?undefined:this.imageFinish;
+    if ((optics?.enabled||!postProcessingIsNeutral(finish)) && !this.options.capture) {
       this.depthOfFieldPreview ??= new DepthOfFieldPreview();
-      this.depthOfFieldPreview.render(this.renderer, this.scene, camera, size.width, size.height, optics, focalLengthMm, splatBackground);
+      const gate=this.filmGuides?filmGateRect(size.width,size.height,this.filmOutputAspect):undefined;
+      this.depthOfFieldPreview.render(this.renderer, this.scene, camera, size.width, size.height, optics, focalLengthMm, splatBackground,finish,gate,this.previewConnection?.saveData!==true);
     } else {
       this.depthOfFieldPreview?.dispose(); this.depthOfFieldPreview = null;
       this.renderer.render(this.scene, camera);
@@ -2505,6 +2645,7 @@ export class StudioViewport {
   }
 
   private clearContent(preserveInspection = false): void {
+    this.restoreCaptureSplat?.();
     this.modelOutline?.dispose();this.modelOutline=null;
     this.clearUvProbe();
     this.uvProbeSources = [];
@@ -2554,6 +2695,7 @@ export class StudioViewport {
 
   clearScene(): void {
     if (this.disposed) return;
+    this.loadedVisualKey=null;
     this.materialPreviewState?.pending?.resolve();
     if (this.materialPreviewState) { this.materialPreviewState.pending = null; this.materialPreviewState.descriptor = null; }
     this.loadVersion++;
@@ -2583,6 +2725,8 @@ export class StudioViewport {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.previewQuality?.dispose();this.previewQuality=null;
+    this.previewConnection?.removeEventListener?.('change',this.onPreviewDataChange);this.previewConnection=null;
     this.options.onLoading?.(false);
     this.depthOfFieldPreview?.dispose(); this.depthOfFieldPreview = null;
     this.presentedFilm = null;
@@ -2671,6 +2815,9 @@ export function createViewport(host: HTMLElement, options: Omit<ViewportOptions,
     setPartFocus(enabled: boolean) { viewport.setPartFocus(enabled); },
     setProductPreview(enabled: boolean) { viewport.setProductPreview(enabled); },
     setSuspended(suspended: boolean) { viewport.setSuspended(suspended); },
+    setPlaybackActive(playing:boolean) { viewport.setPlaybackActive(playing); },
+    setImageFinish(value?:Partial<PostProcessingSettings>) { viewport.setImageFinish(value); },
+    analyzeImageFinish() { return viewport.analyzeImageFinish(); },
     captureStill(signal?: AbortSignal) { return viewport.captureStill(signal); },
     capturePreview(signal?: AbortSignal) { return viewport.capturePreview(signal); },
     captureModelOutline(ids: string[], signal?: AbortSignal) { return viewport.captureModelOutline(ids,signal); },

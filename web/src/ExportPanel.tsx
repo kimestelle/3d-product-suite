@@ -1,6 +1,6 @@
 import {useEffect, useId, useRef, useState, type ReactNode} from 'react';
 import FilmModeTabs from './FilmModeTabs';
-import {exportBlockReason, exportBytes, exportDimensions, exportDownloadUrl, exportFilename, exportFormats, exportProgress, formatsForMode, makeExportPayload, primaryExportArtifact, totalExportFrames, type ExportCapabilities, type ExportFormat, type ExportJob, type ExportMode, type ExportPayload, type ExportScale, type ExportScene} from './exportModel';
+import {exportBlockReason, exportBytes, exportDimensions, exportDownloadUrl, exportExecutionLabel, exportFilename, exportFormats, exportProgress, formatsForMode, makeExportPayload, primaryExportArtifact, totalExportFrames, type ExportCapabilities, type ExportFormat, type ExportJob, type ExportMode, type ExportPayload, type ExportScale, type ExportScene} from './exportModel';
 import './export.css';
 
 export interface ExportPanelProps {
@@ -12,6 +12,10 @@ export interface ExportPanelProps {
   previewSource?: unknown;
   onModeChange?: (mode: ExportMode) => void;
   compositionSettings?: ReactNode;
+  postProcessing?: ReactNode;
+  /** Reports only the selected export from this source/mode; pending jobs may
+   * later become reviewable when polling installs their verified artifacts. */
+  onReviewJob?: (job: ExportJob | null, open?: boolean) => void;
 }
 function jobTitle(job: ExportJob) {return `${job.filename || 'gesso'}${job.paired ? ' · A/B' : ''}`;}
 function jobFormat(job: ExportJob) {return exportFormats[job.format ?? (job.kind === 'still' ? 'png' : 'mp4')].label;}
@@ -21,12 +25,13 @@ function JobStatus({job}: {job: ExportJob}) {
   const tone = job.state === 'succeeded' ? 'success' : active || job.state === 'cancelled' ? 'note' : 'error';
   return <div className="gesso-export-status"><div className="gesso-export-status-line"><span className="gesso-feedback" data-tone={tone} role="status" aria-live="polite">{state}</span><span>{progress.completed} / {progress.total} {progress.total === 1 ? 'frame' : 'frames'}</span></div>
     <progress aria-label="Rendered frames" max={Math.max(progress.total, 1)} value={progress.completed}/>
+    {exportExecutionLabel(job.execution) && <p className="gesso-note" title={job.execution?.cycles?.fallbackReason}>{exportExecutionLabel(job.execution)}</p>}
     {active && <p className="gesso-note">You can leave Export. Rendering continues locally.</p>}
     {job.error && <p className="gesso-export-error" role="alert">{job.error}</p>}
   </div>;
 }
 
-export default function ExportPanel({scene, projectName, frame, initialMode, capabilities, blockedReason, jobs, currentDigest, onSubmit, onControl, onClose, onAdjustFrame, onModeChange, compositionSettings, previewSource}: ExportPanelProps) {
+export default function ExportPanel({scene, projectName, frame, initialMode, capabilities, blockedReason, jobs, currentDigest, onSubmit, onControl, onClose, onAdjustFrame, onModeChange, compositionSettings, postProcessing, previewSource, onReviewJob}: ExportPanelProps) {
   const heading = useRef<HTMLHeadingElement>(null), mounted = useRef(true), currentMode = useRef(initialMode);
   const sourceRef = useRef(previewSource); sourceRef.current = previewSource;
   const titleId = useId(), formId = useId();
@@ -37,6 +42,8 @@ export default function ExportPanel({scene, projectName, frame, initialMode, cap
   const [filename, setFilename] = useState(exportFilename(projectName));
   const [error, setError] = useState(''), [pending, setPending] = useState(false);
   const [selectedJob, setSelectedJob] = useState<ExportJob | null>(null);
+  const selectedScope=useRef({source:previewSource,mode:initialMode});
+  const selectJob=(next:ExportJob|null)=>{selectedScope.current={source:sourceRef.current,mode:currentMode.current};setSelectedJob(next);};
   const job = selectedJob ? jobs.find(item => item.id === selectedJob.id && !!item.paired === !!selectedJob.paired) ?? selectedJob : null;
   const paired = !!scene.comparison, formats = formatsForMode(mode, paired), safeFormat = formats.includes(format) ? format : formats[0];
   const choice = exportFormats[safeFormat], reason = exportBlockReason(capabilities, safeFormat, blockedReason);
@@ -53,6 +60,9 @@ export default function ExportPanel({scene, projectName, frame, initialMode, cap
     return () => {mounted.current = false;};
   }, []);
   useEffect(() => {setSelectedJob(null);setError('');}, [previewSource]);
+  useEffect(()=>{
+    onReviewJob?.(selectedScope.current.source===previewSource&&selectedScope.current.mode===mode?job:null);
+  },[job,previewSource,mode,onReviewJob]);
   const changeMode = (value: ExportMode, notify = true) => {
     if (value === currentMode.current) return;
     currentMode.current = value;
@@ -66,7 +76,7 @@ export default function ExportPanel({scene, projectName, frame, initialMode, cap
     if (pending || reason || sizeError) return;
     const submittedSource = sourceRef.current;
     setError(''); setPending(true);
-    try {const result = await onSubmit(makeExportPayload(scene, {mode, format: safeFormat, filename, frame, scale, samples})); if (mounted.current && currentMode.current === mode && submittedSource === sourceRef.current) setSelectedJob(result);}
+    try {const result = await onSubmit(makeExportPayload(scene, {mode, format: safeFormat, filename, frame, scale, samples})); if (mounted.current && currentMode.current === mode && submittedSource === sourceRef.current) selectJob(result);}
     catch (failure) {if (mounted.current && currentMode.current === mode && submittedSource === sourceRef.current) setError(failure instanceof Error ? failure.message : 'The export could not start. Try again.');}
     finally {if (mounted.current) setPending(false);}
   };
@@ -81,6 +91,7 @@ export default function ExportPanel({scene, projectName, frame, initialMode, cap
     <FilmModeTabs mode={mode} onMode={changeMode}/>
     <header className="gesso-export-heading"><div><h2 ref={heading} tabIndex={-1} id={titleId}>Export</h2><p>{projectName}</p></div><button type="button" onClick={onClose} aria-label="Close export">×</button></header>
     <div className="gesso-export-body">
+      {!job && postProcessing}
       {!job ? <form id={formId} onSubmit={event => {event.preventDefault(); void submit();}} className="gesso-export-form">
         <fieldset className="gesso-export-formats"><legend className="gesso-section-heading"><span className="gesso-section-label">Format</span></legend>{formats.map(value => <label key={value} className={safeFormat === value ? 'is-selected' : ''}><input type="radio" name={`${formId}-format`} value={value} checked={safeFormat === value} onChange={() => {setFormat(value); setError('');}}/><span><strong>{formatLabel(value)}</strong><small className="gesso-export-sr">{exportFormats[value].detail}</small></span></label>)}<p className="gesso-export-format-detail">{choice.detail}{safeFormat === 'mp4' ? ' · H.264' : safeFormat === 'prores' ? ' · MOV' : ''}</p></fieldset>
         {paired && <p className="gesso-export-note">Both environments · matching {mode === 'still' ? 'PNG stills' : 'MP4 videos'}.</p>}
@@ -96,12 +107,13 @@ export default function ExportPanel({scene, projectName, frame, initialMode, cap
         <p className="gesso-export-note">{job.width && job.height ? `${job.width} × ${job.height} px · ` : ''}{job.kind === 'still' ? `Frame ${job.frame ?? frame}` : `${job.fps ?? scene.render.fps} fps`}{job.samples ? ` · ${job.samples} samples` : ''}</p>
         {job.sourceDigest && job.sourceDigest !== currentDigest && <p className="gesso-export-note">Earlier scene revision</p>}
         <JobStatus job={job}/>
+        {job.state==='succeeded'&&onReviewJob&&<button type="button" className="gesso-export-text-button gesso-export-review-action" onClick={()=>onReviewJob(job,true)}>Review rendered output</button>}
         {active && <button type="button" className="gesso-export-text-button" disabled={pending} onClick={() => void control('cancel')}>{pending ? 'Updating…' : job.paired ? 'Cancel both renders' : 'Cancel render'}</button>}
         {failed && <p className="gesso-export-note">Resume keeps completed frames and retries the rest.</p>}
         {job.state === 'succeeded' && <div className="gesso-export-secondary-links">{job.artifacts.filter(artifact => artifact !== download && (artifact.name.endsWith('.blend') || artifact.name === 'contact-sheet.png' || job.paired)).map(artifact => <a key={artifact.name} href={exportDownloadUrl(artifact.url)} download={artifact.downloadName}>{artifact.name.endsWith('.blend') ? `${artifact.name.startsWith('a/') ? 'A · ' : artifact.name.startsWith('b/') ? 'B · ' : ''}Scene file · .blend` : artifact.name === 'contact-sheet.png' ? 'Contact sheet' : artifact.name}<span>↓</span></a>)}</div>}
       </section>}
       {error && <p className="gesso-export-error" role="alert">{error}</p>}
-      {otherJobs.length > 0 && <details className="gesso-export-history"><summary>Previous exports <span>{otherJobs.length}</span></summary><div>{otherJobs.map(item => {const file = primaryExportArtifact(item); return <article key={`${item.paired ? 'pair-' : ''}${item.id}`}><button type="button" onClick={() => {setSelectedJob(item); setError('');}}><span>{jobTitle(item)}</span><small>{jobFormat(item)} · {item.state}</small></button>{file && <a href={exportDownloadUrl(file.url)} download={file.downloadName} aria-label={`Download ${file.downloadName || file.name}`}>↓</a>}</article>;})}</div></details>}
+      {otherJobs.length > 0 && <details className="gesso-export-history"><summary>Previous exports <span>{otherJobs.length}</span></summary><div>{otherJobs.map(item => {const file = primaryExportArtifact(item); return <article key={`${item.paired ? 'pair-' : ''}${item.id}`}><button type="button" onClick={() => {selectJob(item); setError('');}}><span>{jobTitle(item)}</span><small>{jobFormat(item)} · {item.state}</small></button>{file && <a href={exportDownloadUrl(file.url)} download={file.downloadName} aria-label={`Download ${file.downloadName || file.name}`}>↓</a>}</article>;})}</div></details>}
     </div>
     <footer className="gesso-export-footer">
       {!job ? <><div className="gesso-export-summary"><small>{paired ? 'A/B · ' : ''}{mode === 'still' ? 'Current frame' : 'Full film'} · local Cycles render</small></div><button className="gesso-export-primary" type="submit" form={formId} disabled={pending || !!reason || !!sizeError}>{pending ? 'Starting…' : mode === 'still' ? 'Render still' : 'Render video'}<span aria-hidden>↗</span></button></> : <>

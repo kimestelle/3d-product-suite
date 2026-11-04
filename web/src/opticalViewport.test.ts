@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import {StudioViewport} from './viewport';
 import {DepthOfFieldPreview} from './DepthOfFieldPreview';
 import {circleOfConfusionRadiusPx, sparkApertureAngle} from './focusOptics';
+import {resolvePostProcessing} from './postProcessing';
+import {filmGateRect} from './filmGuides';
 
 function viewport(capture = false) {
   const view = Object.create(StudioViewport.prototype) as any;
@@ -140,5 +142,64 @@ describe('Viewport optical presentation', () => {
     expect(renderer.setRenderTarget).toHaveBeenLastCalledWith(target);
     expect(renderer.render).toHaveBeenCalledTimes(2);
     preview.dispose();
+  });
+  it('reuses the optical pass for grading and keeps effects aligned with the film gate', async () => {
+    const {view,renderer}=viewport();
+    const pass={render:vi.fn(),dispose:vi.fn()};view.depthOfFieldPreview=pass;
+    view.setImageFinish({enabled:true,exposureEV:.5,vignette:.2});view.filmGuides=true;
+    await view.draw(false,1);
+    expect(pass.render).toHaveBeenCalledOnce();expect(renderer.render).not.toHaveBeenCalled();
+    expect(pass.render.mock.calls[0][8]).toEqual(resolvePostProcessing({enabled:true,exposureEV:.5,vignette:.2}));
+    expect(pass.render.mock.calls[0][9]).toEqual(filmGateRect(800,400,9/16));
+    view.setImageFinish({enabled:false,exposureEV:.5});await view.draw(false,1);
+    expect(pass.dispose).toHaveBeenCalledOnce();expect(renderer.render).toHaveBeenCalledOnce();
+  });
+  it('keeps product inspection and splat plate capture ungraded', async () => {
+    for(const mode of ['product','plate']){
+      const {view,renderer}=viewport(mode==='plate');view.productPreview=mode==='product';
+      view.setImageFinish({enabled:true,exposureEV:1});await view.draw(false,1);
+      expect(view.depthOfFieldPreview).toBeNull();expect(renderer.render).toHaveBeenCalledOnce();
+    }
+  });
+  it('sets grade-only uniforms without depth blur and restores the target on a failed pass', () => {
+    const preview=new DepthOfFieldPreview() as any;
+    const target={name:'old'},renderer={getPixelRatio:()=>1,getRenderTarget:()=>target,setRenderTarget:vi.fn(),render:vi.fn()};
+    const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera();
+    preview.render(renderer,scene,camera,800,400,null,50,false,{enabled:true,exposureEV:.25},{x:300,y:0,width:200,height:400});
+    expect(preview.material.uniforms.cocScale.value).toBe(0);
+    expect(preview.material.uniforms.gradeA.value.toArray()).toEqual([.25,1,1,1]);
+    expect(preview.material.uniforms.gradeC.value.w).toBe(.5);
+    expect(preview.material.uniforms.finishGate.value.toArray()).toEqual([.375,0,.25,1]);
+    renderer.render.mockImplementation(()=>{throw new Error('lost context');});
+    expect(()=>preview.render(renderer,scene,camera,800,400,null,50,false)).toThrow('lost context');
+    expect(renderer.setRenderTarget).toHaveBeenLastCalledWith(target);preview.dispose();
+  });
+  it('keeps bounded attachment MSAA through grading and releases it under data saving',()=>{
+    const preview=new DepthOfFieldPreview() as any;
+    const gl={RENDERBUFFER:1,RGBA16F:2,DEPTH_COMPONENT24:3,SAMPLES:4,getInternalformatParameter:vi.fn(()=>new Int32Array([4,2]))};
+    const renderer={capabilities:{maxSamples:4},getContext:()=>gl,getPixelRatio:()=>1,getRenderTarget:()=>null,setRenderTarget:vi.fn(),render:vi.fn()} as any;
+    const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera();
+    preview.render(renderer,scene,camera,800,400,null,50,false,{enabled:true,contrast:1.1});
+    expect(preview.target.samples).toBe(2);expect(gl.getInternalformatParameter).toHaveBeenCalledTimes(2);
+    preview.render(renderer,scene,camera,800,400,null,50,false,undefined,undefined,false);
+    expect(preview.target.samples).toBe(0);
+    preview.render(renderer,scene,camera,800,400,null,50,false,undefined,undefined,true);
+    expect(preview.target.samples).toBe(2);expect(gl.getInternalformatParameter).toHaveBeenCalledTimes(4);
+    preview.dispose();
+  });
+  it('measures an ungraded film crop and restores grading after capture failure', async () => {
+    const {view}=viewport();view.filmGuides=true;
+    const pixels=new Uint8ClampedArray(64).fill(128);for(let i=3;i<pixels.length;i+=4)pixels[i]=255;
+    const context={drawImage:vi.fn(),getImageData:vi.fn(()=>({data:pixels}))},bitmap={width:320,height:160,close:vi.fn()};
+    vi.stubGlobal('document',{hidden:false,createElement:()=>({getContext:()=>context})});
+    vi.stubGlobal('createImageBitmap',vi.fn(async()=>bitmap));
+    const capture=vi.spyOn(view,'captureImage').mockImplementation(async()=>{expect(view.bypassImageFinish).toBe(true);return {blob:new Blob()};});
+    expect((await view.analyzeImageFinish()).sampleCount).toBe(16);
+    expect(capture).toHaveBeenCalledWith(undefined,320);
+    const gate=filmGateRect(320,160,9/16);
+    expect(context.getImageData).toHaveBeenCalledWith(Math.floor(gate.x),Math.floor(gate.y),Math.floor(gate.width),Math.floor(gate.height));
+    expect(bitmap.close).toHaveBeenCalledOnce();expect(view.bypassImageFinish).toBe(false);
+    capture.mockRejectedValue(new Error('cancelled'));
+    await expect(view.analyzeImageFinish()).rejects.toThrow('cancelled');expect(view.bypassImageFinish).toBe(false);
   });
 });

@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from . import jobs
 from .export_formats import FORMATS, job_format, primary_artifact, validate_format
+from .export_execution import execution_summary
 from .scene import evaluate, sample_scene, scene_digest, validate_scene
 from .scene_objects import resolve_scene_objects
 from .stills import create_still_job, run_still_job
@@ -32,6 +33,7 @@ from .film_images import import_film_image, MAX_IMAGE_BYTES
 from .audio import MAX_AUDIO_BYTES, MIME_TYPES as AUDIO_MIME_TYPES, ffprobe_command, import_audio
 from .artwork import import_artwork
 from .hosting import HostedAccess, LoginRequired, return_path
+from .presets import PresetLibrary
 
 ARTIFACTS = {"scene.blend", "contact-sheet.png", "still-01.png", "still-02.png", "still-03.png"} | {item[1] for item in FORMATS.values()}
 ASSET_NAME = re.compile(r"[0-9a-f]{64}\.(?:glb|spz|ply|png|jpg|jpeg|webp|hdr|mp3|wav|m4a)\Z")
@@ -108,7 +110,7 @@ class RenderQueue:
                 "completedFrames": min(count, 1) if still else count,
                 "totalFrames": 1 if still else job["renderProfile"]["frameCount"],
                 "error": request.get("error") or (errors[-1]["message"] if errors and state == "failed" else None),
-                "artifacts": artifacts, "createdAt": request["createdAt"]}
+                "artifacts": artifacts, "createdAt": request["createdAt"], "execution": execution_summary(output)}
 
     def list(self):
         summaries = []
@@ -211,6 +213,7 @@ class RenderQueue:
                                    "--samples", str(output / "samples.json"), "--output", str(output / "plate"),
                                    "--asset-url", f"/api/assets/{Path(asset['path']).name}",
                                    "--width", str(profile["width"]), "--height", str(profile["height"]),
+                                   "--device", profile.get("executionPolicy", {}).get("capture", "software"),
                                    "--source-digest", job["sceneDigest"]]
                         command += ["--frames", ",".join(map(str, scene_frames))]
                         jobs._run_process(command, output, "splat-capture.log", worker_fd=pipeline_lock.fileno())
@@ -244,6 +247,7 @@ class Application:
         self.import_blender = import_blender or os.environ.get("GESSO_IMPORT_BLENDER")
         self.github = GitHubWorlds(self.store.root)
         self.materials = MaterialLibrary(self.store.root)
+        self.presets = PresetLibrary(self.store.root)
         self.polyhaven = PolyHavenLibrary(self.store.root, material_library=self.materials)
         self.renders = RenderQueue(self.store, base_url=f"http://127.0.0.1:{port}", blender=blender, ffmpeg=ffmpeg)
         self.comparison_renders = ComparisonJobs(self.renders)
@@ -415,6 +419,10 @@ def make_handler(app):
                         limit=int(query.get("limit", ["24"])[0])))
                 if path == "/api/materials":
                     return self._json(app.materials.list())
+                if path == "/api/presets":
+                    return self._json(app.presets.list())
+                if len(parts) == 3 and parts[:2] == ["api", "presets"]:
+                    return self._json(app.presets.get(parts[2]))
                 if len(parts) == 4 and parts[:3] == ["api", "materials", "jobs"]:
                     return self._json(app.materials.get(parts[3]))
                 if path == "/api/worldlabs/status":
@@ -531,6 +539,12 @@ def make_handler(app):
                     temp.unlink(missing_ok=True)
             body = self._body()
             if self.command == "POST":
+                if path == "/api/presets":
+                    return self._json(app.presets.create(body.get("name"), body.get("scopes"), body["scene"]), 201)
+                if path == "/api/presets/query":
+                    return self._json(app.presets.list(body["scene"]))
+                if len(parts) == 4 and parts[:2] == ["api", "presets"] and parts[3] == "apply":
+                    return self._json(app.presets.apply(parts[2], body.get("scopes"), body["scene"]))
                 if path == "/api/polyhaven/import":
                     return self._json(app.polyhaven.import_asset(body["kind"], body["id"]), 201)
                 if path == "/api/materials/generate":

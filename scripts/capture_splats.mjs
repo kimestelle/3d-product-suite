@@ -9,6 +9,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { inflateSync } from 'node:zlib';
+import { prepareWorldCopy, captureWithWorldCopy, writeWorldCopyEvidence } from './gaussian_world_copy.mjs';
+import { captureDevicePolicy, openCaptureRuntime } from './capture_gpu.mjs';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const projectRoot = path.resolve(path.dirname(scriptPath), '..');
@@ -35,6 +37,7 @@ node scripts/capture_splats.mjs --url http://127.0.0.1:8787 \\
 Options:
   --source-digest SHA256   Cross-check the Python scene digest (optional).
   --timeout-ms 120000      Maximum load or per-frame render time.
+  --device auto           auto, hardware or software; auto prefers verified GPU.
   --help                  Show this help.
 
 Setup: cd web && npm ci && npx playwright install chromium
@@ -45,7 +48,7 @@ Use a new output directory if the source, profile, browser build, or hashes diff
 `;
 
 export function parseArgs(argv) {
-  const allowed = new Set(['url', 'samples', 'output', 'asset-url', 'width', 'height', 'frames', 'source-digest', 'timeout-ms']);
+  const allowed = new Set(['url', 'samples', 'output', 'asset-url', 'width', 'height', 'frames', 'source-digest', 'timeout-ms', 'device']);
   const options = {};
   for (let index = 0; index < argv.length; index += 1) {
     const option = argv[index];
@@ -67,6 +70,7 @@ export function parseArgs(argv) {
     options[key] = Number(options[key]);
   }
   options.timeout = options['timeout-ms'] === undefined ? 120000 : Number(options['timeout-ms']);
+  options.device = captureDevicePolicy(options.device);
   if (!Number.isInteger(options.timeout) || options.timeout < 1000 || options.timeout > 600000) {
     throw new Error('--timeout-ms must be an integer from 1000 to 600000');
   }
@@ -116,6 +120,11 @@ async function optionalTreeHash(root, digest, prefix = '') {
 
 async function runtimeFingerprint() {
   const digest = createHash('sha256').update(`helper\0${await fileSha256(scriptPath)}\n`);
+  for (const name of ['capture_gpu.mjs', 'gaussian_world_copy.mjs']) {
+    const filename = path.join(projectRoot, 'scripts', name);
+    try { digest.update(`scripts/${name}\0${await fileSha256(filename)}\n`); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
   for (const name of ['package.json', 'package-lock.json']) {
     const file = path.join(projectRoot, 'web', name);
     try { digest.update(`web/${name}\0${await fileSha256(file)}\n`); }
@@ -316,16 +325,26 @@ async function withTimeout(promise, milliseconds, operation) {
   } finally { clearTimeout(timer); }
 }
 
+/** Respect hosted/user configuration; reuse a pinned project-local installation
+ * when present so ordinary local server restarts keep Gaussian export available. */
+export async function projectBrowserCache(root = projectRoot, configured = process.env.PLAYWRIGHT_BROWSERS_PATH) {
+  if (configured) return configured;
+  try {
+    const metadata = JSON.parse(await fs.readFile(path.join(root, 'web/node_modules/playwright-core/browsers.json'), 'utf8'));
+    const browser = metadata.browsers.find(value => value.name === 'chromium-headless-shell');
+    if (!browser || !/^\d+$/.test(browser.revision)) return undefined;
+    const directory = path.join(root, '.cache/playwright');
+    const installed = await fs.stat(path.join(directory, `chromium_headless_shell-${browser.revision}`));
+    return installed.isDirectory() ? directory : undefined;
+  } catch { return undefined; }
+}
+
 export async function capture(options) {
   const { sampled, frames, identity } = await prepareCapture(options);
-  const { manifest, verified } = await openManifest(options.output, identity);
-  const missing = frames.filter((number) => !verified.has(number));
-  if (!missing.length) {
-    process.stdout.write(`Verified ${verified.size} existing Gaussian plates; capture complete.\n`);
-    return manifest;
-  }
   const authHeaders = captureAuthHeaders();
   await verifyServedAsset(options.assetUrl, identity.assetSha256, options.timeout, authHeaders);
+  const browserCache = await projectBrowserCache();
+  if (browserCache) process.env.PLAYWRIGHT_BROWSERS_PATH = browserCache;
   let chromium;
   try { ({ chromium } = createRequire(path.join(projectRoot, 'web', 'package.json'))('playwright')); }
   catch { throw new Error('Playwright is missing. Run: cd web && npm ci && npx playwright install chromium'); }
@@ -342,52 +361,87 @@ export async function capture(options) {
   process.once('SIGINT', onSigint);
   process.once('SIGTERM', onSigterm);
   try {
-    try {
-      browser = await chromium.launch({ headless: true, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-dev-shm-usage'] });
-    } catch (error) {
-      throw new Error(`Chromium could not start: ${error.message}\nInstall the pinned browser: cd web && npx playwright install chromium`);
-    }
+    const runtime = await openCaptureRuntime(chromium, { ...options, isCancelled: () => !!interrupted }, authHeaders, value => { browser = value; });
     if (interrupted) throw new Error(`Capture cancelled by ${interrupted}`);
-    const page = await browser.newPage({ viewport: { width: options.width, height: options.height }, deviceScaleFactor: 1, reducedMotion: 'reduce' });
-    page.setDefaultTimeout(options.timeout);
-    await page.route('**/*', (route) => {
-      const url = new URL(route.request().url());
-      if (url.origin === options.origin) {
-        return route.continue({ headers: { ...route.request().headers(), ...authHeaders } });
-      }
-      return ['data:', 'blob:'].includes(url.protocol) ? route.continue() : route.abort('blockedbyclient');
+    const { page, browserErrors, execution } = runtime;
+    identity.profile.execution = execution;
+    const selected = sampled.frames.filter(frame => frames.includes(frame.frame)).sort((a,b)=>a.frame-b.frame);
+    const copy = await prepareWorldCopy({
+      assetPath:path.resolve(path.dirname(options.samples),sampled.scene.environment.asset.path),asset:sampled.scene.environment.asset,
+      frames:selected,width:options.width,height:options.height,runtimeDigest:identity.profile.runtimeDigest,execution,
+      cacheRoot:path.join(projectRoot,'.cache/gaussian-world-copies'),
     });
-    const browserErrors = [];
-    page.on('pageerror', (error) => browserErrors.push(error.message));
-    const response = await page.goto(`${options.origin}/capture`, { waitUntil: 'domcontentloaded', timeout: options.timeout });
-    if (!response?.ok()) throw new Error(`Capture route returned HTTP ${response?.status() ?? 'unknown'}. Build web/dist and start python -m film serve.`);
-    await page.waitForFunction(() => typeof window.productSuiteCapture?.load === 'function' && typeof window.productSuiteCapture?.frame === 'function');
+    let manifest,verified,missing=frames;
+    const decide = async receipt => {
+      identity.profile.worldCopy=receipt;
+      ({manifest,verified}=await openManifest(options.output,identity));
+      missing=frames.filter(number=>!verified.has(number));
+      if(receipt.status==='verified') {
+        // Keep the derivative and its exact all-frame proof in the immutable
+        // render receipt, separate from the original canonical asset identity.
+        await writeWorldCopyEvidence(copy,options.output);
+      }
+    };
+    // Existing receipts are immutable. A fresh job waits until a cached copy
+    // actually loads, so a load failure can choose full source before pinning.
+    let hasManifest=false;
+    try{await fs.access(path.join(options.output,manifestName));hasManifest=true;}catch(error){if(error.code!=='ENOENT')throw error;}
+    if(hasManifest&&copy.receipt.status!=='candidate')await decide(copy.receipt);
+    process.stdout.write(`Gaussian capture uses ${execution.backend}: ${execution.unmaskedRenderer}.\n`);
+    if (!missing.length) {
+      process.stdout.write(`Verified ${verified.size} existing Gaussian plates; capture complete.\n`);
+      return manifest;
+    }
     if (sampled.frames.some(item => item.camera.depthOfField?.enabled)
         && await page.evaluate(() => window.productSuiteCapture.depthOfField) !== 'sampled-camera') {
       throw new Error('The capture renderer does not support sampled optical focus. Rebuild web/dist and reload the server.');
     }
-    await withTimeout(page.evaluate((payload) => window.productSuiteCapture.load(payload), {
-      scene: sampled.scene, frames: sampled.frames, width: options.width, height: options.height, assetUrl: options.assetUrl,
-    }), options.timeout, 'Gaussian world load');
     const canvas = page.locator('canvas#splat-capture');
     await canvas.waitFor({ state: 'visible' });
-    for (const number of missing) {
+    let derivativeUrl,derivativeLoads=0;
+    if(copy.bytes) {
+      derivativeUrl=`${options.origin}/__gesso_capture_world/${copy.receipt.copySha256}.spz`;
+      await page.route(derivativeUrl,route=>{derivativeLoads+=1;return route.fulfill({status:200,contentType:'application/octet-stream',body:copy.bytes});});
+    }
+    let loadErrorCursor=browserErrors.length;
+    const loadAsset=async candidate=>{
+      if(interrupted)throw new Error(`Capture cancelled by ${interrupted}`);
+      const previousLoads=derivativeLoads;
+      // Only a deliberate source reload establishes a fresh diagnostic
+      // boundary. Failed candidate errors must not poison a recovered master.
+      loadErrorCursor=browserErrors.length;
+      await withTimeout(page.evaluate(payload=>window.productSuiteCapture.load(payload),{
+        scene:sampled.scene,frames:sampled.frames,width:options.width,height:options.height,assetUrl:candidate?derivativeUrl:options.assetUrl,
+      }),options.timeout,'Gaussian world load');
+      if(browserErrors.length>loadErrorCursor)throw new Error(`Capture browser error: ${browserErrors.slice(loadErrorCursor).join('; ')}`);
+      if(candidate&&derivativeLoads===previousLoads)throw new Error('Camera-copy quality gate did not load its separate immutable source. Rebuild the capture renderer.');
+    };
+    const renderFrameBytes=async number=>{
       // frame() resolves only after Spark loading, camera sorting, and the draw.
       await withTimeout(page.evaluate((frame) => window.productSuiteCapture.frame(frame), number), options.timeout, `Gaussian frame ${number}`);
-      if (browserErrors.length) throw new Error(`Capture browser error: ${browserErrors.join('; ')}`);
+      if (browserErrors.length>loadErrorCursor) throw new Error(`Capture browser error: ${browserErrors.slice(loadErrorCursor).join('; ')}`);
       const dimensions = await canvas.evaluate((element) => ({ width: element.width, height: element.height, cssWidth: element.getBoundingClientRect().width, cssHeight: element.getBoundingClientRect().height }));
       if (dimensions.width !== options.width || dimensions.height !== options.height || dimensions.cssWidth !== options.width || dimensions.cssHeight !== options.height) {
         throw new Error(`Capture canvas dimensions differ from the requested ${options.width}x${options.height}: ${JSON.stringify(dimensions)}`);
       }
       const bytes = await canvas.screenshot({ type: 'png', animations: 'disabled', timeout: options.timeout });
       if (!validatePng(bytes, options.width, options.height)) throw new Error(`Browser returned an invalid ${options.width}x${options.height} PNG for frame ${number}`);
+      return bytes;
+    };
+    const publishFrame=async(number,bytes)=>{
+      if(interrupted)throw new Error(`Capture cancelled by ${interrupted}`);
+      if(verified.has(number))return;
       await atomicWrite(path.join(options.output, frameFile(number)), bytes);
       manifest.frames[String(number)] = sha256(bytes);
       manifest.updatedAt = new Date().toISOString();
       await atomicWrite(path.join(options.output, manifestName), serialize(manifest));
       if (interrupted) throw new Error(`Capture cancelled by ${interrupted}`);
       process.stdout.write(`Captured Gaussian plate ${frameFile(number)} (${Object.keys(manifest.frames).length}/${frames.length}).\n`);
-    }
+    };
+    const receipt=await captureWithWorldCopy({copy,frameNumbers:missing,loadAsset,renderFrameBytes,publishFrame,
+      temporaryRoot:path.join(projectRoot,'.cache/gaussian-world-copy-gates'),onDecision:decide,isCancelled:()=>!!interrupted});
+    process.stdout.write(receipt.status==='verified'?`Camera copy retains ${receipt.copyPoints}/${receipt.sourcePoints} original records; all requested frames passed exact full-source pixels.\n`
+      :`Camera copy kept the full source: ${receipt.reason}\n`);
     return manifest;
   } finally {
     try { await browser?.close(); }

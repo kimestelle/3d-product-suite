@@ -86,8 +86,12 @@ class WorldTests(unittest.TestCase):
         self.scene["environment"] = copy.deepcopy(entry["environment"])
         return self.scene
 
-    def make_job(self, *, splat=False):
+    def make_job(self, *, splat=False, preview=False):
         self.world_scene("ply" if splat else "glb")
+        if preview:
+            preview_path = self.root / "preview.ply"
+            preview_path.write_bytes(ply_bytes(binary=False))
+            self.scene["environment"] = copy.deepcopy(self.import_asset(preview_source_path=preview_path)["environment"])
         self.scene["render"].update(width=4, height=6, samples=1)
         self.scene["actions"] = []
         for index, shot in enumerate(self.scene["shots"]):
@@ -138,6 +142,74 @@ class WorldTests(unittest.TestCase):
                 entry = self.import_asset(ROOT / "examples" / "worlds" / f"neutral-room.{format_}", name=f"Synthetic {format_}")
                 self.assertEqual(entry["environment"]["kind"], "mesh" if format_ == "glb" else "splat")
                 self.assertEqual(len(worlds.verify_scene_assets({"environment": entry["environment"]}, self.library)), 1)
+
+    def test_gaussian_pair_is_an_immutable_revision_with_one_editable_alignment(self):
+        self.source = self.root / "full.ply"
+        self.source.write_bytes(ply_bytes())
+        preview_path = self.root / "preview.ply"
+        preview_path.write_bytes(ply_bytes(binary=False))
+        original = self.import_asset(source_up="Z", scale_to_meters=1.25, translation_m=[0, 1, 0])
+        paired = self.import_asset(source_up="Z", scale_to_meters=1.25, translation_m=[0, 1, 0],
+                                   preview_source_path=preview_path)
+        self.assertNotEqual(paired["id"], original["id"])
+        self.assertEqual(paired["environment"]["asset"], original["environment"]["asset"])
+        descriptor = paired["environment"]["previewAsset"]
+        self.assertEqual(set(descriptor), {"path", "sha256", "format"})
+        self.assertEqual(descriptor["sha256"], hashlib.sha256(preview_path.read_bytes()).hexdigest())
+        self.assertEqual(self.import_asset(source_up="Z", scale_to_meters=1.25, translation_m=[0, 1, 0],
+                                           preview_source_path=preview_path), paired)
+        stored_original = json.loads((self.library / "worlds" / f"{original['id']}.json").read_text())
+        self.assertEqual(stored_original, original)
+        self.assertEqual(len(worlds.list_worlds(self.library)), 2)
+        self.scene["environment"] = copy.deepcopy(paired["environment"])
+        before = evaluate(self.scene, 1)
+        self.scene["environment"]["asset"].update(scaleToMeters=2, translationM=[2, 3, 4], rotationXyzw=[0, 1, 0, 0])
+        validate_scene(self.scene)
+        resolved_preview = worlds.validate_preview_asset(self.scene["environment"])
+        self.assertEqual(resolved_preview["translationM"], [2, 3, 4])
+        self.assertEqual(resolved_preview["scaleToMeters"], 2)
+        self.assertEqual(resolved_preview["rotationXyzw"], [0, 1, 0, 0])
+        self.assertEqual(evaluate(self.scene, 1), before)
+
+    def test_gaussian_preview_is_verified_and_bundled_without_replacing_source(self):
+        self.world_scene("ply")
+        preview_path = self.root / "preview.ply"
+        preview_path.write_bytes(ply_bytes(binary=False))
+        self.scene["environment"] = copy.deepcopy(self.import_asset(preview_source_path=preview_path)["environment"])
+        canonical = copy.deepcopy(self.scene["environment"]["asset"])
+        before = copy.deepcopy(self.scene)
+        output = self.root / "paired-bundle"
+        records = worlds.bundle_assets(self.scene, self.library, output)
+        self.assertEqual(self.scene, before)
+        self.assertEqual({record["sha256"] for record in records},
+                         {canonical["sha256"], self.scene["environment"]["previewAsset"]["sha256"]})
+        self.assertEqual((output / canonical["path"]).read_bytes(), self.source.read_bytes())
+        self.assertEqual((output / self.scene["environment"]["previewAsset"]["path"]).read_bytes(), preview_path.read_bytes())
+        (self.library / self.scene["environment"]["previewAsset"]["path"]).write_bytes(b"corrupt preview")
+        with self.assertRaisesRegex(ValueError, "hash does not match"):
+            worlds.verify_scene_assets(self.scene, self.library)
+
+    def test_preview_descriptor_rejects_unused_assets_and_independent_alignment(self):
+        scene = self.world_scene("ply")
+        asset = scene["environment"]["asset"]
+        descriptor = {key: asset[key] for key in ("path", "sha256", "format")}
+        scene["environment"]["previewAsset"] = descriptor
+        validate_scene(scene)
+        for key, value in (("sourceUp", "Y"), ("scaleToMeters", 2), ("translationM", [1, 0, 0]),
+                           ("rotationXyzw", [0, 0, 0, 1])):
+            invalid = copy.deepcopy(scene)
+            invalid["environment"]["previewAsset"][key] = value
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "alignment belongs to asset"):
+                validate_scene(invalid)
+        for kind in ("authored", "mesh"):
+            invalid = copy.deepcopy(scene)
+            invalid["environment"]["kind"] = kind
+            with self.subTest(kind=kind), self.assertRaisesRegex(ValueError, "Only Gaussian"):
+                validate_scene(invalid)
+            with self.assertRaisesRegex(ValueError, "Only Gaussian"):
+                worlds.verify_scene_assets(invalid, self.library)
+        with self.assertRaisesRegex(ValueError, "Only Gaussian"):
+            self.import_asset(ROOT / "examples/worlds/neutral-room.glb", preview_source_path=self.source)
 
     def test_provenance_scale_axis_and_file_bounds_are_explicit(self):
         for provenance in ({}, {**PROVENANCE, "owner": ""}, {**PROVENANCE, "allowedExternalDestinations": None}):
@@ -358,6 +430,21 @@ class WorldTests(unittest.TestCase):
         manifest["frames"]["1"] = jobs._sha256(output / "plate" / "000001.png")
         jobs._atomic_json(output / "plate" / "capture-manifest.json", manifest)
         with self.assertRaisesRegex(ValueError, "changed after job started"):
+            jobs.validate_plate_inputs(output, job, [1, 2, 3])
+
+    def test_preview_pair_jobs_capture_the_canonical_source_not_preview(self):
+        output, job = self.make_job(splat=True, preview=True)
+        source = self.scene["environment"]["asset"]
+        preview = self.scene["environment"]["previewAsset"]
+        snapshot = jobs._verify_snapshots(output, job)
+        self.assertEqual(snapshot["environment"]["asset"], source)
+        self.assertEqual(snapshot["environment"]["previewAsset"], preview)
+        self.assertEqual({record["sha256"] for record in job["assets"]}, {source["sha256"], preview["sha256"]})
+        manifest = self.capture(output, job)
+        jobs.validate_plate_inputs(output, job, [1, 2, 3])
+        manifest["assetSha256"] = preview["sha256"]
+        jobs._atomic_json(output / "plate" / "capture-manifest.json", manifest)
+        with self.assertRaisesRegex(ValueError, "world asset does not match this job"):
             jobs.validate_plate_inputs(output, job, [1, 2, 3])
 
     def test_splat_capture_mismatch_missing_frame_and_runtime_changes_fail(self):

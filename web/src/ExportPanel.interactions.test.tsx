@@ -61,6 +61,23 @@ async function settle() {await Promise.resolve(); await Promise.resolve();}
 beforeEach(() => {hooks.cursor = 0; hooks.values = []; hooks.dependencies = []; hooks.effects = []; hooks.dirty = false;});
 
 describe('Export sidebar interactions', () => {
+  it('reports the actual selected export through completion and explicit review without submitting again',()=>{
+    const source={},onReviewJob=vi.fn();let props={...base,previewSource:source,jobs:[queued],onReviewJob};
+    let tree=render(props);expect(onReviewJob).toHaveBeenLastCalledWith(null);
+    button(tree,'Lamp handoff').props.onClick();tree=render(props);expect(onReviewJob).toHaveBeenLastCalledWith(queued);
+    const complete={...queued,state:'succeeded',artifacts:[{name:'film.mp4',url:'/api/jobs/render-1/files/film.mp4'}]};
+    props={...props,jobs:[complete]};tree=render(props);expect(onReviewJob).toHaveBeenLastCalledWith(complete);
+    button(tree,'Review rendered output').props.onClick();expect(onReviewJob).toHaveBeenLastCalledWith(complete,true);
+    button(tree,'New export').props.onClick();render(props);expect(onReviewJob).toHaveBeenLastCalledWith(null);
+  });
+  it('never reports the previous selected artifact under a new source or mode',()=>{
+    const onReviewJob=vi.fn(),current={},candidate={},complete={...queued,state:'succeeded'};
+    const props={...base,previewSource:current,jobs:[complete],onReviewJob};
+    button(render(props),'Lamp handoff').props.onClick();render(props);expect(onReviewJob).toHaveBeenLastCalledWith(complete);
+    onReviewJob.mockClear();render({...props,previewSource:candidate});expect(onReviewJob.mock.calls.every(([job])=>job===null)).toBe(true);
+    button(render(props),'Lamp handoff').props.onClick();render(props);onReviewJob.mockClear();
+    render({...props,initialMode:'video'});expect(onReviewJob.mock.calls.every(([job])=>job===null)).toBe(true);
+  });
   it('switches mode without rendering, retains shared settings, and submits the selected video format', async () => {
     const onSubmit = vi.fn(async () => queued), onModeChange = vi.fn();
     const props = {...base, onSubmit, onModeChange};

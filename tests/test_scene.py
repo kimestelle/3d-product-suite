@@ -5,6 +5,7 @@ import json
 import math
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from film.scene import evaluate, load_scene, sample_scene, scene_digest, validate_scene
 
@@ -84,6 +85,28 @@ class SceneTests(unittest.TestCase):
         self.assertEqual([f["frame"] for f in sampled["frames"]], list(range(1, 361)))
         self.assertEqual(sampled["frames"][120], evaluate(self.scene, 121))
         self.assertEqual(sampled["frames"][-1]["timeSeconds"], 359 / 24)
+
+    def test_batch_sampling_reuses_static_support_work_without_sharing_frame_props(self):
+        from film.scene_objects import resolve_scene_objects
+        self.scene["environment"]["props"] = [{"id":"table","shape":"box","sizeM":[.4,.2,.3],
+            "translationM":[.3,.1,-.2],"rotationXyzw":[0,0,0,1],
+            "material":copy.deepcopy(self.scene["product"]["components"][0]["material"])}]
+        self.scene["placement"]["restsOn"] = "table"
+        self.scene["placement"]["rotationYDegrees"] = 24
+        before=copy.deepcopy(self.scene)
+        expected=[evaluate(self.scene,frame) for frame in range(1,361)]
+        with patch("film.scene.resolve_scene_objects",wraps=resolve_scene_objects) as resolve:
+            sampled=sample_scene(self.scene)
+            self.assertLessEqual(resolve.call_count,2)
+        self.assertEqual(sampled["frames"],expected)
+        self.assertEqual(self.scene,before)
+        sampled["frames"][0]["props"]["table"]["translationM"][0]=999
+        self.assertNotEqual(sampled["frames"][1]["props"]["table"]["translationM"][0],999)
+        self.assertEqual(self.scene,before)
+        self.scene["environment"]["props"][0]["translationM"][0]+=.2
+        changed=sample_scene(self.scene)
+        self.assertEqual(changed["frames"][0],evaluate(self.scene,1))
+        self.assertNotEqual(changed["frames"][0]["components"],expected[0]["components"])
 
     def test_lift_is_clamped_and_other_parts_remain_stationary(self):
         original_cap = self.component()["assembly"]

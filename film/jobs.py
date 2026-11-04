@@ -6,6 +6,7 @@ contains immutable source snapshots and may be resumed after a worker exits.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from functools import lru_cache
 from datetime import datetime, timezone
 import fcntl
 import hashlib
@@ -30,9 +31,10 @@ from .worlds import bundle_assets, verify_scene_assets
 
 BLENDER_VERSION = "4.3.2"
 FFMPEG_VERSION = "7.1.5"
-BATCH_SIZE = 12
+BATCH_SIZE = 48
 _RENDERER = Path(__file__).resolve().parents[1] / "scripts" / "blender_scene.py"
-_RENDERER_DEPENDENCIES = {name: Path(__file__).with_name(name) for name in ("decal_geometry.py", "film_images.py", "material_assets.py")}
+_RENDERER_DEPENDENCIES = {name: Path(__file__).with_name(name) for name in ("decal_geometry.py", "film_images.py", "material_assets.py", "post_processing.py", "render_devices.py")}
+_CURRENT_EXECUTION = object()
 
 
 def _now():
@@ -91,7 +93,21 @@ def _save_job(output, job):
         _atomic_json(output / "job.json", job)
 
 
-def _profile(scene, sampled, width, height, samples, export_format=None):
+def execution_policy(value=_CURRENT_EXECUTION):
+    """Freeze device requests when creating a job, independently of later env changes."""
+    if value is _CURRENT_EXECUTION:
+        value = {"cycles": os.environ.get("GESSO_CYCLES_DEVICE", "AUTO").upper(),
+                 "capture": os.environ.get("GESSO_CAPTURE_DEVICE", "auto").lower(),
+                 "denoising": os.environ.get("GESSO_CYCLES_DENOISE", "") == "1"}
+    if (not isinstance(value, dict) or set(value) != {"cycles", "capture", "denoising"}
+            or value["cycles"] not in ("AUTO", "CPU", "METAL", "OPTIX", "CUDA", "HIP", "ONEAPI")
+            or value["capture"] not in ("auto", "hardware", "software")
+            or type(value["denoising"]) is not bool):
+        raise ValueError("Invalid export execution policy: choose a supported Cycles device and auto, hardware or software Gaussian capture")
+    return dict(value)
+
+
+def _profile(scene, sampled, width, height, samples, export_format=None, *, execution=_CURRENT_EXECUTION):
     settings = scene["render"]
     width = settings["width"] if width is None else width
     height = settings["height"] if height is None else height
@@ -106,6 +122,7 @@ def _profile(scene, sampled, width, height, samples, export_format=None):
     if export_format is not None and (not isinstance(export_format, str) or export_format not in FORMATS):
         raise ValueError("Unknown export format")
     return {**({"format": export_format} if export_format is not None else {}),
+            **({"executionPolicy": execution_policy(execution)} if execution is not None else {}),
             "width": width, "height": height, "samples": samples,
             "fps": settings["fps"], "frameCount": len(sampled["frames"]),
             "engine": settings["engine"], "seed": settings["seed"],
@@ -142,6 +159,9 @@ def create_job(scene_path, output_dir, *, width=None, height=None, samples=None,
                "renderProfile": profile, "renderProfileDigest": scene_digest(profile), "completedRanges": [], "frameDigests": {}, "attempts": [],
                "errors": [], "tools": {}, "artifacts": {}, "assets": assets, "cancellationRequested": False,
                "renderingPath": {"authored": "authored-cycles", "mesh": "mesh-cycles", "splat": "camera-matched-splat-plate"}[scene["environment"]["kind"]]}
+        from .post_processing import has_post_processing, validate_post_processing
+        if has_post_processing(scene.get("postProcessing")):
+            job["postProcessing"] = validate_post_processing(scene["postProcessing"])
         if scene["environment"]["kind"] == "splat":
             job["limitations"] = ["Distant color plate only: no near-field Gaussian depth, occlusion, reflections or transmission equivalence."]
         with (output / "renderer.py").open("wb") as handle:
@@ -174,6 +194,11 @@ def _verify_snapshots(output, job):
     scene = load_scene(output / "scene.json")
     if scene_digest(scene) != job.get("sceneDigest"):
         raise ValueError("Source revision was modified after job creation; create a new job directory")
+    from .post_processing import has_post_processing, validate_post_processing
+    expected_grade = (validate_post_processing(scene["postProcessing"])
+                      if has_post_processing(scene.get("postProcessing")) else None)
+    if job.get("postProcessing") != expected_grade:
+        raise ValueError("Job post processing does not match its immutable source revision")
     assets = verify_scene_assets(scene, output)
     if assets != job.get("assets", []):
         raise ValueError("Bundled world asset records do not match the immutable job source")
@@ -187,80 +212,94 @@ def _verify_snapshots(output, job):
     profile = job["renderProfile"]
     if job.get("renderProfileDigest") is not None and scene_digest(profile) != job["renderProfileDigest"]:
         raise ValueError("Job render profile was modified after creation")
-    if profile != _profile(scene, expected, profile["width"], profile["height"], profile["samples"], profile.get("format")):
+    if profile != _profile(scene, expected, profile["width"], profile["height"], profile["samples"], profile.get("format"),
+                           execution=profile.get("executionPolicy")):
         raise ValueError("Job render profile is inconsistent with its source revision")
     return scene
 
 
-def validate_png(path, width=None, height=None):
-    """Check PNG structure, CRCs, dimensions and complete decoded scanlines.
+def _read_valid_png(path, width=None, height=None):
+    """Read once and check PNG structure, CRCs, dimensions and decoded scanlines.
 
     Blender and FFmpeg write non-interlaced PNGs. Reject other encodings rather
     than treating an unverified image as a completed frame.
     """
     try:
         if Path(path).stat().st_size > 256 * 1024 * 1024:
-            return False
+            return None
         payload = Path(path).read_bytes()
-        if payload[:8] != b"\x89PNG\r\n\x1a\n":
-            return False
+        if len(payload) > 256 * 1024 * 1024 or payload[:8] != b"\x89PNG\r\n\x1a\n":
+            return None
         offset, idats, header, palette, ended, idat_closed = 8, [], None, False, False, False
         while offset < len(payload):
             if offset + 12 > len(payload):
-                return False
+                return None
             size = struct.unpack_from(">I", payload, offset)[0]
             kind = payload[offset + 4:offset + 8]
             end = offset + 12 + size
             if end > len(payload):
-                return False
+                return None
             data = payload[offset + 8:offset + 8 + size]
             crc = struct.unpack_from(">I", payload, offset + 8 + size)[0]
-            if zlib.crc32(kind + data) & 0xFFFFFFFF != crc:
-                return False
+            if zlib.crc32(data, zlib.crc32(kind)) & 0xFFFFFFFF != crc:
+                return None
             if header is None and kind != b"IHDR":
-                return False
+                return None
             if kind == b"IHDR":
                 if header is not None or size != 13:
-                    return False
+                    return None
                 header = struct.unpack(">IIBBBBB", data)
             elif kind == b"PLTE":
                 if palette or idats or not size or size % 3 or size > 768:
-                    return False
+                    return None
                 palette = True
             elif kind == b"IDAT":
                 if idat_closed:
-                    return False
+                    return None
                 idats.append(data)
             elif kind == b"IEND":
                 if size or end != len(payload):
-                    return False
+                    return None
                 ended = True
                 break
             elif not kind[0] & 32:  # unknown critical chunk
-                return False
+                return None
             if idats and kind != b"IDAT":
                 idat_closed = True
             offset = end
         if not ended or not idats or header is None:
-            return False
+            return None
         w, h, depth, color, compression, filtering, interlace = header
         depths = {0: (1, 2, 4, 8, 16), 2: (8, 16), 3: (1, 2, 4, 8), 4: (8, 16), 6: (8, 16)}
         if (not w or not h or w > 16384 or h > 16384 or color not in depths
                 or depth not in depths[color] or compression or filtering or interlace
                 or (color == 3 and not palette)
                 or (width is not None and w != width) or (height is not None and h != height)):
-            return False
+            return None
         channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[color]
         stride = math.ceil(w * channels * depth / 8) + 1
         expected = stride * h
         if expected > 256 * 1024 * 1024:
-            return False
+            return None
         decoder = zlib.decompressobj()
         raw = decoder.decompress(b"".join(idats), expected + 1)
-        return (len(raw) == expected and decoder.eof and not decoder.unused_data
-                and all(raw[row * stride] <= 4 for row in range(h)))
+        if (len(raw) != expected or not decoder.eof or decoder.unused_data
+                or any(raw[row * stride] > 4 for row in range(h))):
+            return None
+        return payload
     except (OSError, ValueError, struct.error, zlib.error):
-        return False
+        return None
+
+
+def validate_png(path, width=None, height=None):
+    """Verify PNG structure, CRCs, dimensions and complete decoded scanlines."""
+    return _read_valid_png(path, width, height) is not None
+
+
+def _inspect_png(path, width=None, height=None):
+    """Validate and hash the same PNG bytes without another file read."""
+    payload = _read_valid_png(path, width, height)
+    return hashlib.sha256(payload).hexdigest() if payload is not None else None
 
 
 def validate_plate_inputs(output, job, frame_numbers):
@@ -309,15 +348,17 @@ def validate_plate_inputs(output, job, frame_numbers):
             or not isinstance(capture_profile.get("runtimeDigest"), str)
             or re.fullmatch(r"[0-9a-f]{64}", capture_profile["runtimeDigest"]) is None):
         raise ValueError("Splat capture profile does not match requested frames, dimensions or pinned Spark runtime")
+    from .gaussian_receipts import validate_world_copy
+    validate_world_copy(output, asset, capture_profile)
     recorded = manifest.get("frames", {})
     if not isinstance(recorded, dict):
         raise ValueError("Splat capture must record a hash for every plate frame")
     hashes = {}
     for number in numbers:
         path = output / "plate" / f"{number:06d}.png"
-        if not validate_png(path, profile["width"], profile["height"]):
+        digest = _inspect_png(path, profile["width"], profile["height"])
+        if digest is None:
             raise ValueError(f"Missing or invalid camera-matched splat plate for frame {number}")
-        digest = _sha256(path)
         if recorded.get(str(number)) != digest:
             raise ValueError(f"Splat plate hash changed for frame {number}; create a new job directory")
         hashes[str(number)] = digest
@@ -332,31 +373,53 @@ def validate_plate_inputs(output, job, frame_numbers):
     return digest
 
 
-def _frames(output, profile):
-    return [number for number in range(1, profile["frameCount"] + 1)
-            if validate_png(output / "frames" / f"{number:06d}.png", profile["width"], profile["height"])]
-
-
-def _verified_frames(output, job):
-    """Reject structurally valid frames whose recorded pixels were replaced."""
-    frames = _frames(output, job["renderProfile"])
-    recorded = job.get("frameDigests", {})
-    if recorded:
-        return [frame for frame in frames if str(frame) not in recorded
-                or _sha256(output / "frames" / f"{frame:06d}.png") == recorded[str(frame)]]
-    # Older successful manifests have a sequence digest but no per-frame hashes.
-    # If their sequence changed, render the sequence again to restore its source.
-    if job.get("frameSequenceDigest"):
-        if (len(frames) != job["renderProfile"]["frameCount"]
-                or _frame_digest(output, len(frames)) != job["frameSequenceDigest"]):
-            return []
+def _frames(output, profile, *, digests=None):
+    frames = []
+    for number in range(1, profile["frameCount"] + 1):
+        path = output / "frames" / f"{number:06d}.png"
+        if digests is None:
+            valid = validate_png(path, profile["width"], profile["height"])
+        else:
+            digest = _inspect_png(path, profile["width"], profile["height"])
+            valid = digest is not None
+            if valid:
+                digests[number] = digest
+        if valid:
+            frames.append(number)
     return frames
 
 
-def _record_frame_digests(output, job, frames):
+def _verified_frames(output, job, *, digests=None):
+    """Reject structurally valid frames whose recorded pixels were replaced."""
+    hashes = {}
+    needs_hashes = digests is not None or job.get("postProcessing") or job.get("frameDigests") or job.get("frameSequenceDigest")
+    frames = _frames(output, job["renderProfile"], digests=hashes if needs_hashes else None)
+    if job.get("postProcessing"):
+        samples = json.loads((output / "samples.json").read_text())["frames"]
+        scene_ids = {sample["frame"] for sample in samples if sample.get("clip", {}).get("kind", "scene") == "scene"}
+        receipt = _post_processing_receipt(output)
+        frames = [frame for frame in frames if frame not in scene_ids
+                  or receipt.get(str(frame)) == hashes[frame]]
+    recorded = job.get("frameDigests", {})
+    if recorded:
+        frames = [frame for frame in frames if str(frame) not in recorded
+                  or hashes[frame] == recorded[str(frame)]]
+    # Older successful manifests have a sequence digest but no per-frame hashes.
+    # If their sequence changed, render the sequence again to restore its source.
+    elif job.get("frameSequenceDigest"):
+        if (len(frames) != job["renderProfile"]["frameCount"]
+                or _frame_digest(output, len(frames), digests=hashes) != job["frameSequenceDigest"]):
+            return []
+    if digests is not None:
+        digests.update((frame, hashes[frame]) for frame in frames)
+    return frames
+
+
+def _record_frame_digests(output, job, frames, *, digests=None):
     recorded = job.setdefault("frameDigests", {})
     for frame in frames:
-        recorded[str(frame)] = _sha256(output / "frames" / f"{frame:06d}.png")
+        recorded[str(frame)] = (digests[frame] if digests is not None
+                                else _sha256(output / "frames" / f"{frame:06d}.png"))
 
 
 def _ranges(numbers):
@@ -377,10 +440,11 @@ def _sha256(path):
     return digest.hexdigest()
 
 
-def _frame_digest(output, count):
+def _frame_digest(output, count, *, digests=None):
     digest = hashlib.sha256()
     for frame in range(1, count + 1):
-        digest.update(_sha256(output / "frames" / f"{frame:06d}.png").encode("ascii"))
+        value = digests[frame] if digests is not None else _sha256(output / "frames" / f"{frame:06d}.png")
+        digest.update(value.encode("ascii"))
     return digest.hexdigest()
 
 
@@ -403,13 +467,13 @@ def _blend_needs_rebuild(output, job):
     return False
 
 
-def _outputs_valid(output, job, complete):
+def _outputs_valid(output, job, complete, *, digests=None):
     profile = job["renderProfile"]
     artifacts = job.get("artifacts", {})
     if (len(complete) != profile["frameCount"] or set(artifacts) != set(artifact_names(job))
             or not _blend_valid(output / "scene.blend")):
         return False
-    if job.get("frameSequenceDigest") != _frame_digest(output, profile["frameCount"]):
+    if job.get("frameSequenceDigest") != _frame_digest(output, profile["frameCount"], digests=digests):
         return False
     for name in artifact_names(job):
         path = output / name
@@ -497,6 +561,76 @@ def _render_non_scene_frames(output, profile, numbers):
     return [number for number in numbers if number not in flat_set]
 
 
+def _post_processing_receipt(output):
+    try:
+        value = json.loads((output / "post-processing-frames.json").read_text())
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+@lru_cache(maxsize=8)
+def _post_processor(path, digest):
+    # Include snapshot identity if a completed directory is later recreated.
+    spec = importlib.util.spec_from_file_location("film._job_post_processing", path)
+    processor = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(processor)
+    return processor
+
+
+def _post_process_scene_frames(output, job, numbers):
+    """Finish only freshly rendered scene frames, with crash-safe final receipts.
+
+    A raw renderer receipt can recover an interrupted batch. A PNG matching
+    neither raw nor final receipt is re-rendered, preventing double grading.
+    """
+    recipe = job.get("postProcessing")
+    if not recipe or not numbers:
+        return
+    processor = _post_processor(output / "post_processing.py", job["rendererDependencies"]["post_processing.py"])
+    receipts = _post_processing_receipt(output)
+    for number in numbers:
+        _check_cancel(output)
+        path = output / "frames" / f"{number:06d}.png"
+        processor.apply_post_processing(path, recipe, cancel=lambda: _check_cancel(output))
+        receipts[str(number)] = _sha256(path)
+        _atomic_json(output / "post-processing-frames.json", receipts)
+    processor.prune_raw_frame_receipts(output, processor.raw_frame_identity(job), numbers)
+
+
+def _recover_raw_scene_frames(output, job, numbers=None):
+    """Finish only renderer-receipted raw scene pixels left by an interrupted batch."""
+    if not job.get("postProcessing"):
+        return []
+    processor = _post_processor(output / "post_processing.py", job["rendererDependencies"]["post_processing.py"])
+    identity = processor.raw_frame_identity(job)
+    raw = processor.read_raw_frame_receipts(output, identity)
+    if not raw:
+        return []
+    final = _post_processing_receipt(output)
+    requested = set(numbers) if numbers is not None else None
+    profile = job["renderProfile"]
+    samples = json.loads((output / "samples.json").read_text())["frames"]
+    recovered, committed = [], []
+    for sample in samples:
+        number = sample["frame"]
+        if ((requested is not None and number not in requested)
+                or sample.get("clip", {}).get("kind", "scene") != "scene" or str(number) not in raw):
+            continue
+        _check_cancel(output)
+        path = output / "frames" / f"{number:06d}.png"
+        digest = _inspect_png(path, profile["width"], profile["height"])
+        if digest is None:
+            continue
+        if final.get(str(number)) == digest:
+            committed.append(number)
+        elif raw[str(number)] == digest:
+            recovered.append(number)
+    _post_process_scene_frames(output, job, recovered)
+    processor.prune_raw_frame_receipts(output, identity, committed)
+    return recovered
+
+
 def _render_command(blender, output, profile, frames):
     command = [blender, "--background", "--factory-startup", "--python-exit-code", "1", "--python", str(output / "renderer.py"), "--",
                "--samples", str(output / "samples.json"), "--output", str(output),
@@ -524,9 +658,10 @@ def _encode(output, job, scene, ffmpeg, *, worker_fd=None):
     count = profile["frameCount"]
     # Recheck the whole sequence immediately before assembly, including batches
     # that were completed in a previous process or attempt.
-    if len(_verified_frames(output, job)) != count:
+    verified = {}
+    if len(_verified_frames(output, job, digests=verified)) != count:
         raise RuntimeError("Frame sequence is incomplete, changed or corrupt; refusing to encode")
-    source_sequence_digest = _frame_digest(output, count)
+    source_sequence_digest = _frame_digest(output, count, digests=verified)
     common = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y"]
     name = primary_artifact(job)
     temporary = output / (".film.partial.mov" if job_format(job) == "prores" else ".film.partial.mp4")
@@ -545,10 +680,11 @@ def _encode(output, job, scene, ffmpeg, *, worker_fd=None):
     for index, number in enumerate(still_frames, start=1):
         _check_cancel(output)
         temporary = output / f".still-{index:02d}.partial.png"
-        _run_process(common + ["-i", str(output / "frames" / f"{number:06d}.png"),
-                              "-frames:v", "1", "-update", "1", str(temporary)], output, "ffmpeg.log", worker_fd=worker_fd)
+        # These deliverables are the approved PNG frame itself. Re-encoding
+        # repeats decoding/compression and can discard its color metadata.
+        shutil.copyfile(output / "frames" / f"{number:06d}.png", temporary)
         if not validate_png(temporary, profile["width"], profile["height"]):
-            raise RuntimeError(f"FFmpeg returned an invalid still for frame {number}")
+            raise RuntimeError(f"Copied still is invalid for frame {number}")
         os.replace(temporary, output / f"still-{index:02d}.png")
     rows = math.ceil(count / 12)
     temporary = output / ".contact-sheet.partial.png"
@@ -564,7 +700,7 @@ def _encode(output, job, scene, ffmpeg, *, worker_fd=None):
     if final_sequence_digest != source_sequence_digest:
         raise RuntimeError("Frame sequence changed during export; refusing to mark succeeded")
     job["frameSequenceDigest"] = final_sequence_digest
-    _record_frame_digests(output, job, range(1, count + 1))
+    _record_frame_digests(output, job, range(1, count + 1), digests=verified)
     job["artifacts"] = {name: {"bytes": (output / name).stat().st_size,
                                      "sha256": _sha256(output / name)}
                         for name in artifact_names(job)}
@@ -574,9 +710,10 @@ def _archive_frames(output, job):
     """Lossless rendered frames and timing, without an intermediate video codec."""
     profile = job["renderProfile"]
     count = profile["frameCount"]
-    if len(_verified_frames(output, job)) != count:
+    verified = {}
+    if len(_verified_frames(output, job, digests=verified)) != count:
         raise RuntimeError("Frame sequence is incomplete, changed or corrupt; refusing to archive")
-    source_digest = _frame_digest(output, count)
+    source_digest = _frame_digest(output, count, digests=verified)
     temporary = output / ".frames.partial.zip"
     try:
         with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_STORED) as archive:
@@ -598,7 +735,7 @@ def _archive_frames(output, job):
     finally:
         temporary.unlink(missing_ok=True)
     job["frameSequenceDigest"] = source_digest
-    _record_frame_digests(output, job, range(1, count + 1))
+    _record_frame_digests(output, job, range(1, count + 1), digests=verified)
     job["artifacts"] = {name: {"bytes": (output / name).stat().st_size, "sha256": _sha256(output / name)}
                         for name in artifact_names(job)}
 
@@ -628,9 +765,11 @@ def run_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cancellatio
             export_format = job_format(job)
             profile = job["renderProfile"]
             validate_plate_inputs(output, job, range(1, profile["frameCount"] + 1))
-            completed = _verified_frames(output, job)
+            _recover_raw_scene_frames(output, job)
+            completed_digests = {}
+            completed = _verified_frames(output, job, digests=completed_digests)
             job["completedRanges"] = _ranges(completed)
-            if job["state"] == "succeeded" and _outputs_valid(output, job, completed):
+            if job["state"] == "succeeded" and _outputs_valid(output, job, completed, digests=completed_digests):
                 return job
             for prior in job["attempts"]:
                 if prior.get("state") == "running":
@@ -651,7 +790,8 @@ def run_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cancellatio
                 _save_job(output, job)
             (output / "frames").mkdir(exist_ok=True)
             rebuild_blend = _blend_needs_rebuild(output, job)
-            missing = [frame for frame in range(1, profile["frameCount"] + 1) if frame not in set(completed)]
+            completed_set = set(completed)
+            missing = [frame for frame in range(1, profile["frameCount"] + 1) if frame not in completed_set]
             for start in range(0, len(missing), BATCH_SIZE):
                 batch = missing[start:start + BATCH_SIZE]
                 scene_frames = _render_non_scene_frames(output, profile, batch)
@@ -659,11 +799,13 @@ def run_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cancellatio
                     _run_process(_render_command(blender, output, profile, scene_frames), output, "blender.log",
                                  worker_fd=worker_lock.fileno())
                     rebuild_blend = False
-                invalid = [frame for frame in batch if not validate_png(
-                    output / "frames" / f"{frame:06d}.png", profile["width"], profile["height"])]
+                    _post_process_scene_frames(output, job, scene_frames)
+                inspected = {frame: _inspect_png(output / "frames" / f"{frame:06d}.png", profile["width"], profile["height"])
+                             for frame in batch}
+                invalid = [frame for frame in batch if inspected[frame] is None]
                 if invalid:
                     raise RuntimeError(f"Renderer did not produce valid frames: {invalid}")
-                _record_frame_digests(output, job, batch)
+                _record_frame_digests(output, job, batch, digests=inspected)
                 completed = sorted(completed + batch)
                 job["completedRanges"] = _ranges(completed)
                 _save_job(output, job)
@@ -684,8 +826,9 @@ def run_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cancellatio
             job["state"] = "cancelled"
             if attempt:
                 attempt.update(state="cancelled", endedAt=_now())
-            completed = _verified_frames(output, job)
-            _record_frame_digests(output, job, completed)
+            verified = {}
+            completed = _verified_frames(output, job, digests=verified)
+            _record_frame_digests(output, job, completed, digests=verified)
             job["completedRanges"] = _ranges(completed)
             _save_job(output, job)
             return job
@@ -696,8 +839,9 @@ def run_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cancellatio
                 attempt.update(state="failed", endedAt=_now(), error=message)
             job["errors"].append({"time": _now(), "attempt": attempt["attempt"] if attempt else None,
                                   "message": message})
-            completed = _verified_frames(output, job)
-            _record_frame_digests(output, job, completed)
+            verified = {}
+            completed = _verified_frames(output, job, digests=verified)
+            _record_frame_digests(output, job, completed, digests=verified)
             job["completedRanges"] = _ranges(completed)
             _save_job(output, job)
             raise

@@ -7,6 +7,7 @@ function deferred<T>() {
   return {promise,resolve,reject};
 }
 let visibility:{hidden:boolean;listeners:Set<()=>void>;addEventListener:(name:string,handler:()=>void)=>void;removeEventListener:(name:string,handler:()=>void)=>void};
+let focusListeners:Set<()=>void>;
 const flush=async()=>{for(let i=0;i<8;i++)await Promise.resolve();};
 const show=(hidden:boolean)=>{visibility.hidden=hidden;for(const listener of visibility.listeners)listener();};
 function setup() {
@@ -19,6 +20,8 @@ beforeEach(()=>{
   vi.useFakeTimers();
   visibility={hidden:false,listeners:new Set(),addEventListener(_name,listener){this.listeners.add(listener);},removeEventListener(_name,listener){this.listeners.delete(listener);}};
   vi.stubGlobal('document',visibility);
+  focusListeners=new Set();
+  vi.stubGlobal('window',{addEventListener(_name:string,handler:()=>void){focusListeners.add(handler);},removeEventListener(_name:string,handler:()=>void){focusListeners.delete(handler);}});
 });
 afterEach(()=>{vi.useRealTimers();vi.unstubAllGlobals();});
 
@@ -63,5 +66,34 @@ describe('visible editor export job polling',()=>{
     expect(signal.aborted).toBe(true);expect(visibility.listeners.size).toBe(0);
     slow.resolve(['stale']);await flush();show(true);show(false);await vi.advanceTimersByTimeAsync(18000);
     expect(state.onJobs).not.toHaveBeenCalled();expect(state.jobs).toHaveBeenCalledTimes(1);expect(vi.getTimerCount()).toBe(0);
+  });
+  it('backs off idle requests from 1.8s to 5s to 15s without dropping external discoveries',async()=>{
+    const state=setup(),dispose=state.start();await flush();
+    await vi.advanceTimersByTimeAsync(60000);
+    // Six pairs at 0, 1.8, 6.8, 21.8, 36.8 and 51.8s, versus 34 before backoff.
+    expect(state.jobs).toHaveBeenCalledTimes(6);expect(state.pairs).toHaveBeenCalledTimes(6);
+    state.jobs.mockResolvedValue(['external job']);
+    await vi.advanceTimersByTimeAsync(6800);
+    expect(state.onJobs).toHaveBeenLastCalledWith(['external job']);dispose();
+  });
+  it('keeps active parent and nested child work at the fast interval and retries failures promptly',async()=>{
+    const jobs=vi.fn().mockResolvedValue([{state:'running'}]);
+    const pairs=vi.fn().mockResolvedValue([{state:'succeeded',children:{a:{state:'queued'},b:{state:'succeeded'}}}]);
+    const dispose=startExportJobPolling({readJobs:jobs,readPairs:pairs,onJobs:vi.fn(),onPairs:vi.fn()});
+    await flush();await vi.advanceTimersByTimeAsync(1800);expect(jobs).toHaveBeenCalledTimes(2);
+    jobs.mockResolvedValue([]);await vi.advanceTimersByTimeAsync(1800);expect(jobs).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1800);expect(jobs).toHaveBeenCalledTimes(4);
+    pairs.mockRejectedValue(new Error('offline'));await vi.advanceTimersByTimeAsync(1800);
+    await vi.advanceTimersByTimeAsync(1800);expect(jobs).toHaveBeenCalledTimes(6);dispose();
+  });
+  it('refreshes on local mutations and focus without accepting a response begun before the mutation',async()=>{
+    const state=setup(),dispose=state.start();await flush();await vi.advanceTimersByTimeAsync(6800);
+    expect(state.jobs).toHaveBeenCalledTimes(3);
+    const slow=deferred<string[]>();state.jobs.mockReturnValueOnce(slow.promise);
+    dispose.refresh();await flush();const signal=state.jobs.mock.calls.at(-1)![0];
+    dispose.refresh();expect(signal.aborted).toBe(true);slow.resolve(['stale']);await flush();
+    expect(state.onJobs).not.toHaveBeenCalledWith(['stale']);expect(state.jobs).toHaveBeenCalledTimes(5);
+    for(const listener of focusListeners)listener();await flush();expect(state.jobs).toHaveBeenCalledTimes(6);
+    dispose();expect(focusListeners.size).toBe(0);dispose.refresh();await flush();expect(state.jobs).toHaveBeenCalledTimes(6);
   });
 });

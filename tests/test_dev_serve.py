@@ -67,7 +67,7 @@ pathlib.Path({str(self.root / 'call.json')!r}).write_text(json.dumps({{
         call = self.call()
         self.assertEqual(call["python"], str(self.bin / "python3.12"))
         self.assertEqual(call["argv"][-2:], ["--port", "8890"])
-        self.assertEqual((call["device"], call["denoise"]), ("METAL", "1"))
+        self.assertEqual((call["device"], call["denoise"]), ("AUTO", "1"))
         self.assertEqual(call["root"], str(self.root))
         self.assertFalse((self.root / "keychain-called").exists())
 

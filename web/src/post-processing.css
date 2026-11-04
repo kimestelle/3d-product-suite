@@ -1,0 +1,5 @@
+.gesso-post-processing{padding-top:8px;border-top:1px solid var(--gesso-border-subtle)}
+.gesso-post-processing>.gesso-section-heading{align-items:center;min-height:28px}
+.gesso-post-processing>.gesso-section-heading .gesso-check{font-size:11px;gap:4px}
+.gesso-post-processing .gesso-button-row>button{min-height:28px;padding-inline:8px;font-size:12px}
+.gesso-post-effects>div{display:flex;flex-direction:column;gap:4px;padding-top:8px}

@@ -97,8 +97,8 @@ function StillSession({disabledReason, onRender, onPresent}: ViewportStillProps)
     session.current?.dismiss();
   };
   const loading = state.phase === 'rendering' || state.phase === 'loading';
-  const label = state.phase === 'loading' ? 'Loading still…' : state.phase === 'cancelling' ? 'Cancelling…' : 'Rendering still…';
-  const actionLabel = showing ? 'Back to preview' : state.phase === 'idle' ? 'Render still' : state.phase === 'failed' ? 'Retry' : 'Cancel';
+  const label = state.phase === 'loading' ? 'Loading snapshot…' : state.phase === 'cancelling' ? 'Cancelling…' : 'Capturing preview…';
+  const actionLabel = showing ? 'Back to preview' : state.phase === 'idle' ? 'Preview snapshot' : state.phase === 'failed' ? 'Retry' : 'Cancel';
   const action = () => {
     if (state.phase === 'cancelling') return;
     if (state.phase === 'idle') session.current?.start();
@@ -117,19 +117,20 @@ function StillSession({disabledReason, onRender, onPresent}: ViewportStillProps)
       event.stopPropagation();
       if (event.key === 'Escape' && state.phase !== 'idle') {event.preventDefault(); dismiss();}
     }}>
-    {state.url && <img className="gesso-viewport-still-image" src={state.url} alt="Rendered still of the current scene"
+    {state.url && <img className="gesso-viewport-still-image" src={state.url} alt="Preview snapshot of the current view"
       decoding="async" draggable={false} aria-hidden={!showing}
       onLoad={event => void imageLoaded(event.currentTarget, state.url!)}
       onError={() => session.current?.imageFailed(state.url!)}/>}
     <div className="gesso-viewport-still-toolbar">
-      <span className="gesso-viewport-still-label" role="status">{showing ? `Still · ${state.width} × ${state.height}` : 'Preview'}</span>
+      <span className="gesso-viewport-still-label" role="status">{showing ? `Preview snapshot · ${state.width} × ${state.height}` : 'Preview'}</span>
       {(loading || state.phase === 'cancelling') && <span className="gesso-feedback" data-tone="note" role="status">{label}</span>}
       <button ref={renderButton} key="action" type="button"
         disabled={(state.phase === 'idle' || state.phase === 'failed') && !!disabledReason}
         aria-disabled={state.phase === 'cancelling' || undefined}
-        title={state.phase === 'idle' || state.phase === 'failed' ? disabledReason || 'Render the current view as a still' : undefined}
+        title={state.phase === 'idle' || state.phase === 'failed' ? disabledReason || 'Capture the current view. Final rendering is in Export.' : undefined}
         aria-describedby={disabledReason && (state.phase === 'idle' || state.phase === 'failed') ? statusId : undefined}
         onClick={action}>{actionLabel}</button>
+      {showing&&state.url&&<a href={state.url} download="gesso-preview.png">Download PNG</a>}
       {state.phase === 'failed' && <button type="button" onClick={dismiss}>Dismiss</button>}
     </div>
     {state.error && <p className="gesso-viewport-still-error" role="alert">{state.error}</p>}

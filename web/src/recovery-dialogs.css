@@ -1,0 +1,14 @@
+.gesso-recovery-dialog{color:#eee;background:#151515;border:1px solid #555;border-radius:8px;padding:24px;max-width:min(540px,calc(100vw - 32px));box-shadow:0 16px 64px #0008;font:inherit}
+.gesso-recovery-dialog::backdrop{background:#0009}
+.gesso-recovery-dialog h2{font-size:20px;font-weight:500;margin:0 0 12px}
+.gesso-recovery-dialog p{font-size:14px;line-height:1.5;margin:12px 0;color:#ccc}
+.gesso-recovery-dialog label{display:grid;gap:8px;font-size:13px}
+.gesso-recovery-dialog select{width:100%;background:#222;color:#eee;border:1px solid #666;border-radius:4px;padding:8px}
+.gesso-recovery-dialog [role=alert]{color:#ffb4a8}
+.gesso-recovery-date{font-variant-numeric:tabular-nums}
+.gesso-recovery-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:24px}
+.gesso-recovery-actions button{padding:9px 12px;background:transparent;border:1px solid #666;border-radius:4px;color:#eee;font:inherit;font-size:13px;cursor:pointer}
+.gesso-recovery-actions button:first-child{background:#eee;color:#111;border-color:#eee}
+.gesso-recovery-actions button:disabled{opacity:.5;cursor:default}
+.gesso-recovery-actions button:focus-visible{outline:2px solid white;outline-offset:3px}
+.gesso-recovery-alert{position:fixed;z-index:80;bottom:14px;left:18px;max-width:min(620px,calc(100vw - 36px));padding:12px 16px;background:#191919;border:1px solid #88645f;border-radius:4px;color:#ffb4a8;font-size:13px;line-height:1.5}

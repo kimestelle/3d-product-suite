@@ -7,7 +7,7 @@ vi.mock('@sparkjsdev/spark', async () => {
   const {Group} = await import('three');
   return {
     SparkRenderer: class extends Group { dispose = vi.fn(); },
-    SplatMesh: class extends Group { initialized = Promise.resolve(); dispose = vi.fn(); },
+    SplatMesh: class extends Group { initialized = Promise.resolve(); dispose = vi.fn(); constructor(readonly options:any){super();} },
   };
 });
 
@@ -74,6 +74,20 @@ function viewport(studioMode = true) {
 afterEach(() => {vi.restoreAllMocks(); vi.unstubAllGlobals();});
 
 describe('deferred world lifetime', () => {
+  it.each([false,true])('loads %s capture mode from the appropriate Gaussian bytes with canonical alignment',async capture=>{
+    const {scene}=worldFixture();
+    const asset={...scene.environment.asset,format:'spz',sourceUp:'Z',scaleToMeters:2,translationM:[1,2,3],rotationXyzw:[0,0,0,1]};
+    const previewAsset={format:'spz',path:`assets/${'c'.repeat(64)}.spz`,sha256:'c'.repeat(64)};
+    const view=viewport();view.options.capture=capture;
+    vi.spyOn(view,'render').mockResolvedValue(undefined);
+    await view.load({...scene,environment:{...scene.environment,kind:'splat',asset,previewAsset}},'/canonical-source.spz');
+    expect(view.splat.options.url).toBe(capture?'/canonical-source.spz':`/api/assets/${'c'.repeat(64)}.spz`);
+    const root=view.splat.parent;
+    expect(root.position.toArray()).toEqual([1,2,3]);expect(root.scale.toArray()).toEqual([2,2,2]);
+    expect(root.quaternion.angleTo(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),-Math.PI/2))).toBeCloseTo(0);
+    expect(previewAsset).toEqual({format:'spz',path:`assets/${'c'.repeat(64)}.spz`,sha256:'c'.repeat(64)});
+    view.clearContent();
+  });
   it('defers a splat and its shadow collider together, then hides and disposes both with the room', async () => {
     const {bytes, scene} = worldFixture();
     const splatScene = {...scene, environment: {...scene.environment, kind: 'splat',

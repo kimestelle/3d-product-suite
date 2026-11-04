@@ -5,12 +5,27 @@ export type ExportScene = {render: {width: number; height: number; fps: number; 
 export type ExportCapabilities = {blenderAvailable?: boolean; ffmpegAvailable?: boolean; blenderIssue?: string; ffmpegIssue?: string};
 export type ExportPayload = {kind: 'still' | 'reel'; format: ExportFormat; filename: string; frame: number; width: number; height: number; samples: number};
 export type ExportArtifact = {name: string; url: string; downloadName?: string; bytes?: number};
+export type ExportExecution = {
+  cycles?: {backend: 'CPU'|'METAL'|'OPTIX'|'CUDA'|'HIP'|'ONEAPI'; devices?: {name: string; type: string}[]; fallbackReason?: string};
+  gaussian?: {backend: 'hardware'|'software'; renderer?: string};
+};
 export type ExportJob = {
   id: string; kind: 'still' | 'reel'; state: string; format?: ExportFormat; filename?: string;
   frame?: number; fps?: number; samples?: number; width?: number; height?: number;
   completedFrames: number; totalFrames: number; sourceDigest?: string; error?: string | null;
   stage?: string; artifacts: ExportArtifact[]; createdAt?: string; paired?: boolean; primaryArtifact?: string; canCancel?: boolean;
+  execution?: ExportExecution;
 };
+export function exportExecutionLabel(execution?: ExportExecution): string {
+  const labels: string[] = [];
+  const cycles = execution?.cycles;
+  if (cycles) {
+    const backend = ({CPU: 'CPU', METAL: 'Metal GPU', OPTIX: 'OptiX GPU', CUDA: 'CUDA GPU', HIP: 'HIP GPU', ONEAPI: 'oneAPI GPU'})[cycles.backend];
+    if (backend) labels.push(`Cycles · ${backend}${cycles.fallbackReason ? ' (fallback)' : ''}`);
+  }
+  if (execution?.gaussian) labels.push(`Environment · ${execution.gaussian.backend === 'hardware' ? 'GPU' : 'software'}`);
+  return labels.join(' / ');
+}
 export const exportFormats: Record<ExportFormat, {mode: ExportMode; label: string; detail: string; extension: string; artifact: string; needsEncoder: boolean}> = {
   png: {mode: 'still', label: 'PNG', detail: 'Lossless image · design handoff', extension: '.png', artifact: 'still.png', needsEncoder: false},
   jpeg: {mode: 'still', label: 'JPEG', detail: 'Smaller image · catalogs + sharing', extension: '.jpg', artifact: 'still.jpg', needsEncoder: true},

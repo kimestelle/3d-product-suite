@@ -131,6 +131,60 @@ class StillTests(unittest.TestCase):
         self.assertEqual(self.commands[0][self.commands[0].index("--frames") + 1], "4")
         self.assertEqual(resumed["frameDigests"]["4"], jobs._sha256(self.output / "still.png"))
 
+    def test_grade_finishes_single_frame_and_missing_export_reuses_finished_pixels(self):
+        from PIL import Image
+        self.scene["postProcessing"] = {"enabled": True, "exposureEV": 1}
+        self.source.write_text(json.dumps(self.scene))
+        self.create()
+        result = self.run_worker()
+        with Image.open(self.output / "still.png") as image:
+            self.assertEqual(image.getpixel((0, 0)), (140, 140, 140))
+        receipt = jobs._post_processing_receipt(self.output)
+        self.assertEqual(receipt["4"], result["frameDigests"]["4"])
+        (self.output / "still.png").unlink()
+        self.commands.clear()
+        self.run_worker()
+        self.assertEqual(self.commands, [])
+        with Image.open(self.output / "still.png") as image:
+            self.assertEqual(image.getpixel((0, 0)), (140, 140, 140))
+
+    def test_grade_interruption_requires_raw_single_frame_before_retry(self):
+        from PIL import Image
+        self.scene["postProcessing"] = {"enabled": True, "exposureEV": 1}
+        self.source.write_text(json.dumps(self.scene))
+        self.create()
+        original = jobs._atomic_json
+        def interrupt(path, value):
+            if Path(path).name == "post-processing-frames.json":
+                raise RuntimeError("interrupted after single-frame grade")
+            return original(path, value)
+        with patch.object(jobs, "_atomic_json", side_effect=interrupt):
+            with self.assertRaisesRegex(RuntimeError, "interrupted after single-frame grade"):
+                self.run_worker()
+        self.commands.clear()
+        self.run_worker()
+        self.assertEqual(self.commands[0][self.commands[0].index("--frames") + 1], "4")
+        with Image.open(self.output / "still.png") as image:
+            self.assertEqual(image.getpixel((0, 0)), (140, 140, 140))
+
+    def test_cancelled_still_recovers_verified_raw_pixels_without_another_blender_render(self):
+        from PIL import Image
+        from film.post_processing import raw_frame_identity, record_raw_frame_receipt
+        self.scene["postProcessing"] = {"enabled": True, "exposureEV": 1}
+        self.source.write_text(json.dumps(self.scene))
+        self.create()
+        def cancel_after_raw_write(command, output, log_name, **kwargs):
+            self.render(command, output, log_name, **kwargs)
+            record_raw_frame_receipt(output, raw_frame_identity(self.manifest()), 4)
+            jobs.cancel_job(output)
+        self.assertEqual(self.run_worker(cancel_after_raw_write)["state"], "cancelled")
+        self.commands.clear()
+        self.assertEqual(self.run_worker()["state"], "succeeded")
+        self.assertEqual(self.commands, [])
+        with Image.open(self.output / "still.png") as image:
+            self.assertEqual(image.getpixel((0, 0)), (140, 140, 140))
+        self.assertFalse((self.output / "raw-frame-digests.json").exists())
+
     def test_missing_export_restores_verified_source_without_rendering_again(self):
         self.create()
         first = self.run_worker()

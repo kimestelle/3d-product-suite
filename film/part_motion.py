@@ -91,36 +91,85 @@ def validate_source_nodes(component):
             vector(pose['pivotM'], 3, 'Part pivot')
 
 
-def evaluate_parts(scene, components, animated, euler, quaternion):
-    result = {}
+def _local_pose(component, node, values, euler, quaternion):
+    """Apply the saved/animated delta in the measured source parent space."""
+    pose = base_pose(component, node)
+    translation = [values.get(f'position.{axis}', value) for axis, value in zip('xyz', pose['translationM'])]
+    rotation = pose['rotationXyzw']
+    if any(f'rotation.{axis}' in values for axis in 'xyz'):
+        rotation = quaternion([values.get(f'rotation.{axis}', value) for axis, value in zip('xyz', euler(rotation))])
+    scale = values.get('scale', pose.get('scale', 1))
+    centre = [(a+b)/2 for a, b in zip(*node['boundsM'])]
+    pivot = pose.get('pivotM', point(node['localMatrix'], centre))
+    delta = pose_matrix(translation, rotation, scale)
+    rotated_pivot = [sum(delta[c * 4 + r] * pivot[c] for c in range(3)) for r in range(3)]
+    delta[12:15] = [translation[i] + pivot[i] - rotated_pivot[i] for i in range(3)]
+    return delta, multiply(delta, node['localMatrix']), pivot, centre
+
+
+def prepare_parts(scene, euler, quaternion):
+    """Prepare static source hierarchy work for one validated sampling call.
+
+    This is never a persistent scene cache. Saved part transforms and source
+    matrices are read again on the next call; animated nodes/ancestors still
+    recompute their own affected hierarchy in each frame.
+    """
+    prepared = {}
     for component in scene['product']['components']:
         nodes = component.get('sourceNodes', [])
         if not nodes:
             continue
         by_id = {node['nodeIndex']: node for node in nodes}
+        records = {}
+        def visit(index):
+            if index in records:
+                return records[index]
+            node = by_id[index]
+            delta, local, pivot, centre = _local_pose(component, node, {}, euler, quaternion)
+            parent = visit(node['parentIndex'])['componentMatrix'] if node['parentIndex'] is not None else IDENTITY
+            record = {'identifier': node_id(component['id'], index), 'deltaMatrix': delta,
+                      'localMatrix': local, 'componentMatrix': multiply(parent, local),
+                      'pivotM': pivot, 'centre': centre}
+            records[index] = record
+            return record
+        for node in nodes:
+            visit(node['nodeIndex'])
+        prepared[component['id']] = {'byId': by_id, 'records': records}
+    return prepared
+
+
+def evaluate_parts(scene, components, animated, euler, quaternion, prepared=None):
+    result = {}
+    for component in scene['product']['components']:
+        nodes = component.get('sourceNodes', [])
+        if not nodes:
+            continue
+        source = prepared.get(component['id']) if prepared is not None else None
+        by_id = source['byId'] if source is not None else {node['nodeIndex']: node for node in nodes}
         root = components[component['id']]
         root_matrix = pose_matrix(root['translationM'], root['rotationXyzw'], root.get('scale', 1))
         local_results = {}
+        changed = set()
         def visit(index):
             if index in local_results:
                 return local_results[index]
             node = by_id[index]
-            identifier = node_id(component['id'], index)
-            pose = base_pose(component, node)
+            base = source['records'][index] if source is not None else None
+            identifier = base['identifier'] if base is not None else node_id(component['id'], index)
             values = animated.get(identifier, {})
-            translation = [values.get(f'position.{axis}', value) for axis, value in zip('xyz', pose['translationM'])]
-            rotation = pose['rotationXyzw']
-            if any(f'rotation.{axis}' in values for axis in 'xyz'):
-                rotation = quaternion([values.get(f'rotation.{axis}', value) for axis, value in zip('xyz', euler(rotation))])
-            scale = values.get('scale', pose.get('scale', 1))
-            centre = [(a+b)/2 for a, b in zip(*node['boundsM'])]
-            pivot = pose.get('pivotM', point(node['localMatrix'], centre))
-            delta = pose_matrix(translation, rotation, scale)
-            rotated_pivot = [sum(delta[c * 4 + r] * pivot[c] for c in range(3)) for r in range(3)]
-            delta[12:15] = [translation[i] + pivot[i] - rotated_pivot[i] for i in range(3)]
-            local = multiply(delta, node['localMatrix'])
+            if base is not None and not values:
+                # Returned frame records own their lists, including pivots.
+                delta, local = base['deltaMatrix'][:], base['localMatrix'][:]
+                pivot, centre = base['pivotM'][:], base['centre']
+            else:
+                delta, local, pivot, centre = _local_pose(component, node, values, euler, quaternion)
+                if base is not None:
+                    pivot = pivot[:]
             parent = visit(node['parentIndex'])['componentMatrix'] if node['parentIndex'] is not None else IDENTITY
-            matrix = multiply(parent, local)
+            dynamic = bool(values) or node['parentIndex'] in changed
+            if dynamic:
+                changed.add(index)
+            matrix = base['componentMatrix'][:] if base is not None and not dynamic else multiply(parent, local)
             world = multiply(root_matrix, matrix)
             sample = {'componentId': component['id'], 'nodeIndex': index, 'localMatrix': local,
                       'deltaMatrix': delta, 'componentMatrix': matrix, 'worldMatrix': world,

@@ -1,7 +1,7 @@
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {describe, expect, it} from 'vitest';
-import {MathUtils, Matrix4, PerspectiveCamera, Vector3} from 'three';
+import {MathUtils, Matrix4, PerspectiveCamera, Quaternion, Vector3} from 'three';
 import fixture from '../../examples/bottle.scene.json';
 import {filmCameraPoseAtFrame} from './filmMotion';
 import {isRandomCameraPoseSafe, MAX_RANDOM_ORBIT_DEGREES, MAX_RANDOM_PUSH_FRACTION, productBounds, projectedProductBounds, randomCameraPose, RANDOM_DETAIL_OCCUPANCY, RANDOM_FULL_FRAME_INSET} from './randomSetupFraming';
@@ -19,6 +19,17 @@ function boxFixture(size: number[]) {
 }
 
 describe('random shot camera framing', () => {
+  it('includes the saved product yaw around its support, matching the native assembly pose',()=>{
+    const scene=boxFixture([.1,.32,.6]);scene.actions=[];delete scene.animation;delete scene.motions;scene.placement.rotationYDegrees=90;scene.placement.translationM=[.2,.1,.4];
+    const bounds=productBounds(scene),size=bounds.getSize(new Vector3()),centre=bounds.getCenter(new Vector3());
+    expect(size.x).toBeCloseTo(.6,10);expect(size.y).toBeCloseTo(.32,10);expect(size.z).toBeCloseTo(.1,10);
+    expect(centre.toArray()).toEqual([.2,.26,.4]);
+    const native=JSON.parse(execFileSync('python3',['-c','import json,sys;from film.scene import evaluate;print(json.dumps(evaluate(json.load(sys.stdin),1)["components"]["imported-product"]))'],{input:JSON.stringify(scene),cwd:fileURLToPath(new URL('../..',import.meta.url)),encoding:'utf8'}));
+    const nativeMatrix=new Matrix4().compose(new Vector3().fromArray(native.translationM),new Quaternion().fromArray(native.rotationXyzw),new Vector3().setScalar(native.scale));
+    const nativeCorners=Array.from({length:8},(_,i)=>new Vector3(i&1?.05:-.05,i&2?.16:-.16,i&4?.3:-.3).applyMatrix4(nativeMatrix));
+    expect(bounds.min.toArray()).toEqual([Math.min(...nativeCorners.map(p=>p.x)),Math.min(...nativeCorners.map(p=>p.y)),Math.min(...nativeCorners.map(p=>p.z))]);
+    expect(bounds.max.toArray()).toEqual([Math.max(...nativeCorners.map(p=>p.x)),Math.max(...nativeCorners.map(p=>p.y)),Math.max(...nativeCorners.map(p=>p.z))]);
+  });
   it.each(aspects)('fits the complete source assembly throughout a 32° orbit or 20%% push at %i×%i', (width, height) => {
     for (const scene of [source(), boxFixture([.32, .223003, .32]), boxFixture([.8, .08, .12]), boxFixture([.06, .13, .4])]) {
       Object.assign(scene.render, {width, height}); scene.motions = [];

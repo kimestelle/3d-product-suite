@@ -56,6 +56,19 @@ class VideoFormatTests(unittest.TestCase):
         self.assertEqual(self.commands, [], "Archive repair must not render already verified frames")
         self.assertTrue(zipfile.is_zipfile(self.output / "frames.zip"))
 
+    def test_sequence_checks_each_final_frame_again_without_repeating_manifest_hash_reads(self):
+        self.init(export_format="png-sequence")
+        original = jobs._sha256
+        frame_reads = []
+        def digest(path):
+            if Path(path).parent.name == "frames":
+                frame_reads.append(Path(path).name)
+            return original(path)
+        with patch.object(jobs, "_sha256", side_effect=digest):
+            result = self.run_worker()
+        self.assertEqual(result["state"], "succeeded")
+        self.assertEqual(frame_reads, [f"{number:06d}.png" for number in range(1, 31)])
+
     def test_modified_export_format_is_rejected_before_running_tools(self):
         self.init(export_format="mp4")
         job = self.manifest()
@@ -69,12 +82,12 @@ class VideoFormatTests(unittest.TestCase):
         self.init(export_format="png-sequence")
         original = jobs._frame_digest
         calls = 0
-        def changed(output, count):
+        def changed(output, count, **kwargs):
             nonlocal calls
             calls += 1
             if calls == 2:
                 (output / "frames" / "000001.png").write_bytes(png_bytes(value=99))
-            return original(output, count)
+            return original(output, count, **kwargs)
         with patch.object(jobs, "_frame_digest", side_effect=changed):
             with self.assertRaisesRegex(RuntimeError, "Frame sequence changed during export"):
                 self.run_worker()

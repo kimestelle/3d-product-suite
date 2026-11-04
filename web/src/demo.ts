@@ -59,7 +59,7 @@ function validateSampledWorld(environment: any, baseline: any, bundle: DemoBundl
   // metadata cannot authorize a different transform or an external asset.
   const authored = packaged.map((world: any) => {
     const result = copy(world);
-    delete result.asset; delete result.fixture; delete result.collider;
+    delete result.asset; delete result.previewAsset; delete result.fixture; delete result.collider;
     result.kind = 'authored'; result.revisionId = 'neutral-studio-v1'; result.displayName = 'Authored studio';
     result.provenance = {source:'Original authored studio', owner:'3d-product-suite', reuseBasis:'Original project geometry', allowedExternalDestinations:[]};
     return result;

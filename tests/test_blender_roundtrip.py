@@ -322,6 +322,7 @@ for kind in ('authored', 'splat'):
             configuration = json.loads((output / "render-config.json").read_text())
             self.assertEqual(configuration["blenderVersion"], "4.3.2")
             self.assertEqual(configuration["seed"], payload["scene"]["render"]["seed"])
+            self.assertTrue(configuration["persistentData"])
             verification = temporary / "verify.py"
             verification.write_text(
                 r'''

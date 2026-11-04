@@ -8,7 +8,7 @@ import unittest
 
 from film.part_motion import IDENTITY, multiply, point
 from film.products import product_source_nodes, validate_product_source_nodes, hydrate_product_nodes
-from film.scene import evaluate, validate_scene
+from film.scene import evaluate, sample_scene, validate_scene
 from tests.test_products import product_glb
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,6 +92,57 @@ class PartMotionTests(unittest.TestCase):
         scene=fixture();scene['animation']={'tracks':[{'id':'k','componentId':'product::node:1','property':'position.z','enabled':True,'keys':[{'frame':1,'value':0,'interpolation':'linear'},{'frame':25,'value':.3,'interpolation':'linear'}]}]}
         validate_scene(scene)
         self.assertAlmostEqual(evaluate(scene,13)['parts']['product::node:1']['centerM'][2],.15)
+
+    def test_batch_matches_independent_frames_with_affine_sources_and_dynamic_ancestors(self):
+        scene=fixture();component=scene['product']['components'][0]
+        component['sourceNodes'][1]['localMatrix'][0]=2
+        component['sourceNodes'][1]['localMatrix'][4]=.25
+        component['partTransforms']={'1':{'translationM':[.1,0,0],
+            'rotationXyzw':[0,0,0,1],'scale':1.2,'pivotM':[0,0,0]}}
+        scene['placement']['rotationYDegrees']=27
+        scene['shots'][0]['motions']=[motion('product::node:0','move',.5,'x'),
+            {**motion('product::node:1','rotate',90,'z'),'id':'child-rotate'}]
+        scene['animation']={'tracks':[{'id':'k','componentId':'product::node:2',
+            'property':'position.z','enabled':True,'keys':[
+                {'frame':1,'value':0,'interpolation':'linear'},
+                {'frame':360,'value':.3,'interpolation':'linear'}]}]}
+        before=copy.deepcopy(scene)
+        expected=[evaluate(scene,frame) for frame in range(1,361)]
+        actual=sample_scene(scene)['frames']
+        self.assertEqual(actual,expected)
+        self.assertEqual(scene,before)
+        # Shot-local parent motion ends while the independent child's key
+        # remains active. A prepared base must not retain the prior ancestor.
+        self.assertEqual(actual[120],evaluate(scene,121))
+
+    def test_batch_part_records_own_all_matrices_and_pivots(self):
+        scene=fixture();component=scene['product']['components'][0]
+        component['partTransforms']={'1':{'translationM':[.1,0,0],
+            'rotationXyzw':[0,0,0,1],'scale':1,'pivotM':[.2,.3,.4]}}
+        before=copy.deepcopy(scene)
+        frames=sample_scene(scene)['frames']
+        expected=copy.deepcopy(frames[1])
+        for name in ('localMatrix','deltaMatrix','componentMatrix','worldMatrix','pivotM','centerM'):
+            frames[0]['parts']['product::node:1'][name][0]=999
+        self.assertEqual(frames[1],expected)
+        self.assertEqual(scene,before)
+        self.assertEqual(sample_scene(scene)['frames'][0],evaluate(scene,1))
+
+    def test_each_batch_rebuilds_saved_part_transforms_and_source_hierarchy(self):
+        scene=fixture();first=sample_scene(scene)['frames'][0]
+        component=scene['product']['components'][0]
+        component['partTransforms']={'0':{'translationM':[.4,0,0],
+            'rotationXyzw':[0,0,0,1],'scale':1}}
+        component['sourceNodes'][2]['parentIndex']=0
+        component['sourceNodes'][2]['localMatrix'][13]=.7
+        second=sample_scene(scene)['frames'][0]
+        self.assertNotEqual(second,first)
+        self.assertEqual(second,evaluate(scene,1))
+        component['sourceNodes'][0]['parentIndex']=2
+        with self.assertRaisesRegex(ValueError,'hierarchy'):
+            sample_scene(scene)
+        component['sourceNodes'][0]['parentIndex']=None
+        self.assertEqual(sample_scene(scene)['frames'][0],second)
 
     def test_editorial_parent_is_not_physical_parent(self):
         scene=fixture(); scene['editorHierarchy']={'version':1,'overrides':{'product::node:1':{'parentId':None,'status':'edited'}}}

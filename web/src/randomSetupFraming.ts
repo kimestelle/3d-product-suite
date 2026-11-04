@@ -18,11 +18,12 @@ export function productBounds(scene: any, focusId?: string): Box3 {
   const origin = new Vector3().fromArray(support.translationM);
   origin.y += support.sizeM[1] / 2;
   origin.add(new Vector3().fromArray(scene.placement.translationM));
+  const productRotation=new Quaternion().setFromAxisAngle(new Vector3(0,1,0),(scene.placement.rotationYDegrees??0)*Math.PI/180);
   for (const part of scene.product.components) {
     if (removed.has(part.id) || focusId && focusId!==part.id && !focusId.startsWith(`${part.id}::node:`)) continue;
-    const rotation = new Quaternion().fromArray(part.assembly.rotationXyzw);
+    const rotation = productRotation.clone().multiply(new Quaternion().fromArray(part.assembly.rotationXyzw));
     const componentMatrix = new Matrix4().compose(
-      new Vector3().fromArray(part.assembly.translationM).multiplyScalar(scene.placement.scale ?? 1).add(origin),
+      new Vector3().fromArray(part.assembly.translationM).multiplyScalar(scene.placement.scale ?? 1).applyQuaternion(productRotation).add(origin),
       rotation, new Vector3().setScalar((part.assembly.scale ?? 1) * (scene.placement.scale ?? 1)));
     if (part.sourceNodes?.length) {
       const nodes: SourceNode[] = part.sourceNodes, byId = new Map(nodes.map(node => [node.nodeIndex, node]));

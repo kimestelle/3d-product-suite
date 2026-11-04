@@ -10,6 +10,15 @@ function context(): ExportSetupPanelProps {
 }
 
 describe('export setup rail', () => {
+  it('explains fixed-position covered optical framing for Gaussian product films',()=>{
+    const props=context();props.sourceScene.environment.kind='splat';props.settings.workflow='product-film';
+    const html=renderToStaticMarkup(<ExportSetupPanel {...props} tab="random"/>);
+    expect(html).toContain('Gaussian worlds keep one saved camera position.');
+    expect(html).toContain('Optical zoom and aim stay within its source view');
+    expect(html).toContain('unseen room geometry is not inferred');
+    expect(html).toContain('Whole product body');
+    expect(html).not.toContain('Front-side exterior views.');
+  });
   it('starts with one native source dropdown and keeps Random controls out of Current', () => {
     const props=context(), before=JSON.stringify(props.sourceScene);
     const html=renderToStaticMarkup(<ExportSetupPanel {...props}/>);

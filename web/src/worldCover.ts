@@ -45,7 +45,7 @@ export async function captureWorldCoverWithRetry(capture: (signal: AbortSignal) 
 /** A cover belongs to the full set, independent of the product and world label. */
 export function worldCoverKey(environment: any, productDimensionsM?: number[]): string {
   const asset = environment?.asset;
-  return JSON.stringify([environment?.kind, asset?.sha256, asset?.sourceUp,
+  return JSON.stringify([environment?.kind, asset?.sha256, asset?.sourceUp, environment?.previewAsset?.sha256,
     asset?.scaleToMeters, asset?.translationM, asset?.rotationXyzw, environment?.worldColor,
     environment?.plinth, environment?.props ?? [],
     environment?.kind === 'authored' ? environment.studioSizeM ?? (productDimensionsM ? Math.max(...productDimensionsM) : null) : null]);

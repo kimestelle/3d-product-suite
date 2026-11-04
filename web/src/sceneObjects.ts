@@ -118,7 +118,7 @@ export async function loadVerifiedGlb(asset: any, signal: AbortSignal, url?: str
   const gltf = await new GLTFLoader().parseAsync(bytes, '');
   // Index against immutable glTF node indices, never UUIDs or sanitized Three
   // names. Repeated mesh instances retain distinct node handles on reload.
-  gltf.scene.traverse(object => {
+  try { gltf.scene.traverse(object => {
     delete object.userData.gessoSourceNode;
     const association = gltf.parser.associations.get(object);
     if (association?.nodes !== undefined) {
@@ -129,9 +129,20 @@ export async function loadVerifiedGlb(asset: any, signal: AbortSignal, url?: str
       delete material.userData.gessoSourceMaterial;
       delete material.userData.gessoSourceMaterialName;
       const materialAssociation = gltf.parser.associations.get(material);
-      if (materialAssociation?.materials !== undefined) material.userData.gessoSourceMaterial = materialAssociation.materials;
+      if (materialAssociation?.materials !== undefined) {
+        const sourceMaterial = document.materials?.[materialAssociation.materials];
+        // GLTFLoader swallows image decode failures and can resolve with a
+        // missing map. A baked room then appears white while reporting success.
+        // Check only this supported slot on materials actually used by the scene;
+        // do not load unused images or infer support for arbitrary extensions.
+        if (sourceMaterial?.pbrMetallicRoughness?.baseColorTexture !== undefined
+            && !(material as THREE.Material & {map?: THREE.Texture | null}).map) {
+          throw new Error('The mesh source color texture could not be loaded. Reload the preview before using this mesh.');
+        }
+        material.userData.gessoSourceMaterial = materialAssociation.materials;
+      }
     }
-  });
+  }); } catch (error) { disposeSceneObject(gltf.scene); throw error; }
   return gltf.scene;
 }
 

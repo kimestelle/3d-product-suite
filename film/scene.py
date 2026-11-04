@@ -1,17 +1,18 @@
 """Versioned, canonical Y-up scenes evaluated from absolute frame time."""
 
 import hashlib
+import copy
 import json
 import math
 import re
 from pathlib import Path
 
-from .worlds import validate_asset_record, validate_product_asset_record
+from .worlds import validate_asset_record, validate_product_asset_record, validate_preview_asset
 from .material_assets import validate_material_textures, validate_hdri_asset
 from .film_images import validate_film_image_asset
 from .audio import validate_scene_audio
 from .artwork import validate_product_artwork
-from .part_motion import source_targets, base_pose, validate_source_nodes, evaluate_parts
+from .part_motion import source_targets, base_pose, validate_source_nodes, evaluate_parts, prepare_parts
 from .part_visibility import validate_removed_parts, removed_part_ids
 from .textures import validate_texture_asset_record
 from .scene_objects import resolve_scene_objects
@@ -370,6 +371,9 @@ def validate_scene(scene):
         _require(isinstance(scene, dict) and type(scene.get("schemaVersion")) is int and scene["schemaVersion"] == 1, "Unsupported scene schemaVersion")
         _require(isinstance(scene["sceneId"], str) and scene["sceneId"], "sceneId is required")
         _require(scene["coordinates"] == {"units": "meters", "handedness": "right", "up": "Y"}, "Only right-handed Y-up meters are supported")
+        if "postProcessing" in scene:
+            from .post_processing import validate_post_processing
+            validate_post_processing(scene["postProcessing"])
         r = scene["render"]
         _require(r["blenderVersion"] == "4.3.2" and r["ffmpegVersion"] == "7.1.5" and r["engine"] == "CYCLES", "Unsupported renderer versions or engine")
         for key in ("fps", "width", "height", "samples", "seed"):
@@ -480,9 +484,11 @@ def validate_scene(scene):
             _number(decal.get("bevelM"), "Decal bevel", minimum=0, maximum=decal["heightM"] / 2)
         validate_product_artwork(scene)
         env = scene["environment"]
+        _require(env.get("previewQuality", "balanced") in ("balanced", "detail"), "World preview quality must be balanced or detail")
         if "studioSizeM" in env:
             _number(env["studioSizeM"], "studio size", minimum=1e-6, maximum=1e6)
         _require(env["kind"] in ("authored", "mesh", "splat") and isinstance(env["revisionId"], str) and env["revisionId"].strip(), "Environment kind and revision are required")
+        validate_preview_asset(env)
         if env["kind"] != "authored":
             validate_asset_record(env.get("asset"), kind=env["kind"])
             _require(env.get("reviewStatus") in ("unreviewed", "reviewed", "approved", "rejected"), "World reviewStatus is required")
@@ -735,6 +741,10 @@ def evaluate(scene, frame, *, include_placement=False):
     clock. Bounded Film motions own selected channels; shot-local owners replace
     shared motions on those channels. Their untouched source survives trimming.
     """
+    return _evaluate_frame(scene, frame, include_placement=include_placement)
+
+
+def _evaluate_frame(scene, frame, *, include_placement=False, resolved_objects=None, prepared_parts=None):
     total = film_duration(scene)
     _require(type(frame) is int and 1 <= frame <= total, f"Frame must be in 1..{total}")
     t = (frame-1) / scene["render"]["fps"]
@@ -754,7 +764,7 @@ def evaluate(scene, frame, *, include_placement=False):
     # Product placement is relative to the top-center of its resolved support:
     # the plinth (visible or hidden), the floor, a picked world contact or a prop.
     # The baseline plinth top-center is [0,0,0], preserving original poses.
-    objects = resolve_scene_objects(scene)
+    objects = resolve_scene_objects(scene) if resolved_objects is None else resolved_objects
     contact_origin = objects["supportOriginM"]
     product_values = animated.get("$product", {})
     placement = _add([product_values.get(f"position.{axis}", value)
@@ -794,7 +804,8 @@ def evaluate(scene, frame, *, include_placement=False):
         offset = [(p-r+x*distance) * pose["scale"] for p,r,x in zip(a["pivotM"],rotated_pivot,a["axis"])]
         pose["translationM"] = _add(pose["translationM"], _rotate(pose["rotationXyzw"],offset))
         pose["rotationXyzw"] = _mul(pose["rotationXyzw"],q)
-    parts = evaluate_parts(scene, components, animated, _euler_xyz_degrees, _quaternion_from_xyz_degrees)
+    parts = evaluate_parts(scene, components, animated, _euler_xyz_degrees, _quaternion_from_xyz_degrees,
+                           prepared=prepared_parts)
     camera_duration = shot['camera'].get('durationFrames', shot['endFrame'] - shot['startFrame'] + 1)
     camera_t = max(0., min(1., (frame-shot["startFrame"])/(camera_duration-1))) if camera_duration > 1 else 0.
     u = camera_t if shot["camera"].get("interpolation") == "linear" else _smooth(camera_t)
@@ -820,7 +831,10 @@ def evaluate(scene, frame, *, include_placement=False):
     if scene["environment"].get("props"):
         # Resolved prop poses for the browser and Blender; prop-free scenes keep
         # their byte-identical samples.
-        sample["props"] = objects["props"]
+        # A prepared graph is shared only within this sampling operation. Each
+        # returned frame still owns its prop records, as independent evaluate()
+        # calls did before reusing static geometry/relationship work.
+        sample["props"] = objects["props"] if resolved_objects is None else copy.deepcopy(objects["props"])
     if include_placement:
         # Product fitting needs the actual animated support pivot and uniform
         # scale, rather than trying to recover them from a moving part.
@@ -830,4 +844,7 @@ def evaluate(scene, frame, *, include_placement=False):
 
 def sample_scene(scene):
     validate_scene(scene)
-    return {"scene":scene,"frames":[evaluate(scene,f) for f in range(1,film_duration(scene)+1)]}
+    objects = resolve_scene_objects(scene)
+    parts = prepare_parts(scene, _euler_xyz_degrees, _quaternion_from_xyz_degrees)
+    return {"scene":scene,"frames":[_evaluate_frame(scene,f,resolved_objects=objects,prepared_parts=parts)
+                                   for f in range(1,film_duration(scene)+1)]}

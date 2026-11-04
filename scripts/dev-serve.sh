@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Local server. GESSO_PYTHON, BLENDER and FFMPEG may be paths or commands.
-# This shortcut opts into Metal + denoising; the ordinary CLI defaults to CPU.
+# This shortcut keeps denoising enabled; both launch paths detect available GPUs.
 # The worker still enforces the pinned Blender/FFmpeg export versions.
 set -euo pipefail
 cd "$(dirname "$0")/.." || exit 1
@@ -81,7 +81,7 @@ if [[ -z "${SSL_CERT_FILE:-}" ]]; then
   certificate_file="$("$python_command" -m certifi 2>/dev/null || true)"
   if [[ -n "$certificate_file" && -f "$certificate_file" ]]; then export SSL_CERT_FILE="$certificate_file"; fi
 fi
-export GESSO_CYCLES_DEVICE="${GESSO_CYCLES_DEVICE:-METAL}"
+export GESSO_CYCLES_DEVICE="${GESSO_CYCLES_DEVICE:-AUTO}"
 export GESSO_CYCLES_DENOISE="${GESSO_CYCLES_DENOISE:-1}"
 export GESSO_ROOT="$PWD"
 exec "$python_command" -m film serve --data-dir workspace-data \
