@@ -120,10 +120,16 @@ export async function loadVerifiedGlb(asset: any, signal: AbortSignal, url?: str
   // names. Repeated mesh instances retain distinct node handles on reload.
   try { gltf.scene.traverse(object => {
     delete object.userData.gessoSourceNode;
-    const association = gltf.parser.associations.get(object);
+    delete object.userData.gessoSourcePrimitive;
+    // The pinned loader records primitive IDs; @types/three omits that field.
+    const association = gltf.parser.associations.get(object) as ({nodes?: number; meshes?: number; primitives?: number} | undefined);
     if (association?.nodes !== undefined) {
       const index = association.nodes;
       object.userData.gessoSourceNode = { index, name: document.nodes?.[index]?.name || `Node ${index + 1}` };
+    }
+    if (object instanceof THREE.Mesh && association?.meshes !== undefined && association?.primitives !== undefined) {
+      object.userData.gessoSourcePrimitive = {meshIndex: association.meshes, primitiveIndex: association.primitives,
+        mode: document.meshes?.[association.meshes]?.primitives?.[association.primitives]?.mode ?? 4};
     }
     if (object instanceof THREE.Mesh) for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
       delete material.userData.gessoSourceMaterial;

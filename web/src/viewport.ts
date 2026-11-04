@@ -20,6 +20,7 @@ import {FilmImageRenderer, type FilmClip} from './FilmImageRenderer';
 import {previewResolution,PreviewQualityController} from './previewResolution';
 import {fitProductToWorld} from './productWorldFit';
 import {capPreviewTextures} from './previewTextures';
+import {createWorldCleanupOverlay,normalizeWorldCleanupSelection,type WorldCleanupOverlay,type WorldCleanupSelection} from './worldCleanupSelection';
 import {createCameraTargetPointerGesture, filmGateRect, filmGuideZoom, projectFilmGuide, type CameraTargetGesture, type CameraTargetPointer, type FilmPresentationGuide} from './filmGuides';
 import { labelGeometry, labelImageDimensions, labelTemplateSvg, type LabelMapping } from './labelMapping';
 import { assetUrl as runtimeAssetUrl } from './runtime';
@@ -56,6 +57,8 @@ export type ViewportOptions = {
   onSelect?: (id: string) => void;
   onParts?: (parts: ViewportPart[]) => void;
   onError?: (message: string) => void;
+  /** An inspection overlay failed; the verified source is still usable. */
+  onWorldCleanupError?: (message: string) => void;
   onReady?: () => void;
   /** Once per load, after a complete sampled frame has reached the canvas. */
   onPresented?: () => void;
@@ -159,6 +162,8 @@ export class StudioViewport {
   private readonly options: ViewportOptions;
   private readonly canvas: HTMLCanvasElement;
   private selection: THREE.BoxHelper | null = null;
+  private worldCleanupSelection: WorldCleanupSelection | null = null;
+  private worldCleanupOverlay: WorldCleanupOverlay | null = null;
   private selectedId: string | null = null;
   private spark: SparkRenderer | null = null;
   private splat: SplatMesh | null = null;
@@ -601,6 +606,8 @@ export class StudioViewport {
       const width = Math.max(1, Math.floor(size!.width * pixelRatio));
       const height = Math.max(1, Math.floor(size!.height * pixelRatio));
       if(worldOnly)for(const object of this.components.values()){hiddenForCover.set(object,object.visible);object.visible=false;}
+      // Cleanup tint is an editor inspection aid, never a source image/export.
+      for(const object of this.worldCleanupOverlay?.meshes??[]){hiddenForCover.set(object,object.visible);object.visible=false;}
       try {
         await this.draw(false, version, {
           pixelRatio, assertCurrent, deferPreviewRestore:!!restoreSplat,
@@ -1965,6 +1972,7 @@ export class StudioViewport {
       if (!current()) return;
       world.ready = true;
       this.worldReady = !!this.worldRoot;
+      this.refreshWorldCleanupSelection();
     }).finally(() => {
       world.loading = false;
       world.task = null;
@@ -2005,6 +2013,9 @@ export class StudioViewport {
     // user's inspection camera. Different geometry assets or component sets
     // establish a new product and return to its authored shot.
     this.clearContent(!!this.options.studioMode && productKey === this.loadedProductKey);
+    if (source.environment?.kind !== 'mesh' || this.worldCleanupSelection?.sourceSha256 !== source.environment?.asset?.sha256) {
+      this.worldCleanupSelection = null;
+    }
     this.loadedProductKey = productKey;
     // Resolved prop poses from the scene-object graph (and the support of a
     // product resting on a prop) are known only from a sample.
@@ -2403,6 +2414,62 @@ export class StudioViewport {
     this.invalidate();
   }
 
+  /** Queue source-owned face selection even while its explicit mesh preview is
+   * loading. A different source never receives this transient overlay. */
+  setWorldCleanupSelection(selection: WorldCleanupSelection | null): void {
+    if (this.disposed || this.options.capture) return;
+    this.worldCleanupSelection = selection ? normalizeWorldCleanupSelection(selection) : null;
+    this.refreshWorldCleanupSelection();
+    this.presentationVersion++;
+    this.invalidate();
+  }
+
+  private clearWorldCleanupOverlay(): void {
+    this.worldCleanupOverlay?.dispose();
+    this.worldCleanupOverlay = null;
+  }
+
+  private refreshWorldCleanupSelection(): void {
+    this.clearWorldCleanupOverlay();
+    const world = this.deferredWorld, selection = this.worldCleanupSelection;
+    if (!selection || this.disposed || this.options.capture || !world?.ready || !this.worldRoot
+        || world.environment.kind !== 'mesh' || world.environment.asset.sha256 !== selection.sourceSha256) return;
+    try {
+      this.worldCleanupOverlay = createWorldCleanupOverlay(this.worldRoot, selection, world.environment.asset.sha256);
+    } catch (error) {
+      // An invalid transient region cannot turn a loaded original into a failed
+      // world or leave a partial overlay behind.
+      this.worldCleanupSelection = null;
+      this.options.onWorldCleanupError?.(error instanceof Error ? error.message : 'The cleanup region could not be displayed.');
+    }
+  }
+
+  /** Framing is explicit and recoverable through the existing Return to shot
+   * action. Selecting or toggling Original/Repaired never moves the camera. */
+  frameWorldCleanupSelection(): boolean {
+    if (!this.options.studioMode || this.options.capture || this.disposed || this.loading || this.loadFailed
+        || this.awaitingSample || this.productPreview || !this.worldCleanupOverlay) return false;
+    const bounds = this.worldCleanupOverlay.bounds();
+    if (bounds.isEmpty()) return false;
+    const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+    if (!(sphere.radius > 0) || !Number.isFinite(sphere.radius)) return false;
+    if (!this.sampledCamera) this.sampledCamera = {
+      position: this.camera.position.clone(), quaternion: this.camera.quaternion.clone(), fov: this.camera.fov,
+      target: this.controls?.target.clone() || this.camera.position.clone().add(this.camera.getWorldDirection(new THREE.Vector3())),
+    };
+    this.inspectingCamera = true; this.framedSelection = false; this.framedWorldObjectId = null;
+    const vertical = THREE.MathUtils.degToRad(this.camera.fov);
+    const horizontal = 2 * Math.atan(Math.tan(vertical / 2) * this.camera.aspect);
+    const distance = sphere.radius / Math.sin(Math.min(vertical, horizontal) / 2) * 1.18;
+    const direction = this.camera.getWorldDirection(new THREE.Vector3());
+    this.camera.position.copy(sphere.center).addScaledVector(direction, -distance);
+    this.camera.lookAt(sphere.center);
+    if (this.controls) {this.controls.target.copy(sphere.center); this.controls.update();}
+    this.camera.updateMatrixWorld(true);
+    this.invalidate();
+    return true;
+  }
+
   /** Semantic assembly membership is a preview overlay, never source reparenting. */
   setFocusParts(ids: string[]): void {
     this.focusPartIds = [...new Set(ids)];
@@ -2645,6 +2712,7 @@ export class StudioViewport {
   }
 
   private clearContent(preserveInspection = false): void {
+    this.clearWorldCleanupOverlay();
     this.restoreCaptureSplat?.();
     this.modelOutline?.dispose();this.modelOutline=null;
     this.clearUvProbe();
@@ -2696,6 +2764,7 @@ export class StudioViewport {
   clearScene(): void {
     if (this.disposed) return;
     this.loadedVisualKey=null;
+    this.worldCleanupSelection=null;
     this.materialPreviewState?.pending?.resolve();
     if (this.materialPreviewState) { this.materialPreviewState.pending = null; this.materialPreviewState.descriptor = null; }
     this.loadVersion++;
@@ -2725,6 +2794,7 @@ export class StudioViewport {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.worldCleanupSelection=null;
     this.previewQuality?.dispose();this.previewQuality=null;
     this.previewConnection?.removeEventListener?.('change',this.onPreviewDataChange);this.previewConnection=null;
     this.options.onLoading?.(false);
@@ -2825,6 +2895,8 @@ export function createViewport(host: HTMLElement, options: Omit<ViewportOptions,
     setFocusParts(ids: string[]) { viewport.setFocusParts(ids); },
     setMaterialHover(hover: MaterialHover | null) { viewport.setMaterialHover(hover); },
     setHiddenParts(ids: string[]) { viewport.setHiddenParts(ids); },
+    setWorldCleanupSelection(selection: WorldCleanupSelection | null) { viewport.setWorldCleanupSelection(selection); },
+    frameWorldCleanupSelection() { return viewport.frameWorldCleanupSelection(); },
     frameSelection() { viewport.frameSelection(); },
     fitProductInWorld(sample: any, aspect: number) { return viewport.fitProductInWorld(sample, aspect); },
     freezeSelectionFraming() { viewport.freezeSelectionFraming(); },

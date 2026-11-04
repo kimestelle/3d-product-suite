@@ -1,0 +1,16 @@
+.gesso-world-cleanup .gesso-section{padding-top:12px}
+.gesso-world-cleanup .gesso-field{margin:10px 0}
+.gesso-world-cleanup fieldset{min-width:0;border:0;padding:0;margin:16px 0}
+.gesso-world-cleanup legend{font-size:12px;line-height:18px;margin-bottom:8px;color:var(--gesso-text-primary,#eee)}
+.gesso-cleanup-regions{max-height:240px;overflow:auto;overscroll-behavior:contain}
+.gesso-cleanup-regions>label{display:flex;align-items:flex-start;gap:8px;min-height:36px;padding:6px 0;font-size:12px;cursor:pointer}
+.gesso-cleanup-regions input{margin:3px 0 0;accent-color:var(--gesso-text-primary,#eee);flex:none}
+.gesso-cleanup-regions span{display:flex;flex-direction:column;gap:3px;min-width:0}
+.gesso-cleanup-regions strong{font:inherit;color:var(--gesso-text-primary,#eee)}
+.gesso-cleanup-regions small{font-size:11px;line-height:16px;color:var(--gesso-text-secondary,#bbb)}
+.gesso-cleanup-result{margin-top:16px}
+.gesso-cleanup-result dl{margin:12px 0;font-size:11px;line-height:17px;font-variant-numeric:tabular-nums}
+.gesso-cleanup-result dl>div{display:flex;justify-content:space-between;gap:12px;padding:3px 0}
+.gesso-cleanup-result dt{color:var(--gesso-text-secondary,#bbb)}
+.gesso-cleanup-result dd{margin:0;text-align:right}
+.gesso-world-cleanup .gesso-cleanup-error{color:var(--gesso-signal-error,#ffb4a8);overflow-wrap:anywhere}

@@ -71,6 +71,17 @@ function viewport(width = 800, height = 400) {
 afterEach(() => {vi.restoreAllMocks(); vi.unstubAllGlobals();});
 
 describe('current viewport still capture', () => {
+  it('omits cleanup selection tint from captured pixels and restores the inspection view', async () => {
+    const {view, renderer} = viewport(), overlay = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial());
+    view.content.add(overlay); view.worldCleanupOverlay = {meshes: [overlay]};
+    const visible: boolean[] = []; renderer.render.mockImplementation(() => visible.push(overlay.visible));
+    await view.captureStill();
+    expect(visible).toEqual([false, true]); expect(overlay.visible).toBe(true);
+    renderer.render.mockImplementationOnce(() => {expect(overlay.visible).toBe(false); throw new Error('render failed');});
+    await expect(view.captureStill()).rejects.toThrow('render failed');
+    expect(overlay.visible).toBe(true); expect(view.stillCapture).toBeNull();
+  });
+
   it('uses canonical Gaussian detail only for the accurate pass, then settles preview before returning',async()=>{
     const {view,renderer}=viewport();const preview={},canonical={},drawn:any[]=[];view.splat=preview;
     const restore=vi.fn(()=>{view.splat=preview;});

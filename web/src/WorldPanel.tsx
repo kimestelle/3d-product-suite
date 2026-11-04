@@ -12,6 +12,7 @@ import {NumberControl, VectorControl} from './EditorControls';
 import {formatScalePercent} from './transforms';
 import {matchWorldRevision} from './comparison';
 import PolyHavenLibrary from './PolyHavenLibrary';
+import WorldCleanupPanel,{type WorldCleanupPreview,type WorldCleanupSelection} from './WorldCleanupPanel';
 import {addLight, addProp, addPropFromLibrary, applyDramaticSpot, setHdriFromLibrary, colorFromHex, colorHex, defaultLighting, ensureLighting, lightType, removeLight, setLightType, setWorldYaw, worldYaw, SPOT_DEFAULTS, type StudioLightType} from './world';
 import {objectName, productSupportTargets, relationLabels, sceneFloorY, setProductSupport, type RelationType, type ResolvedObjects} from './sceneGraph';
 
@@ -35,6 +36,14 @@ export interface WorldPanelProps extends CurrentWorldCapture {
   ready?: boolean;
   analyzePostProcessing?: () => Promise<PostProcessingAnalysis>;
   postProcessingReady?:boolean;
+  cleanupAvailable?:boolean;
+  cleanupBusy?:boolean;
+  cleanupScopeKey?:string;
+  cleanupPreview?:WorldCleanupPreview|null;
+  onCleanupPreview?:(preview:WorldCleanupPreview|null)=>void|boolean;
+  onCleanupApply?:(environment:any)=>void|boolean;
+  onCleanupSelection?:(selection:WorldCleanupSelection|null)=>void;
+  onCleanupFrame?:()=>void;
 }
 function Field({label, children}: {label: string; children: ReactNode}) {return <label className="gesso-field"><span>{label}</span>{children}</label>;}
 const NumberField = NumberControl;
@@ -128,7 +137,7 @@ export function WorldRepresentationSelect({worlds, current, onWorld}: {worlds: W
   </section>;
 }
 
-export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onImport, onFitProduct, fitDisabled, onFrameProp, selectedObjectId = null, onSelectObject, editorHost, children, captureCurrentWorld, worldPreviewReady, worldPreviewRevision, resolved, pickingSurface, onPickSurface, onCancelPick, onFrameObjects, ready, analyzePostProcessing,postProcessingReady}: WorldPanelProps) {
+export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onImport, onFitProduct, fitDisabled, onFrameProp, selectedObjectId = null, onSelectObject, editorHost, children, captureCurrentWorld, worldPreviewReady, worldPreviewRevision, resolved, pickingSurface, onPickSurface, onCancelPick, onFrameObjects, ready, analyzePostProcessing,postProcessingReady,cleanupAvailable,cleanupBusy,cleanupScopeKey,cleanupPreview,onCleanupPreview,onCleanupApply,onCleanupSelection,onCleanupFrame}: WorldPanelProps) {
   const root = useRef<HTMLDivElement>(null);
   const [selectedLight, setSelectedLight] = useState('key');
   const [addLightOpen, setAddLightOpen] = useState(false);
@@ -221,6 +230,9 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
         <p className="gesso-meta">Lightweight preview · full-resolution stills</p>
         <p className="gesso-meta gesso-note">Editing uses the lightweight Gaussian. Preview snapshots and exports use the full source with the same camera and alignment.</p>
       </section>}
+      {!scene.comparison&&environment.asset&&<WorldCleanupPanel scene={scene} worlds={worlds} scopeKey={cleanupScopeKey??JSON.stringify(scene)}
+        available={cleanupAvailable} busy={cleanupBusy} preview={cleanupPreview} onPreview={onCleanupPreview} onApply={onCleanupApply}
+        onSelection={onCleanupSelection} onFrame={onCleanupFrame}/>}
       <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">Background</span></div><ColorField label="World color" value={environment.worldColor} onChange={color => onChange(next => {next.environment.worldColor = color;})}/>
         <p className="gesso-meta gesso-note">Visible beyond the world geometry. Also colors ambient light in the final render.</p>
       </section>

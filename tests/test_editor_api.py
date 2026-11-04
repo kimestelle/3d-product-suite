@@ -64,6 +64,50 @@ class EditorApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         return value
 
+    def test_world_cleanup_is_source_bound_and_does_not_save_campaign(self):
+        from tests.test_world_cleanup import grid_glb
+        bootstrap = self.bootstrap()
+        self.assertTrue(bootstrap['capabilities']['worldCleanupAvailable'])
+        project = bootstrap['project']
+        scene = copy.deepcopy(project['scene'])
+        environment = copy.deepcopy(next(w['environment'] for w in bootstrap['worlds'] if w['environment']['kind'] == 'mesh'))
+        payload = grid_glb(warp=0)
+        digest = hashlib.sha256(payload).hexdigest()
+        (self.app.store.root / 'assets' / f'{digest}.glb').write_bytes(payload)
+        environment['asset'].update(path=f'assets/{digest}.glb', sha256=digest, sourceUp='Y')
+        scene['environment'] = environment
+        status, analysis, _ = self.request('POST', '/api/world-cleanup/analyze', {'scene': scene})
+        self.assertEqual(status, 200, analysis)
+        candidate = analysis['candidates'][0]
+        status, selection, _ = self.request('GET', f"/api/world-cleanup/{analysis['id']}/regions/{candidate['id']}")
+        self.assertEqual(status, 200)
+        self.assertEqual(selection['sourceSha256'], digest)
+        self.assertEqual(len(selection['groups'][0]['faceIndices']), 72)
+        status, result, _ = self.request('POST', '/api/world-cleanup/preview', {
+            'scene': scene, 'analysisId': analysis['id'], 'regionId': candidate['id'],
+            'role': 'floor', 'operation': 'separate'})
+        self.assertEqual(status, 200, result)
+        self.assertNotEqual(result['environment']['asset']['sha256'], digest)
+        self.assertEqual(result['report']['movedVertices'], 0)
+        self.assertEqual((self.app.store.root / 'assets' / f'{digest}.glb').read_bytes(), payload)
+        status, current, _ = self.request('GET', f"/api/projects/{project['id']}")
+        self.assertEqual(status, 200)
+        self.assertEqual(current, project)
+        other = copy.deepcopy(scene)
+        other['environment'] = next(w['environment'] for w in bootstrap['worlds'] if w['environment']['kind'] == 'mesh')
+        status, failure, _ = self.request('POST', '/api/world-cleanup/preview', {
+            'scene': other, 'analysisId': analysis['id'], 'regionId': candidate['id'],
+            'role': 'floor', 'operation': 'separate'})
+        self.assertEqual(status, 400)
+        self.assertIn('different world', failure['error'])
+
+    def test_world_cleanup_reuses_mutation_and_path_guards(self):
+        project = self.bootstrap()['project']
+        status, _, _ = self.request('POST', '/api/world-cleanup/analyze', {'scene': project['scene']}, mutate=False)
+        self.assertEqual(status, 403)
+        status, _, _ = self.request('GET', '/api/world-cleanup/not-an-analysis/regions/not-a-region')
+        self.assertEqual(status, 400)
+
     def test_bootstrap_seeds_labeled_mesh_and_gaussian_worlds_and_reopens_project(self):
         first = self.bootstrap()
         self.assertEqual({world["environment"]["kind"] for world in first["worlds"]}, {"mesh", "splat"})

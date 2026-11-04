@@ -2,8 +2,9 @@ import {createHash} from 'node:crypto';
 import * as THREE from 'three';
 import {afterEach,describe,expect,it,vi} from 'vitest';
 import {disposeSceneObject,loadVerifiedGlb} from './sceneObjects';
+import {createWorldCleanupOverlay} from './worldCleanupSelection';
 
-function fixture(materials:any[], textured=false) {
+function fixture(materials:any[], textured=false, configure?:(document:any)=>void) {
   const binary=new Float32Array([0,0,0, 1,0,0, 0,1,0, 0,0, 1,0, 0,1]);
   const document={asset:{version:'2.0'},scene:0,scenes:[{nodes:[0]}],nodes:[{mesh:0}],
     meshes:[{primitives:[{attributes:{POSITION:0,TEXCOORD_0:1},material:0}]}],materials,
@@ -12,6 +13,7 @@ function fixture(materials:any[], textured=false) {
     accessors:[{bufferView:0,componentType:5126,count:3,type:'VEC3',min:[0,0,0],max:[1,1,0]},
       {bufferView:1,componentType:5126,count:3,type:'VEC2'}],
     ...(textured?{images:[{uri:'data:image/png;base64,AA=='}],textures:[{source:0}]}:{})};
+  configure?.(document);
   const json=new TextEncoder().encode(JSON.stringify(document)),jsonLength=Math.ceil(json.length/4)*4;
   const bytes=new ArrayBuffer(28+jsonLength+binary.byteLength),header=new DataView(bytes);
   header.setUint32(0,0x46546c67,true);header.setUint32(4,2,true);header.setUint32(8,bytes.byteLength,true);
@@ -47,7 +49,24 @@ describe('verified GLB source color maps',()=>{
     const root=await loadVerifiedGlb(input.asset,new AbortController().signal);
     const mesh=root.children[0] as THREE.Mesh<THREE.BufferGeometry,THREE.MeshBasicMaterial>;
     expect(mesh.material.map?.image).toBe(image);expect(mesh.material.userData.gessoSourceMaterial).toBe(0);
+    expect(mesh.userData.gessoSourceNode?.index).toBe(0);
+    expect(mesh.userData.gessoSourcePrimitive).toEqual({meshIndex:0,primitiveIndex:0,mode:4});
     disposeSceneObject(root);
+  });
+
+  it('identifies primitive faces through actual repeated nodes and primitive groups',async()=>{
+    const input=fixture([{}],false,document=>{
+      document.scenes[0].nodes=[0,1];document.nodes=[{mesh:0},{mesh:0,translation:[2,0,0]}];
+      document.meshes[0].primitives.push({...document.meshes[0].primitives[0]});
+    });
+    serve(input,async()=>{throw new Error('unused');});
+    const root=await loadVerifiedGlb(input.asset,new AbortController().signal);
+    const overlay=createWorldCleanupOverlay(root,{sourceSha256:input.asset.sha256,groups:[
+      {nodeIndex:1,meshIndex:0,primitiveIndex:1,faceIndices:[0]},
+    ]},input.asset.sha256)!;
+    expect(overlay.meshes[0].parent?.userData.gessoSourcePrimitive).toEqual({meshIndex:0,primitiveIndex:1,mode:4});
+    expect(overlay.bounds().min.toArray()).toEqual([2,0,0]);expect(overlay.bounds().max.toArray()).toEqual([3,1,0]);
+    overlay.dispose();disposeSceneObject(root);
   });
 
   it('does not load or reject an unused textured material',async()=>{

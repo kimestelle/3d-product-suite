@@ -34,6 +34,7 @@ from .audio import MAX_AUDIO_BYTES, MIME_TYPES as AUDIO_MIME_TYPES, ffprobe_comm
 from .artwork import import_artwork
 from .hosting import HostedAccess, LoginRequired, return_path
 from .presets import PresetLibrary
+from .world_cleanup import WorldCleanup
 
 ARTIFACTS = {"scene.blend", "contact-sheet.png", "still-01.png", "still-02.png", "still-03.png"} | {item[1] for item in FORMATS.values()}
 ASSET_NAME = re.compile(r"[0-9a-f]{64}\.(?:glb|spz|ply|png|jpg|jpeg|webp|hdr|mp3|wav|m4a)\Z")
@@ -248,6 +249,7 @@ class Application:
         self.github = GitHubWorlds(self.store.root)
         self.materials = MaterialLibrary(self.store.root)
         self.presets = PresetLibrary(self.store.root)
+        self.world_cleanup = WorldCleanup(self.store.root)
         self.polyhaven = PolyHavenLibrary(self.store.root, material_library=self.materials)
         self.renders = RenderQueue(self.store, base_url=f"http://127.0.0.1:{port}", blender=blender, ffmpeg=ffmpeg)
         self.comparison_renders = ComparisonJobs(self.renders)
@@ -285,6 +287,7 @@ class Application:
     def capabilities(self):
         import os
         return {"worldlabsConfigured": bool(os.environ.get("WORLDLABS_API_KEY")),
+                "worldCleanupAvailable": True,
                 "githubWorldsAvailable": shutil.which("gh") is not None and (not self.access.enabled or bool(os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))),
                 "githubWorkflowUrl": self.github.url,
                 "productMeshImportAvailable": shutil.which(self.renders.blender) is not None,
@@ -421,6 +424,8 @@ def make_handler(app):
                     return self._json(app.materials.list())
                 if path == "/api/presets":
                     return self._json(app.presets.list())
+                if len(parts) == 5 and parts[:2] == ["api", "world-cleanup"] and parts[3] == "regions":
+                    return self._json(app.world_cleanup.selection(parts[2], parts[4]))
                 if len(parts) == 3 and parts[:2] == ["api", "presets"]:
                     return self._json(app.presets.get(parts[2]))
                 if len(parts) == 4 and parts[:3] == ["api", "materials", "jobs"]:
@@ -539,6 +544,18 @@ def make_handler(app):
                     temp.unlink(missing_ok=True)
             body = self._body()
             if self.command == "POST":
+                if path in ("/api/world-cleanup/analyze", "/api/world-cleanup/preview"):
+                    from .worlds import verify_scene_assets
+                    scene = validate_scene(body["scene"])
+                    verify_scene_assets(scene, app.store.root)
+                    if path.endswith("/analyze"):
+                        return self._json(app.world_cleanup.analyze(scene["environment"], body.get("options")))
+                    result = app.world_cleanup.preview(scene["environment"], body)
+                    # Repair is provisional. Reuse normal scene/asset validation
+                    # before allowing its immutable environment into the editor.
+                    checked = validate_scene({**scene, "environment": result["environment"]})
+                    verify_scene_assets(checked, app.store.root)
+                    return self._json({**result, "environment": checked["environment"]})
                 if path == "/api/presets":
                     return self._json(app.presets.create(body.get("name"), body.get("scopes"), body["scene"]), 201)
                 if path == "/api/presets/query":
