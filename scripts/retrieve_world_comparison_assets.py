@@ -3,7 +3,8 @@
 
 Only the allowlisted world GETs are permitted at the API transport boundary.
 Provider metadata and download URLs stay in process memory. The artifact contains
-the original GLBs and small, URL-free validation facts, never the API key.
+in-limit original GLBs and small, URL-free validation facts, never the API key.
+Oversized assets produce explicit size records without downloading their bodies.
 """
 from __future__ import annotations
 
@@ -15,6 +16,8 @@ import re
 import struct
 import sys
 import tempfile
+import urllib.error
+import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -38,6 +41,25 @@ class ReadOnlyWorldLabsClient(worldlabs.WorldLabsClient):
         if method != "GET" or path not in ALLOWED_API_PATHS or payload is not None:
             raise RetrievalError("Only GET requests for the two existing comparison worlds are permitted.")
         return super()._request(method, path, payload)
+
+    def head_asset(self, url):
+        """Read an exact declared CDN size without sending provider credentials."""
+        worldlabs._validate_download_url(url)
+        request = urllib.request.Request(url, method="HEAD", headers={"Accept": "application/octet-stream"})
+        try:
+            with self._download_opener.open(request, timeout=self.timeout) as response:
+                worldlabs._validate_download_url(response.geturl())
+                declared = response.headers.get("Content-Length")
+                if (not isinstance(declared, str) or not re.fullmatch(r"[0-9]{1,20}", declared)
+                        or not 0 < int(declared) <= 2**63 - 1):
+                    raise RetrievalError("Asset HEAD did not provide a valid positive Content-Length; no body was downloaded.")
+                return int(declared)
+        except urllib.error.HTTPError as error:
+            status = error.code
+            error.close()
+            raise worldlabs.WorldLabsError(f"Asset HEAD returned HTTP {status}") from None
+        except (urllib.error.URLError, TimeoutError, OSError):
+            raise worldlabs.WorldLabsError("Public asset HEAD connection failed") from None
 
 
 def source_facts(payload):
@@ -94,28 +116,47 @@ def retrieve_existing_assets(output, client):
             raise RetrievalError("An already-exported vertex-colored mesh is unavailable; no export was requested.")
         worldlabs._validate_download_url(url)
         requested.append((world_id, filename, url))
+    sized = []
+    for ordinal, (world_id, filename, url) in enumerate(requested, 1):
+        print(f"Phase: HEAD size {ordinal}/{len(REQUESTED_WORLDS)}", flush=True)
+        source_bytes = client.head_asset(url)
+        if type(source_bytes) is not int or source_bytes <= 0:
+            raise RetrievalError("Asset HEAD did not provide a valid positive size; no body was downloaded.")
+        sized.append((world_id, filename, url, source_bytes))
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".world-asset-readonly-", dir=output.parent) as temporary:
         staging = Path(temporary) / "artifact"
         staging.mkdir()
         records = []
-        for ordinal, (world_id, filename, url) in enumerate(requested, 1):
+        for ordinal, (world_id, filename, url, source_bytes) in enumerate(sized, 1):
+            if source_bytes > worlds.MAX_ASSET_BYTES:
+                records.append({"worldId": world_id, "variant": "vertex_colored", "state": "over-limit",
+                                "requestedFile": filename, "sourceBytes": source_bytes,
+                                "maxAssetBytes": worlds.MAX_ASSET_BYTES, "bodyDownloaded": False})
+                continue
             destination = staging / filename
             print(f"Phase: download {ordinal}/{len(REQUESTED_WORLDS)}", flush=True)
             downloaded = client._download(url, destination)
             print(f"Phase: validation {ordinal}/{len(REQUESTED_WORLDS)}", flush=True)
             payload = worlds._read_asset(destination)
+            if len(payload) != source_bytes:
+                raise RetrievalError("The downloaded asset size differs from its HEAD response.")
             digest = hashlib.sha256(payload).hexdigest()
             if downloaded != {"sha256": digest, "bytes": len(payload)}:
                 raise RetrievalError("The downloaded asset does not match its bounded transfer receipt.")
             facts = source_facts(payload)
-            records.append({"worldId": world_id, "variant": "vertex_colored", "file": filename,
-                            "sha256": digest, "bytes": len(payload), "facts": facts})
+            records.append({"worldId": world_id, "variant": "vertex_colored", "state": "verified", "file": filename,
+                            "sourceBytes": source_bytes, "sha256": digest, "bytes": len(payload), "facts": facts,
+                            "maxAssetBytes": worlds.MAX_ASSET_BYTES, "bodyDownloaded": True})
+        verified = sum(record["state"] == "verified" for record in records)
+        state = "verified" if verified == len(records) else "over-limit" if verified == 0 else "partial-over-limit"
         manifest = {"schemaVersion": 1, "operation": "retrieve-existing-vertex-colored-meshes",
+                    "state": state, "verifiedAssetCount": verified,
                     "providerApiMethods": ["GET"], "providerWorldReads": len(REQUESTED_WORLDS),
+                    "assetHeadReads": len(REQUESTED_WORLDS), "assetBodyDownloads": verified,
                     "providerWorkCreated": False, "additionalProviderCredits": 0,
                     "maxAssetBytes": worlds.MAX_ASSET_BYTES, "assets": records}
-        print("Phase: publish verified artifact", flush=True)
+        print("Phase: publish comparison manifest", flush=True)
         with (staging / "manifest.json").open("x", encoding="utf-8") as handle:
             json.dump(manifest, handle, indent=2, allow_nan=False)
             handle.write("\n")
@@ -141,6 +182,7 @@ def safe_failure_details(error):
         "World Labs API connection failed; paid submissions are never automatically retried": "provider_connection_failed",
         "Provider asset download failed; no credentials were sent to the asset host": "asset_download_failed",
         "Provider world asset exceeds the import size limit": "asset_size_limit",
+        "Public asset HEAD connection failed": "asset_head_failed",
     }
     if text in known_labels:
         details.append("category=" + known_labels[text])
@@ -160,7 +202,8 @@ def main():
         print("Read-only asset retrieval failed; no provider generation or export was requested. "
               + safe_failure_details(error), file=sys.stderr)
         return 1
-    print(f"Verified {len(result['assets'])} existing vertex-colored meshes; no provider work was created.")
+    print(f"Comparison state: {result['state']}; {result['verifiedAssetCount']} verified assets, "
+          f"{len(result['assets']) - result['verifiedAssetCount']} over-limit assets. No provider work was created.")
     return 0
 
 
