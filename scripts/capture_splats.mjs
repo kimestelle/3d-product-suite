@@ -19,6 +19,25 @@ const manifestName = 'capture-manifest.json';
 const shaPattern = /^[a-f0-9]{64}$/;
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const execFileAsync = promisify(execFile);
+const yieldReason = 'Interactive proof requested the GPU before the camera-copy quality gate finished; the unchanged full source is retained.';
+
+/** A scheduling hint only. An active Spark draw always finishes first. */
+export async function proofDemand(filename = process.env.GESSO_PROOF_DEMAND_PATH, now = Date.now()) {
+  if (!filename) return false;
+  try {
+    const stat = await fs.lstat(filename);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4096) return false;
+    const value = JSON.parse(await fs.readFile(filename, 'utf8'));
+    return Number.isFinite(value.updatedAt) && now/1000-value.updatedAt >= 0
+      && now/1000-value.updatedAt <= 300 && (value.waiting > 0 || value.active === true);
+  } catch { return false; }
+}
+
+function proofYield() {
+  const error = new Error('Gaussian capture yielded after a complete frame for an interactive proof.');
+  error.code = 'GESSO_PROOF_YIELD';
+  return error;
+}
 
 /** Authenticate the internal worker without putting credentials in command logs. */
 export function captureAuthHeaders(key = process.env.GESSO_ACCESS_KEY, now = Date.now()) {
@@ -366,7 +385,7 @@ export async function capture(options) {
     const { page, browserErrors, execution } = runtime;
     identity.profile.execution = execution;
     const selected = sampled.frames.filter(frame => frames.includes(frame.frame)).sort((a,b)=>a.frame-b.frame);
-    const copy = await prepareWorldCopy({
+    let copy = await prepareWorldCopy({
       assetPath:path.resolve(path.dirname(options.samples),sampled.scene.environment.asset.path),asset:sampled.scene.environment.asset,
       frames:selected,width:options.width,height:options.height,runtimeDigest:identity.profile.runtimeDigest,execution,
       cacheRoot:path.join(projectRoot,'.cache/gaussian-world-copies'),
@@ -386,6 +405,12 @@ export async function capture(options) {
     // actually loads, so a load failure can choose full source before pinning.
     let hasManifest=false;
     try{await fs.access(path.join(options.output,manifestName));hasManifest=true;}catch(error){if(error.code!=='ENOENT')throw error;}
+    if (hasManifest) {
+      const recorded = JSON.parse(await fs.readFile(path.join(options.output, manifestName), 'utf8'));
+      if (recorded.profile?.worldCopy?.status === 'full-source' && recorded.profile.worldCopy.reason === yieldReason) {
+        copy = {receipt:recorded.profile.worldCopy};
+      }
+    }
     if(hasManifest&&copy.receipt.status!=='candidate')await decide(copy.receipt);
     process.stdout.write(`Gaussian capture uses ${execution.backend}: ${execution.unmaskedRenderer}.\n`);
     if (!missing.length) {
@@ -404,6 +429,11 @@ export async function capture(options) {
       await page.route(derivativeUrl,route=>{derivativeLoads+=1;return route.fulfill({status:200,contentType:'application/octet-stream',body:copy.bytes});});
     }
     let loadErrorCursor=browserErrors.length;
+    const yieldToken = process.env.GESSO_CAPTURE_BATCH_TOKEN;
+    const canYield = /^[a-f0-9]{32}$/.test(yieldToken ?? '');
+    const checkpoint = async () => {
+      if (canYield && frames.some(number => !manifest?.frames[String(number)]) && await proofDemand()) throw proofYield();
+    };
     const loadAsset=async candidate=>{
       if(interrupted)throw new Error(`Capture cancelled by ${interrupted}`);
       const previousLoads=derivativeLoads;
@@ -426,6 +456,9 @@ export async function capture(options) {
       }
       const bytes = await canvas.screenshot({ type: 'png', animations: 'disabled', timeout: options.timeout });
       if (!validatePng(bytes, options.width, options.height)) throw new Error(`Browser returned an invalid ${options.width}x${options.height} PNG for frame ${number}`);
+      // A candidate has no approved output yet. Yielding this staging pass
+      // retains the full source on resume instead of accepting a partial gate.
+      if (!manifest) await checkpoint();
       return bytes;
     };
     const publishFrame=async(number,bytes)=>{
@@ -437,9 +470,28 @@ export async function capture(options) {
       await atomicWrite(path.join(options.output, manifestName), serialize(manifest));
       if (interrupted) throw new Error(`Capture cancelled by ${interrupted}`);
       process.stdout.write(`Captured Gaussian plate ${frameFile(number)} (${Object.keys(manifest.frames).length}/${frames.length}).\n`);
+      await checkpoint();
     };
-    const receipt=await captureWithWorldCopy({copy,frameNumbers:missing,loadAsset,renderFrameBytes,publishFrame,
-      temporaryRoot:path.join(projectRoot,'.cache/gaussian-world-copy-gates'),onDecision:decide,isCancelled:()=>!!interrupted});
+    let receipt;
+    try {
+      receipt=await captureWithWorldCopy({copy,frameNumbers:missing,loadAsset,renderFrameBytes,publishFrame,
+        temporaryRoot:path.join(projectRoot,'.cache/gaussian-world-copy-gates'),onDecision:decide,isCancelled:()=>!!interrupted});
+    } catch (error) {
+      if (error.code !== 'GESSO_PROOF_YIELD') throw error;
+      if (!manifest) await decide({status:'full-source',policy:copy.receipt.policy,sourceSha256:identity.assetSha256,reason:yieldReason});
+      const completed = [];
+      for (const number of frames) {
+        if (!manifest.frames[String(number)]) continue;
+        const filename = path.join(options.output, frameFile(number));
+        const bytes = await fs.readFile(filename);
+        if (!validatePng(bytes, options.width, options.height) || sha256(bytes) !== manifest.frames[String(number)]) throw new Error('A completed plate changed before capture yielded.');
+        completed.push({frame:number,sha256:sha256(bytes)});
+      }
+      await atomicWrite(path.join(path.dirname(options.output), 'capture-yield.json'), serialize({schemaVersion:1,token:yieldToken,
+        sourceDigest:identity.sourceDigest,samplesDigest:identity.samplesDigest,completed,retainedFullSource:!completed.length}));
+      process.stdout.write(`CAPTURE_YIELD ${completed.length}/${frames.length} complete Gaussian plates.\n`);
+      return manifest;
+    }
     process.stdout.write(receipt.status==='verified'?`Camera copy retains ${receipt.copyPoints}/${receipt.sourcePoints} original records; all requested frames passed exact full-source pixels.\n`
       :`Camera copy kept the full source: ${receipt.reason}\n`);
     return manifest;

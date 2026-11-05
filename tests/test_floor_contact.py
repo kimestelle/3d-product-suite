@@ -18,7 +18,7 @@ from film.scene_objects import floor_height, resolve_scene_objects
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPERS = ("vertical_half_extent", "authored_floor_height", "product_support_origin", "product_support_height",
-           "sampled_product_origin", "studio_rig_origin", "environment")
+           "sampled_product_origin", "studio_rig_origin", "environment", "studio_lights")
 
 
 class HostObject(SimpleNamespace):

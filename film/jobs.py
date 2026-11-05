@@ -511,13 +511,72 @@ def _check_tool(command, tool, expected):
 
 
 def _run_process(command, output, log_name, *, worker_fd=None):
+    # Interactive proofs share this GPU. A pending proof gets the next native
+    # batch boundary; CPU encoding never occupies the GPU scheduling slot.
+    if "--python" in command:
+        from .render_arbitration import background_render_slot
+        with background_render_slot(output, cancel=lambda: _check_cancel(output)) as scheduling:
+            receipt = output / "render-yield.json"
+            receipt.unlink(missing_ok=True)
+            token = uuid.uuid4().hex
+            environment = dict(os.environ)
+            environment["GESSO_RENDER_BATCH_TOKEN"] = token
+            environment["GESSO_ROOT"] = str(Path(__file__).resolve().parents[1])
+            extra_fds = ()
+            if isinstance(scheduling, dict):
+                if scheduling.get("proofDemandPath"):
+                    environment["GESSO_PROOF_DEMAND_PATH"] = scheduling["proofDemandPath"]
+                if type(scheduling.get("gpuLockFd")) is int:
+                    extra_fds = (scheduling["gpuLockFd"],)
+            _run_process_unlocked(command, output, log_name, worker_fd=worker_fd,
+                                  environment=environment, extra_fds=extra_fds)
+            if receipt.exists() or receipt.is_symlink():
+                return {"yieldedFrames": _validated_render_yield(output, command, token)}
+            return None
+    return _run_process_unlocked(command, output, log_name, worker_fd=worker_fd)
+
+
+def _validated_render_yield(output, command, token):
+    """A proof request may pause a batch only after complete native frames.
+
+    The current child must attest the exact requested prefix and each raw PNG.
+    A stale or fabricated receipt can never mark unrelated frames completed.
+    """
+    receipt = output / "render-yield.json"
+    try:
+        if receipt.is_symlink() or not receipt.is_file() or receipt.stat().st_size > 128 * 1024 or "--frames" not in command:
+            raise ValueError()
+        value = json.loads(receipt.read_text())
+        requested = [int(frame) for frame in command[command.index("--frames") + 1].split(",")]
+        completed = value["completed"]
+        frames = [item["frame"] for item in completed]
+        job = _read_job(output)
+        if (value.get("schemaVersion") != 1 or value.get("token") != token
+                or value.get("sourceDigest") != job["sceneDigest"]
+                or value.get("rendererDigest") != job["rendererDigest"]
+                or not frames or len(frames) >= len(requested) or frames != requested[:len(frames)]
+                or any(type(frame) is not int for frame in frames)):
+            raise ValueError()
+        profile = job["renderProfile"]
+        for frame, item in zip(frames, completed):
+            digest = _inspect_png(output / "frames" / f"{frame:06d}.png", profile["width"], profile["height"])
+            if digest is None or item.get("sha256") != digest:
+                raise ValueError()
+        receipt.unlink()
+        return frames
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, IndexError) as error:
+        raise RuntimeError("Native batch yield receipt is stale, invalid or does not match its complete raw frames") from error
+
+
+def _run_process_unlocked(command, output, log_name, *, worker_fd=None, environment=None, extra_fds=()):
     _check_cancel(output)
     with (output / log_name).open("ab") as log:
         log.write(("\nCOMMAND " + repr([str(part) for part in command]) + "\n").encode("utf-8"))
         log.flush()
         process = subprocess.Popen([str(part) for part in command], stdout=log,
                                    stderr=subprocess.STDOUT, cwd=output,
-                                   pass_fds=(worker_fd,) if worker_fd is not None else ())
+                                   pass_fds=tuple(dict.fromkeys((*extra_fds, *((worker_fd,) if worker_fd is not None else ())))),
+                                   **({"env": environment} if environment is not None else {}))
         try:
             while process.poll() is None:
                 _check_cancel(output)
@@ -584,6 +643,9 @@ def _post_process_scene_frames(output, job, numbers):
     A raw renderer receipt can recover an interrupted batch. A PNG matching
     neither raw nor final receipt is re-rendered, preventing double grading.
     """
+    # Preserve the native, ungraded pixels before a job-specific finish mutates
+    # them. Reuse is optional and independently verifies exact physical inputs.
+    _store_raw_scene_frames(output, job, numbers)
     recipe = job.get("postProcessing")
     if not recipe or not numbers:
         return
@@ -596,6 +658,54 @@ def _post_process_scene_frames(output, job, numbers):
         receipts[str(number)] = _sha256(path)
         _atomic_json(output / "post-processing-frames.json", receipts)
     processor.prune_raw_frame_receipts(output, processor.raw_frame_identity(job), numbers)
+
+
+def _raw_master_cache(output, job, scene=None, blender=None):
+    """Cache failures retain the ordinary render path and its quality profile."""
+    try:
+        from .render_reuse import RawMasterCache
+        scene = scene if scene is not None else load_scene(output / "scene.json")
+        blender = blender or job.get("tools", {}).get("blender", {}).get("command", "blender")
+        return RawMasterCache(output, job, scene, blender, inspect_png=_inspect_png,
+                              check_cancel=lambda: _check_cancel(output))
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+
+
+def _store_raw_scene_frames(output, job, numbers):
+    if not numbers:
+        return
+    cache = _raw_master_cache(output, job)
+    if cache is not None:
+        try:
+            cache.store(numbers)
+        except (OSError, ValueError, TypeError, KeyError):
+            pass  # Admission failure cannot fail or change a render.
+
+
+def _restore_raw_scene_frames(output, job, scene, blender, numbers, rebuild_blend, worker_fd):
+    cache = _raw_master_cache(output, job, scene, blender)
+    if cache is None:
+        return [], rebuild_blend
+    try:
+        candidates = cache.has_candidates(numbers)
+    except (OSError, ValueError, TypeError, KeyError):
+        candidates = False
+    if not candidates:
+        return [], rebuild_blend
+    # Select the actual runtime and create this revision's native artifact
+    # before considering cached pixels. AUTO alone never authorizes reuse.
+    if rebuild_blend:
+        _run_process(_render_command(blender, output, job["renderProfile"], []), output,
+                     "blender.log", worker_fd=worker_fd)
+        rebuild_blend = False
+    try:
+        restored = cache.restore(numbers)
+    except (OSError, ValueError, TypeError, KeyError):
+        restored = []
+    if restored:
+        _post_process_scene_frames(output, job, restored)
+    return restored, rebuild_blend
 
 
 def _recover_raw_scene_frames(output, job, numbers=None):
@@ -792,23 +902,47 @@ def run_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cancellatio
             rebuild_blend = _blend_needs_rebuild(output, job)
             completed_set = set(completed)
             missing = [frame for frame in range(1, profile["frameCount"] + 1) if frame not in completed_set]
-            for start in range(0, len(missing), BATCH_SIZE):
-                batch = missing[start:start + BATCH_SIZE]
-                scene_frames = _render_non_scene_frames(output, profile, batch)
-                if scene_frames or rebuild_blend:
-                    _run_process(_render_command(blender, output, profile, scene_frames), output, "blender.log",
-                                 worker_fd=worker_lock.fileno())
-                    rebuild_blend = False
-                    _post_process_scene_frames(output, job, scene_frames)
+            restored, rebuild_blend = _restore_raw_scene_frames(output, job, scene, blender, missing,
+                                                               rebuild_blend, worker_lock.fileno())
+            if restored:
                 inspected = {frame: _inspect_png(output / "frames" / f"{frame:06d}.png", profile["width"], profile["height"])
-                             for frame in batch}
-                invalid = [frame for frame in batch if inspected[frame] is None]
-                if invalid:
-                    raise RuntimeError(f"Renderer did not produce valid frames: {invalid}")
-                _record_frame_digests(output, job, batch, digests=inspected)
-                completed = sorted(completed + batch)
+                             for frame in restored}
+                if any(value is None for value in inspected.values()):
+                    raise RuntimeError("A reused raw frame failed final finishing validation")
+                _record_frame_digests(output, job, restored, digests=inspected)
+                completed = sorted(completed + restored)
                 job["completedRanges"] = _ranges(completed)
                 _save_job(output, job)
+                completed_set.update(restored)
+                missing = [frame for frame in missing if frame not in completed_set]
+            while missing:
+                batch = missing[:BATCH_SIZE]
+                scene_frames = _render_non_scene_frames(output, profile, batch)
+                finished_scene_frames = scene_frames
+                if scene_frames or rebuild_blend:
+                    result = _run_process(_render_command(blender, output, profile, scene_frames), output, "blender.log",
+                                          worker_fd=worker_lock.fileno())
+                    if isinstance(result, dict) and "yieldedFrames" in result:
+                        finished_scene_frames = result["yieldedFrames"]
+                    rebuild_blend = False
+                    _post_process_scene_frames(output, job, finished_scene_frames)
+                # Flat frames were composed before the native batch. A clean
+                # cooperative yield commits those plus only the proven native
+                # prefix, then releases the GPU for the current-frame proof.
+                finished = [frame for frame in batch if frame not in scene_frames or frame in finished_scene_frames]
+                if not finished:
+                    raise RuntimeError("Native render batch made no verified progress")
+                inspected = {frame: _inspect_png(output / "frames" / f"{frame:06d}.png", profile["width"], profile["height"])
+                             for frame in finished}
+                invalid = [frame for frame in finished if inspected[frame] is None]
+                if invalid:
+                    raise RuntimeError(f"Renderer did not produce valid frames: {invalid}")
+                _record_frame_digests(output, job, finished, digests=inspected)
+                completed = sorted(completed + finished)
+                job["completedRanges"] = _ranges(completed)
+                _save_job(output, job)
+                finished_set = set(finished)
+                missing = [frame for frame in missing if frame not in finished_set]
             if rebuild_blend or not _blend_valid(output / "scene.blend"):
                 _run_process(_render_command(blender, output, profile, []), output, "blender.log",
                              worker_fd=worker_lock.fileno())

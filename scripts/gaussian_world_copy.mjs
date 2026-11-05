@@ -397,7 +397,7 @@ export async function captureWithWorldCopy({copy, frameNumbers, loadAsset, rende
         if(proof.copy!==proof.reference)throw new Error(`Full-source pixels differ at frame ${proof.frame}.`);
       }
       receipt=await acceptWorldCopy(copy,proofs);
-    } catch(error) { checkCancelled();receipt=await rejectWorldCopy(copy,`Exact full-source quality gate kept the original: ${error.message}`); }
+    } catch(error) { if(error.code==='GESSO_PROOF_YIELD')throw error;checkCancelled();receipt=await rejectWorldCopy(copy,`Exact full-source quality gate kept the original: ${error.message}`); }
     await onDecision(receipt);
     for(const frame of frameNumbers){
       checkCancelled();await publishFrame(frame,await fs.readFile(name(frame)));

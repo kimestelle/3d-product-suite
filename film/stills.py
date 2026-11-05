@@ -85,8 +85,13 @@ def run_still_job(output_dir, *, blender="blender", ffmpeg="ffmpeg", reset_cance
             # The shared verifier requires finishing receipts for scene frames.
             # A crash between grading and recording forces a raw re-render.
             needs_frame = frame not in jobs._verified_frames(output, job)
+            restored, rebuild_blend = jobs._restore_raw_scene_frames(
+                output, job, scene, blender, [frame] if needs_frame else [],
+                jobs._blend_needs_rebuild(output, job), worker_lock.fileno())
+            if restored:
+                needs_frame = False
             scene_frames = jobs._render_non_scene_frames(output, profile, [frame]) if needs_frame else []
-            if scene_frames or jobs._blend_needs_rebuild(output, job):
+            if scene_frames or rebuild_blend:
                 jobs._run_process(jobs._render_command(blender, output, profile, scene_frames),
                                   output, "blender.log", worker_fd=worker_lock.fileno())
                 jobs._post_process_scene_frames(output, job, scene_frames)

@@ -1,4 +1,7 @@
 import {isImageFinishOnlyChange} from './viewportSceneKey';
+import {canReuseViewportSamples,canUpdateViewportScene} from './viewportUpdate';
+import NativeProof from './NativeProofOverlay';
+import {nativeProofSize,type NativeProofInput} from './nativeProof';
 import PostProcessingPanel from './PostProcessingPanel';
 import {generateProductReel, productReelSettings} from './productReel';
 import PresetLibraryDialog, {type PresetScope, type PresetSummary} from './PresetLibraryDialog';
@@ -248,6 +251,8 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   const [materialPreview,setMaterialPreview]=useState<MaterialPreview|null>(null);
   const [materialPreviewError,setMaterialPreviewError]=useState('');
   const [stillShowing,setStillShowing]=useState(false);
+  const [nativeProofShowing,setNativeProofShowing]=useState(false);
+  const [nativeProofInteracting,setNativeProofInteracting]=useState(false);
   const [stillViewVersion,setStillViewVersion]=useState(0);
   const [positionSpace,setPositionSpace]=useState<'world'|'local'>('local');
   const [transformMode,setTransformMode]=useState<TransformMode|null>(null);
@@ -340,9 +345,9 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     void sendMaterialPreview(preview,materialPreviewScope);
   },[materialPreviewScope,sendMaterialPreview,allowSceneEdit]);
   const flushMaterialPreviewClear=useCallback(()=>{
-    if(!previewClearPending.current || materialPreviewRef.current)return;
+    if(!previewClearPending.current || materialPreviewRef.current)return Promise.resolve();
     previewClearPending.current=false;
-    void sendMaterialPreview(null,currentPreviewScope.current);
+    return sendMaterialPreview(null,currentPreviewScope.current);
   },[sendMaterialPreview]);
   useEffect(()=>{
     if(previewOwner.current!==materialPreviewScope)clearMaterialPreview();
@@ -430,6 +435,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   const saveStatus=resolveSaveStatus({saving,loaded:!!project,busy:busy||productImporting||importing||importingFilmImage,dirty});
   const valid=!!renderScene&&!!samples.length&&!evaluating&&!validationError&&evaluatedScene.current===renderScene;
   const visibleViewportLoading=productImporting||!validationError&&((viewportLoading.a&&(!showComparison||previewComparisonMode!=='b'))||(viewportLoading.b&&showComparison&&previewComparisonMode!=='a'));
+  const controlsReady=valid||!!(renderScene&&evaluatedScene.current&&!validationError&&!visibleViewportLoading&&!renderScene.comparison&&fullViewportInstalls.current===0&&canUpdateViewportScene(evaluatedScene.current,renderScene));
   const postProcessingReady=!!renderScene&&samples.length>0&&!busy&&!visibleViewportLoading&&!validationError
     &&fullViewportInstalls.current===0&&isImageFinishOnlyChange(evaluatedScene.current,renderScene);
   const analyzePostProcessing=async()=>{
@@ -498,7 +504,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     let recovered:RecoveryDraft[]=[];
     if(!isStaticDemo)try{recovered=readRecoveryDrafts(localStorage,p);}catch{setDraftStorageError('Local recovery could not be read. Save a revision before closing.');}
     setRecoveryCandidates(recovered);setRecoveryOpen(recovered.length>0);recoveryOpenRef.current=recovered.length>0;
-    projectRef.current=p;
+    projectRef.current=p;setNativeProofInteracting(false);
     cancelSceneCreation();clearMaterialPreview();viewport.current?.resetFraming();viewportB.current?.resetFraming();try{localStorage.setItem('gesso.project',p.id)}catch{}setProject(p);const opened=clone(p.scene);let compacted=false,compactionError='';try{if(!isStaticDemo)compacted=closeSequenceGaps(opened)}catch(reason){compactionError=reason instanceof Error?reason.message:'Could not close film gaps.'}installHistory(compacted?commitHistory(createHistory(p.scene),opened):createHistory(p.scene));setFilmTarget('$camera');setFilmMotionId(null);setFilmCurves(false);setFilmLegacy(false);setFrameSetup(null);frameSetupBaseline.current=null;setFrameSetupError('');filmReturn.current=null;setFrame(1);setPlaying(false);setPicking(null);setPickingSurface(false);setObjects(undefined);setError('');setValidationError('');setParts([]);setUvLayout(null);setSelectedDecalId(null);setSelected(p.scene.product.label?.componentId??p.scene.product.components[0]?.id??null);setFocused(true);setInspecting(false);setHiddenParts([]);setNotice(compacted?'Film gaps closed · Undo to restore':compactionError||'Project opened',compactionError&&!compacted?'error':'success')};
   const openRecoveryChoices=()=>{
     const current=projectRef.current;if(!current||isStaticDemo)return;
@@ -552,14 +558,29 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     finally{if(owned())setRecoveryBusy(false);}
   };
   useEffect(()=>{const abort=new AbortController();api('/api/bootstrap','GET',undefined,abort.signal).then(async b=>{let remembered:string|null=null;try{remembered=localStorage.getItem('gesso.project')}catch{}let opened=b.project;const initialId=startupProjectId(b.projects,opened.id,remembered);if(initialId!==opened.id){try{opened=await api(`/api/projects/${initialId}`,'GET',undefined,abort.signal)}catch{}}if(abort.signal.aborted)return;loadProject(opened);setProjects(b.projects);setWorlds(b.worlds);setCaps(b.capabilities);setJobs(b.jobs)}).catch(e=>{if(!abort.signal.aborted)setError(e.message)});return()=>abort.abort()},[]);
-  useEffect(()=>{const hostElement=host.current;const secondHost=hostB.current;if(!hostElement||!secondHost)return;const view=createViewport(hostElement,{studioMode:true,onWorldCleanupError:message=>setNotice(message,'error'),onPresented:()=>setPresented(value=>({...value,a:true})),onLoading:loading=>setViewportLoading(value=>({...value,a:loading})),onFilmGuide:setFilmGuide,onInteract:()=>{setPlaying(false);setInspecting(true);setStillViewVersion(value=>value+1)},onParts:setParts,onError:setValidationError,onWorldPoint:point=>pickHandler.current('a',point),onSurfacePoint:point=>surfacePickHandler.current('a',point)});const second=createViewport(secondHost,{studioMode:true,onPresented:()=>setPresented(value=>({...value,b:true})),onLoading:loading=>setViewportLoading(value=>({...value,b:loading})),onInteract:()=>{setPlaying(false);setInspecting(true);setStillViewVersion(value=>value+1)},onError:message=>{if(renderSceneRef.current?.comparison)setValidationError(message)},onWorldPoint:point=>pickHandler.current('b',point),onSurfacePoint:point=>surfacePickHandler.current('b',point)});viewport.current=view;viewportB.current=second;
+  useEffect(()=>{const hostElement=host.current;const secondHost=hostB.current;if(!hostElement||!secondHost)return;const view=createViewport(hostElement,{studioMode:true,onWorldCleanupError:message=>setNotice(message,'error'),onPresented:()=>setPresented(value=>({...value,a:true})),onLoading:loading=>setViewportLoading(value=>({...value,a:loading})),onFilmGuide:setFilmGuide,onInteract:()=>{setNativeProofInteracting(true);setPlaying(false);setInspecting(true);setStillViewVersion(value=>value+1)},onInteractEnd:()=>{setNativeProofInteracting(false);setStillViewVersion(value=>value+1)},onParts:setParts,onError:setValidationError,onWorldPoint:point=>pickHandler.current('a',point),onSurfacePoint:point=>surfacePickHandler.current('a',point)});const second=createViewport(secondHost,{studioMode:true,onPresented:()=>setPresented(value=>({...value,b:true})),onLoading:loading=>setViewportLoading(value=>({...value,b:loading})),onInteract:()=>{setNativeProofInteracting(true);setPlaying(false);setInspecting(true);setStillViewVersion(value=>value+1)},onInteractEnd:()=>{setNativeProofInteracting(false);setStillViewVersion(value=>value+1)},onError:message=>{if(renderSceneRef.current?.comparison)setValidationError(message)},onWorldPoint:point=>pickHandler.current('b',point),onSurfacePoint:point=>surfacePickHandler.current('b',point)});viewport.current=view;viewportB.current=second;
     return()=>{++previewRequest.current;currentPreviewScope.current=null;view.dispose();second.dispose();viewport.current=null;viewportB.current=null}},[]);
   useEffect(()=>{const scene=renderScene;if(!scene)return;const request=++newest.current;const abort=new AbortController();
     const finishOnly=fullViewportInstalls.current===0&&isImageFinishOnlyChange(evaluatedScene.current,scene)&&samples.length>0;
+    const reuseSamples=!scene.comparison&&fullViewportInstalls.current===0&&samplesRef.current.length>0&&canReuseViewportSamples(evaluatedScene.current,scene)&&canUpdateViewportScene(evaluatedScene.current,scene);
     if(finishOnly){viewport.current?.setImageFinish(scene.postProcessing);viewportB.current?.setImageFinish(scene.postProcessing);}
+    if(!scene.comparison&&(finishOnly||reuseSamples)){
+      // Surface/light values do not alter poses. Update retained GPU resources in
+      // the input turn; authoritative validation still owns readiness/export.
+      const sample=samplesRef.current[frameRef.current-1];
+      if(sample)void viewport.current?.setScene(scene,sample).catch(error=>{if(request===newest.current)setValidationError(error.message);});
+    }
     setEvaluating(true);setValidationError('');const timer=setTimeout(()=>{
-    if(finishOnly){
-      api('/api/evaluate','POST',{scene,frame:frameRef.current},abort.signal).then(result=>{
+    if(finishOnly||reuseSamples){
+      const sampledFrame=frameRef.current;
+      api('/api/evaluate','POST',{scene,frame:sampledFrame},abort.signal).then(async result=>{
+        if(request!==newest.current)return;
+        if(!finishOnly||!scene.comparison){
+          const sample=frameRef.current===sampledFrame?result.sample:samplesRef.current[frameRef.current-1];
+          await viewport.current?.setScene(result.scene,sample);
+          if(request!==newest.current)return;
+        }
+        await flushMaterialPreviewClear();
         if(request!==newest.current)return;
         evaluatedScene.current=scene;setDigest(result.digest);setSamples(previous=>[...previous]);setEvaluating(false);
       }).catch(error=>{if(request===newest.current){setValidationError(error.message);setEvaluating(false);}});
@@ -574,7 +595,8 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
       await Promise.all([viewport.current?.setScene(result.comparison?.a??result.scene,sampled),result.comparison?viewportB.current?.setScene(result.comparison.b,sampled):Promise.resolve()]);
       if(request!==newest.current)return;const currentFrame=Math.min(frameRef.current,result.frames.length);const currentSample=result.frames[currentFrame-1];
       await Promise.all([viewport.current?.setSample(currentSample),result.comparison?viewportB.current?.setSample(currentSample):Promise.resolve()]);
-      if(request===newest.current){evaluatedScene.current=scene;transformCommitPending.current=false;flushMaterialPreviewClear();setSamples(result.frames);setObjects(result.objects);setDigest(result.digest);setComparisonInfo(result.comparison??null);setPlaybackFrame(currentFrame);setValidationError('');setEvaluating(false)}
+      await flushMaterialPreviewClear();
+      if(request===newest.current){evaluatedScene.current=scene;transformCommitPending.current=false;setSamples(result.frames);setObjects(result.objects);setDigest(result.digest);setComparisonInfo(result.comparison??null);setPlaybackFrame(currentFrame);setValidationError('');setEvaluating(false)}
       } finally {fullViewportInstalls.current--;}
     }).catch(e=>{if(request===newest.current){setValidationError(e.message);setEvaluating(false)}})
   },180);return()=>{clearTimeout(timer);abort.abort();++newest.current}},[renderScene]);
@@ -1025,16 +1047,16 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   },[active,filmWorkspace,stillFilm,layer,filmEditShot?.id,frameSetup?.shotId,frameSetup?.stage]);
   const filmProps:FilmWorkspaceProps={scene,frame,editingFrame:filmEditFrame,onFrame:previewFrame,onChange:changeFilm,selectedTarget:filmTarget,onTargetChange:chooseFilmTarget,
     selectedMotionId:mode==='still'?null:filmMotionId,onMotionSelect:chooseFilmMotion,mode,playing,loopPlayback,onLoopPlaybackChange:setLoopPlayback,
-    onPlay:()=>{resetView();togglePlayback()},onCreateShot:beginSceneCreation,disabled:!!sceneCreation||showExport||!!transformMode||!valid||busy||importingFilmImage,
+    onPlay:()=>{resetView();togglePlayback()},onCreateShot:beginSceneCreation,disabled:!!sceneCreation||showExport||!!transformMode||!controlsReady||busy||importingFilmImage,
     editCurves:filmCurves,onEditCurves:setFilmCurves,onResetView:resetView,
     onLegacyAnimation:()=>{resumeFilmEditing();setFilmLegacy(true);setFilmCurves(false);setFilmMotionId(null);navigate('renders','Animation');}};
   const editFilmMechanism=()=>{filmReturn.current={frame:filmEditFrame,target:filmTarget};if(!filmTarget.startsWith('$'))setSelected(filmTarget);navigate('product','Model');};
   const returnToFilm=()=>{const saved=filmReturn.current;filmReturn.current=null;if(saved){chooseFilmTarget(saved.target);previewFrame(saved.frame);}};
   const filmPoseContent=scene?(filmTarget==='$camera'?<>
     {filmCameraOwners.length>0&&<p className="film-owner-note">Position follows {labelFor(scene, filmCameraOwners[0].motion).toLowerCase()}.</p>}
-    <fieldset className="film-camera-fields" disabled={busy||!valid}><CameraPanel scene={scene} frame={filmEditFrame} mode={mode} embedded cameraEnd={filmCamera.end} onCameraEndChange={filmCamera.onEndChange} cameraMotionDriven={!!filmCameraOwners.length} cameraTargetId={filmCamera.targetId} onCameraTargetChange={filmCamera.onTargetChange} samples={valid?samples:[]} onChange={changeFilm} onFrame={previewFrame} onResetView={resetView}/></fieldset>
-  </>:isLightTarget(filmTarget)?<FilmLightPose scene={scene} target={filmTarget} onChange={changeFilm} disabled={busy||!valid||filmOwners.length>0}/>
-  :<FilmPoseInspector scene={scene} frame={filmEditFrame} target={filmTarget} onChange={changeFilm} onMotionSelect={chooseFilmMotion} disabled={busy||!valid}/> ):null;
+    <fieldset className="film-camera-fields" disabled={busy||!controlsReady}><CameraPanel scene={scene} frame={filmEditFrame} mode={mode} embedded cameraEnd={filmCamera.end} onCameraEndChange={filmCamera.onEndChange} cameraMotionDriven={!!filmCameraOwners.length} cameraTargetId={filmCamera.targetId} onCameraTargetChange={filmCamera.onTargetChange} samples={valid?samples:[]} onChange={changeFilm} onFrame={previewFrame} onResetView={resetView}/></fieldset>
+  </>:isLightTarget(filmTarget)?<FilmLightPose scene={scene} target={filmTarget} onChange={changeFilm} disabled={busy||!controlsReady||filmOwners.length>0}/>
+  :<FilmPoseInspector scene={scene} frame={filmEditFrame} target={filmTarget} onChange={changeFilm} onMotionSelect={chooseFilmMotion} disabled={busy||!controlsReady}/> ):null;
   function cancelSceneCreation(returnToChoice=false){
     staticImport.current?.abort();staticImport.current=null;sceneFocus.current=null;setImportingFilmImage(false);
     setSceneCreation(current=>returnToChoice&&current&&!current.shotId?{step:'choose'}:null);
@@ -1082,12 +1104,12 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     setStillShowing(showing);if(showing)setPlaying(false);
   },[]);
   useEffect(()=>{
-    const suspended=stillShowing||exportReviewVisible;
+    const suspended=stillShowing||nativeProofShowing||exportReviewVisible;
     if(suspended)setPlaying(false);
     viewport.current?.setSuspended(suspended);viewportB.current?.setSuspended(suspended);
-  },[stillShowing,exportReviewVisible]);
+  },[stillShowing,nativeProofShowing,exportReviewVisible]);
   const stillBlocked=
-    !active?'Open the editor to render.':cleanupPreview?'Apply the cleanup preview or return to the original before rendering.':!valid||visibleViewportLoading?'Wait for the preview to load.':
+    !active?'Open the editor to render.':nativeProofShowing?'Return to preview to capture a browser snapshot.':cleanupPreview?'Apply the cleanup preview or return to the original before rendering.':!valid||visibleViewportLoading?'Wait for the preview to load.':
     busy?'Wait for the current operation.':transformMode?'Apply or cancel the transform first.':
     materialPreviewError?'Wait for a valid material preview.':
     scene?.comparison?'Use Export for a comparison render.':
@@ -1108,6 +1130,27 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     const still=await view.captureStill(signal);
     checkCurrent();
     return still;
+  };
+  const nativeProofScope=useMemo(()=>crypto.randomUUID(),[renderScene,project?.id,frame,stillViewVersion,mode,active,filmGuidesVisible,filmWorkspace,showExport,productWorkspace]);
+  const nativeProofScopeRef=useRef(nativeProofScope);nativeProofScopeRef.current=nativeProofScope;
+  const nativeProofActive=active&&!productWorkspace&&!playing&&!stillShowing&&!exportReviewVisible&&!sceneCreation;
+  const nativeProofReason=isStaticDemo||!caps.nativeProofAvailable?'Render proofs need a connected Cycles backend.':
+    !nativeProofActive?'Pause a 3D view to render a proof.':nativeProofInteracting?'Release the camera before rendering a proof.':cleanupPreview?'Apply the cleanup preview or return to the original first.':
+    !showExport&&hiddenParts.length>0?'Show all product parts before rendering a proof.':
+    transformMode?'Apply or cancel the transform before rendering a proof.':materialPreview?'Save or discard the material preview before rendering a proof.':
+    renderScene?.comparison?'Use Export to render both comparison views.':!valid||visibleViewportLoading?'Wait for the current view to load.':
+    busy?'Wait for the current operation.':samples[frame-1]?.clip?.kind!=='scene'?'Select a 3D scene to render a proof.':'';
+  const prepareNativeProof=async():Promise<NativeProofInput>=>{
+    if(nativeProofReason)throw new Error(nativeProofReason);
+    const source=renderSceneRef.current,view=viewport.current,key=nativeProofScopeRef.current,at=frameRef.current;
+    const sample=samplesRef.current[at-1];
+    if(!source||!view||!sample||evaluatedScene.current!==source)throw new Error('Wait for the current view to load.');
+    await view.setSample(sample);
+    if(nativeProofScopeRef.current!==key||renderSceneRef.current!==source||frameRef.current!==at)throw new DOMException('The view changed.','AbortError');
+    const pose=view.getProofView();if(!pose)throw new Error('Wait for the current camera to settle, then try again.');
+    const {aspect,inspection,...cameraOverride}=pose;
+    return {scene:source,frame:at,sourceDigest:digest,sourceKey:key,...nativeProofSize(aspect),samples:32,cameraOverride,
+      viewLabel:inspection?'Inspection view · saved shot unchanged':'Shot camera'};
   };
   const railWidth=340;
   return <div className="studio gesso-studio" data-export-active={showExport} ref={editorRoot} data-section-type={sectionType} style={{'--rail-width':`${railWidth}px`} as React.CSSProperties}>
@@ -1193,6 +1236,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
           {scene&&<TransformShortcuts scene={scene} frame={frame} target={transformTarget} enabled={active&&!stillShowing&&!showExport&&!frameSetup&&!sceneCreation&&!playing&&frame===filmEditFrame&&filmWorkspace&&filmSceneSelected&&filmTarget!=='$camera'&&!isLightTarget(filmTarget)&&layer!=='Output'&&!filmOwners.length&&valid&&!busy&&!materialPreview} viewport={host.current} createGesture={(target,pointer)=>viewport.current?.createTransformGesture(target,pointer,materializeAnimatedPose(transformDraft??scene,frame))??null} onStart={startTransform} onPreview={previewTransform} onCommit={commitTransform} onMode={updateTransformMode}/>}
           {materialPreview&&materialEditorVisible&&<div className="gesso-material-preview-label" role="status" aria-label="Material preview"><UiIcon name="circle"/>Preview</div>}
           </div>
+          {renderScene&&<NativeProof scopeKey={nativeProofScope} viewKey={`${project?.id}:${frame}:${stillViewVersion}:${mode}:${filmGuidesVisible}:${filmWorkspace}:${showExport}:${productWorkspace}`} ownerKey={project?.id??''} active={nativeProofActive} ready={!nativeProofReason} disabledReason={nativeProofReason} prepare={prepareNativeProof} onPresent={setNativeProofShowing}/>}
           {!showExport&&<ViewportStill scopeKey={stillScope} disabledReason={stillBlocked} onRender={renderStill} onPresent={showStill}/>}
           {cleanupPreview&&<div className="pick-hint" role="status">{cleanupPreview.label} · not applied<button onClick={()=>previewWorldCleanup(null)}>Return to current world</button></div>}
           {picking&&<div className="pick-hint" role="status">View {picking.side.toUpperCase()}: click {picking.kind==='floor'?'the floor':`measurement point ${calibrationDrafts[picking.side].points.length+1} of 2`}<button onClick={()=>setPicking(null)}>Cancel</button></div>}

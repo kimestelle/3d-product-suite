@@ -205,3 +205,14 @@ test('verified partial resume renders only missing frames under the original all
     publishFrame:async()=>{},temporaryRoot:path.join(f.dir,'gates'),onDecision:async r=>assert.deepEqual(r.frameNumbers,[1,2])});
   assert.equal(r.status,'verified');assert.deepEqual(rendered,[2]);
 });
+
+test('proof scheduling during candidate comparison leaves no false quality rejection', async t => {
+  const {options,dir}=await fixture(t),copy=await prepareWorldCopy(options);
+  let renders=0;
+  const yielded=Object.assign(new Error('proof waiting'),{code:'GESSO_PROOF_YIELD'});
+  await assert.rejects(captureWithWorldCopy({copy,frameNumbers:[1],loadAsset:async()=>{},
+    renderFrameBytes:async()=>{renders+=1;if(renders===2)throw yielded;return png();},publishFrame:async()=>assert.fail('Unapproved candidate was published'),
+    temporaryRoot:path.join(dir,'staging')}),error=>error===yielded);
+  await assert.rejects(fs.access(copy.qualityPath),/ENOENT/);
+  assert.deepEqual(await fs.readdir(path.join(dir,'staging')),[]);
+});

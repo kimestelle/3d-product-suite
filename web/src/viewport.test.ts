@@ -805,6 +805,7 @@ function orbitViewport(capture = false) {
   setup.view.canvas = canvas;
   setup.view.options.capture = capture;
   setup.view.options.onInteract = vi.fn();
+  setup.view.options.onInteractEnd = vi.fn();
   const add = vi.spyOn(canvas, 'addEventListener'); const remove = vi.spyOn(canvas, 'removeEventListener');
   const removeDocument = vi.spyOn(documentEvents, 'removeEventListener');
   setup.view.createControls();
@@ -819,6 +820,31 @@ function orbitViewport(capture = false) {
 }
 
 describe('studio camera inspection', () => {
+  it('publishes one completed interaction after pointer and wheel gestures, never during movement',()=>{
+    const {view,emit}=orbitViewport();emit('pointerdown');
+    for(let i=0;i<5;i++)emit('pointermove',{clientX:520+i*10,pageX:520+i*10});
+    expect(view.options.onInteract).toHaveBeenCalledOnce();expect(view.options.onInteractEnd).not.toHaveBeenCalled();
+    emit('pointerup');expect(view.options.onInteractEnd).toHaveBeenCalledOnce();
+    emit('lostpointercapture');expect(view.options.onInteractEnd).toHaveBeenCalledOnce();
+    emit('wheel',{deltaY:120});expect(view.options.onInteract).toHaveBeenCalledTimes(2);expect(view.options.onInteractEnd).toHaveBeenCalledTimes(2);
+  });
+
+  it('waits for the final touch and recovers a lost pointer capture without losing the camera',()=>{
+    const {view,emit}=orbitViewport();emit('pointerdown',{pointerType:'touch',pointerId:1});emit('pointerdown',{pointerType:'touch',pointerId:2,clientX:600,pageX:600});
+    emit('pointerup',{pointerType:'touch',pointerId:1});expect(view.options.onInteractEnd).not.toHaveBeenCalled();
+    emit('pointercancel',{pointerType:'touch',pointerId:2});expect(view.options.onInteractEnd).toHaveBeenCalledOnce();
+    emit('pointerdown');emit('pointermove',{clientX:580,pageX:580});const camera=view.camera.position.clone(),old=view.controls;
+    emit('lostpointercapture');expect(view.options.onInteractEnd).toHaveBeenCalledTimes(2);expect(view.controls).not.toBe(old);expect(view.camera.position.distanceTo(camera)).toBeLessThan(1e-10);
+    emit('pointerdown');emit('pointermove',{clientX:620,pageX:620});emit('pointerup');expect(view.options.onInteractEnd).toHaveBeenCalledTimes(3);
+  });
+
+  it('completes cancelled interactions when controls disable, the document hides or the viewport suspends',()=>{
+    const {view,emit}=orbitViewport();emit('pointerdown');view.setInspectionEnabled(false);expect(view.options.onInteractEnd).toHaveBeenCalledOnce();
+    view.setInspectionEnabled(true);emit('pointerdown');vi.stubGlobal('document',{hidden:true});view.handleVisibility();expect(view.options.onInteractEnd).toHaveBeenCalledTimes(2);
+    emit('pointerdown');view.setSuspended(true);expect(view.options.onInteractEnd).toHaveBeenCalledTimes(3);
+    view.setSuspended(false);emit('pointerdown');view.disposeControls();expect(view.options.onInteractEnd).toHaveBeenCalledTimes(4);
+  });
+
   it.each(['orbit', 'framed'])('keeps %s inspection through a material revision and resets to the revised shot', async mode => {
     const { view, emit } = orbitViewport();
     const fixture = glb();

@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { deflateSync } from 'node:zlib';
-import { atomicWrite, captureAuthHeaders, openManifest, parseArgs, projectBrowserCache, requestedFrames, sampleDigests, validatePng, verifyServedAsset } from './capture_splats.mjs';
+import { atomicWrite, captureAuthHeaders, openManifest, parseArgs, projectBrowserCache, proofDemand, requestedFrames, sampleDigests, validatePng, verifyServedAsset } from './capture_splats.mjs';
 
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const camera = { positionM: [1, 2, 3], targetM: [0, 1, 0], focalLengthMm: 50 };
@@ -59,6 +59,19 @@ async function temporary(t) {
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   return directory;
 }
+
+test('proof demand ignores stale, oversized and linked scheduling hints', async t => {
+  const root = await temporary(t), marker = path.join(root, 'demand.json'), now = Date.now();
+  assert.equal(await proofDemand(marker, now), false);
+  await fs.writeFile(marker, JSON.stringify({updatedAt:now/1000,waiting:1}));
+  assert.equal(await proofDemand(marker, now), true);
+  assert.equal(await proofDemand(marker, now+301000), false);
+  await fs.writeFile(marker, 'x'.repeat(4097));
+  assert.equal(await proofDemand(marker, now), false);
+  await fs.writeFile(marker, JSON.stringify({updatedAt:now/1000,active:true}));
+  const linked = path.join(root, 'linked.json'); await fs.symlink(marker, linked);
+  assert.equal(await proofDemand(linked, now), false);
+});
 
 function identity() {
   return {

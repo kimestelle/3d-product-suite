@@ -35,6 +35,8 @@ from .artwork import import_artwork
 from .hosting import HostedAccess, LoginRequired, return_path
 from .presets import PresetLibrary
 from .world_cleanup import WorldCleanup
+from .proofs import NativeProofService
+from .capture_schedule import run_scheduled_capture
 
 ARTIFACTS = {"scene.blend", "contact-sheet.png", "still-01.png", "still-02.png", "still-03.png"} | {item[1] for item in FORMATS.values()}
 ASSET_NAME = re.compile(r"[0-9a-f]{64}\.(?:glb|spz|ply|png|jpg|jpeg|webp|hdr|mp3|wav|m4a)\Z")
@@ -217,7 +219,7 @@ class RenderQueue:
                                    "--device", profile.get("executionPolicy", {}).get("capture", "software"),
                                    "--source-digest", job["sceneDigest"]]
                         command += ["--frames", ",".join(map(str, scene_frames))]
-                        jobs._run_process(command, output, "splat-capture.log", worker_fd=pipeline_lock.fileno())
+                        run_scheduled_capture(command, output, "splat-capture.log", worker_fd=pipeline_lock.fileno())
                     jobs._check_cancel(output)
                     request.update(pipelineState="running", stage="rendering")
                     jobs._atomic_json(output / "request.json", request)
@@ -253,8 +255,20 @@ class Application:
         self.polyhaven = PolyHavenLibrary(self.store.root, material_library=self.materials)
         self.renders = RenderQueue(self.store, base_url=f"http://127.0.0.1:{port}", blender=blender, ffmpeg=ffmpeg)
         self.comparison_renders = ComparisonJobs(self.renders)
+        self._proofs = None
+        self._proofs_lock = threading.Lock()
         self._render_capabilities = None
         self._capabilities_lock = threading.Lock()
+
+    @property
+    def proofs(self):
+        # Bootstrap and ordinary editing never start a native process or create
+        # proof storage. The renderer belongs to the first explicit request.
+        with self._proofs_lock:
+            if self._proofs is None:
+                self._proofs = NativeProofService(self.store.root, base_url=lambda: self.renders.base_url,
+                                                 blender=self.renders.blender)
+            return self._proofs
 
     def _render_tool_capabilities(self):
         # Match the worker's pinned-version check, once per running application.
@@ -286,13 +300,15 @@ class Application:
 
     def capabilities(self):
         import os
+        tools = self._render_tool_capabilities()
         return {"worldlabsConfigured": bool(os.environ.get("WORLDLABS_API_KEY")),
                 "worldCleanupAvailable": True,
+                "nativeProofAvailable": tools["blenderAvailable"],
                 "githubWorldsAvailable": shutil.which("gh") is not None and (not self.access.enabled or bool(os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))),
                 "githubWorkflowUrl": self.github.url,
                 "productMeshImportAvailable": shutil.which(self.renders.blender) is not None,
                 "productMeshFormats": [suffix[1:] for suffix in PRODUCT_SUFFIXES],
-                **self._render_tool_capabilities()}
+                **tools}
 
 
 def make_handler(app):
@@ -442,6 +458,10 @@ def make_handler(app):
                     return self._json(app.renders.list())
                 if path == "/api/comparison-renders":
                     return self._json(app.comparison_renders.list())
+                if len(parts) == 3 and parts[:2] == ["api", "proofs"]:
+                    return self._json(app.proofs.summary(parts[2]))
+                if len(parts) == 4 and parts[:2] == ["api", "proofs"] and parts[3] == "image.png":
+                    return self._file(app.proofs.artifact(parts[2]))
                 if len(parts) == 3 and parts[:2] == ["api", "projects"]:
                     return self._json(app.store.get(parts[2]))
                 if len(parts) == 5 and parts[:2] == ["api", "projects"] and parts[3] == "revisions":
@@ -544,6 +564,12 @@ def make_handler(app):
                     temp.unlink(missing_ok=True)
             body = self._body()
             if self.command == "POST":
+                if path == "/api/proofs":
+                    return self._json(app.proofs.submit(body), 202)
+                if path == "/api/proofs/session/cancel":
+                    return self._json(app.proofs.cancel_session(body.get("sessionId"), body.get("sequence")))
+                if len(parts) == 4 and parts[:2] == ["api", "proofs"] and parts[3] == "cancel":
+                    return self._json(app.proofs.cancel(parts[2]))
                 if path in ("/api/world-cleanup/analyze", "/api/world-cleanup/preview"):
                     from .worlds import verify_scene_assets
                     scene = validate_scene(body["scene"])
@@ -653,6 +679,8 @@ def serve(data_dir="workspace-data", *, host="127.0.0.1", port=8787, blender="bl
     except KeyboardInterrupt:
         print("Stopping editor server. Interrupted jobs remain resumable.", flush=True)
     finally:
+        if app._proofs is not None:
+            app._proofs.close()
         server.server_close()
 
 

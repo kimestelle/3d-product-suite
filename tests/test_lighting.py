@@ -67,7 +67,7 @@ class LightingTests(unittest.TestCase):
 
     def environment_adapter(self):
         source = ast.parse((ROOT / 'scripts/blender_scene.py').read_text())
-        fn = next(node for node in source.body if isinstance(node, ast.FunctionDef) and node.name == 'environment')
+        functions = [node for node in source.body if isinstance(node, ast.FunctionDef) and node.name in ('environment', 'studio_lights')]
         emitted = []
         # Light builders return the host object the adapter tags with the scene ID.
         def builder(kind):
@@ -79,7 +79,7 @@ class LightingTests(unittest.TestCase):
                      'primitive': lambda *args: SimpleNamespace(location=None),
                      'blender_position': lambda p: (p[0], -p[2], p[1]), 'blender_rotation': lambda q: q,
                      'area_light': builder('area'), 'spot_light': builder('spot')}
-        exec(compile(ast.Module(body=[fn], type_ignores=[]), '<environment>', 'exec'), namespace)
+        exec(compile(ast.Module(body=functions, type_ignores=[]), '<environment>', 'exec'), namespace)
         return emitted, namespace
 
     def test_blender_receives_spot_cone_blend_radius_and_scene_id(self):

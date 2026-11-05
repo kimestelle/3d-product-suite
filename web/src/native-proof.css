@@ -1,0 +1,15 @@
+.gesso-native-proof-toolbar .gesso-proof-auto[aria-pressed=true]{background:#f5f5f3;color:#111}
+.gesso-proof-progress{font-size:11px;color:#e8ad79}
+.gesso-proof-error{max-width:260px;font-size:11px;color:#ff968b}
+.gesso-proof-decode{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.gesso-native-proof-image{position:absolute;inset:0;z-index:7;pointer-events:none;background:#080808;display:flex;align-items:center;justify-content:center}
+.gesso-native-proof-image>img{width:100%;height:100%;object-fit:contain;pointer-events:none}
+.gesso-native-proof-caption{position:absolute;left:16px;right:16px;bottom:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;background:#171717ed;color:#f5f5f3;font-size:11px;line-height:16px;border:1px solid #343434;pointer-events:auto}
+.gesso-native-proof-caption button{flex:none;padding:5px 8px;background:#282828;color:inherit;border:1px solid #626262;border-radius:4px;font:inherit;cursor:pointer}
+.gesso-native-proof-caption button:focus-visible{outline:2px solid #f5f5f3;outline-offset:2px}
+.gesso-native-proof-toolbar{position:absolute;top:16px;left:16px;max-width:calc(100% - 210px);z-index:12;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:0;color:#f5f5f3}
+.gesso-native-proof-toolbar[hidden]{display:none}
+.gesso-native-proof-toolbar>button{font:inherit;font-size:11px;line-height:16px;color:inherit;background:#191919d9;border:1px solid #626262;border-radius:4px;padding:5px 8px;cursor:pointer}
+.gesso-native-proof-toolbar button:disabled{opacity:.45;cursor:default}
+.gesso-native-proof-toolbar button:focus-visible{outline:2px solid #f5f5f3;outline-offset:2px}
+@media(max-width:1100px){.gesso-proof-progress{max-width:110px}.gesso-native-proof-caption{left:12px;right:12px}}

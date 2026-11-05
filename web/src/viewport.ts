@@ -1,4 +1,5 @@
 import {viewportSceneKey} from './viewportSceneKey';
+import {canUpdateViewportScene,materialPreviewResourceKey} from './viewportUpdate';
 import {gaussianRenderAsset,loadGaussianSourceBytes} from './gaussianSources';
 import {resolvePostProcessing,postProcessingIsNeutral,analyzeDisplayPixels,type PostProcessingSettings,type PostProcessingAnalysis} from './postProcessing';
 import {createModelOutline,renderModelOutline} from './modelOutline';
@@ -67,6 +68,8 @@ export type ViewportOptions = {
   onWorldPoint?: (point: WorldPointPick) => void;
   onSurfacePoint?: (point: SurfacePointPick) => void;
   onInteract?: () => void;
+  /** Once after an orbit/pan/zoom gesture ends or is cancelled. */
+  onInteractEnd?: () => void;
   onFilmGuide?: (guide: FilmPresentationGuide | null) => void;
 };
 
@@ -74,7 +77,7 @@ type MaterialPreviewState = {
   descriptor: MaterialPreview | null;
   revision: number;
   abort: AbortController | null;
-  applied: { material: THREE.MeshPhysicalMaterial; originals: Map<THREE.Mesh, { material: THREE.Material | THREE.Material[]; castShadow: boolean }> } | null;
+  applied: { material: THREE.MeshPhysicalMaterial; descriptor: MaterialPreview; originals: Map<THREE.Mesh, { material: THREE.Material | THREE.Material[]; castShadow: boolean }> } | null;
   pending: { promise: Promise<void>; resolve: () => void; reject: (error: unknown) => void } | null;
   running: { revision: number; loadVersion: number; promise: Promise<void> } | null;
 };
@@ -90,6 +93,7 @@ type DeferredWorld = {
 };
 
 export type ViewportStill = {blob: Blob; width: number; height: number};
+export type ProofView = {positionM:number[];targetM:number[];focalLengthMm:number;depthOfField:DepthOfFieldSample;aspect:number;inspection:boolean};
 type StillPresentation = {
   pixelRatio: number;
   assertCurrent: () => void;
@@ -120,6 +124,7 @@ export class StudioViewport {
   private studioLights: Map<string, {light: THREE.RectAreaLight | THREE.SpotLight; target: THREE.Object3D | null; shadow: THREE.DirectionalLight | null}> | null = null;
   private rigLights() { return this.studioLights ??= new Map(); }
   private readonly parts = new Map<string, THREE.Object3D>();
+  private partRecordsDirty = false;
   private modelOutline: ReturnType<typeof createModelOutline> | null = null;
   private readonly originalVisibility = new Map<THREE.Object3D, boolean>();
   private productMaterialsReady = false;
@@ -146,8 +151,10 @@ export class StudioViewport {
   private depthOfFieldPreview: DepthOfFieldPreview | null = null;
   private filmOutputAspect = 9 / 16;
   private presentedFilm: {camera: THREE.PerspectiveCamera; target: THREE.Vector3} | null = null;
+  private proofPresentation: {view:ProofView;loadVersion:number;sceneKey:string|null;sampleKey:string;finishKey:string;presentationVersion:number;draftRevision:number} | null = null;
   private sampledCamera: { position: THREE.Vector3; quaternion: THREE.Quaternion; fov: number; target: THREE.Vector3 } | null = null;
   private controls: OrbitControls | null = null;
+  private controlsInteracting = false;
   private interactionSurface: HTMLElement | null = null;
   private controlSurface: { element: HTMLElement; cursor: string; touchAction: string; pointers: Set<number>; down: (event: PointerEvent) => void; end: (event: PointerEvent) => void } | null = null;
   private controlListeners: { start: () => void; change: () => void; end: () => void } | null = null;
@@ -204,6 +211,11 @@ export class StudioViewport {
   private imageFinish:PostProcessingSettings=resolvePostProcessing();
   private bypassImageFinish=false;
   private loadedVisualKey:string|null=null;
+  private requestedVisualKey:string|null=null;
+  private loadedSource:any=null;
+  private sceneUpdateRequest=0;
+  private lightingObjects=new Set<THREE.Object3D>();
+  private lightingRigOrigin:THREE.Vector3|null=null;
   private previewQuality:PreviewQualityController|null=null;
   private previewConnection:PreviewDataConnection|null=null;
   private onPreviewDataChange=()=>this.previewQuality?.setSaveData(this.previewConnection?.saveData===true);
@@ -254,7 +266,14 @@ export class StudioViewport {
     const element = this.interactionSurface ?? this.canvas;
     const pointers = new Set<number>();
     const down = (event: PointerEvent) => { if (this.controls?.enabled) pointers.add(event.pointerId); };
-    const end = (event: PointerEvent) => { pointers.delete(event.pointerId); };
+    const end = (event: PointerEvent) => {
+      const tracked=pointers.delete(event.pointerId);
+      // OrbitControls handles pointerup/cancel, but has no lost-capture
+      // listener. Replace that cancelled instance so its private pointer
+      // list cannot poison the next gesture. Preserve the exact live pose.
+      if(tracked&&event.type==='lostpointercapture'){this.rebuildControls(this.interactionSurface);return;}
+      if(!pointers.size)this.finishControlsInteraction();
+    };
     this.controlSurface = { element, cursor: element.style.cursor, touchAction: element.style.touchAction, pointers, down, end };
     // Track only events that reach this surface. Decal capture handlers claim
     // artwork drags before these native camera listeners run.
@@ -281,6 +300,7 @@ export class StudioViewport {
 
   private updateControlsEnabled(): void {
     if (this.controls) this.controls.enabled = this.inspectionEnabled && !(this.filmContent && this.filmClip?.kind !== 'scene') && !this.disposed && !this.loading && !(this.deferredWorld?.loading && !this.productPreview) && !this.loadFailed && !this.awaitingSample && !this.worldPickEnabled && !this.surfacePickEnabled && this.parts.size > 0;
+    if(this.controls&&!this.controls.enabled&&this.controlsInteracting)this.rebuildControls(this.interactionSurface);
     (this.controlSurface?.element ?? this.canvas).style.cursor = this.worldPickEnabled || this.surfacePickEnabled ? 'crosshair' : this.controls?.enabled ? 'grab' : '';
   }
 
@@ -290,13 +310,19 @@ export class StudioViewport {
     this.framedSelection = false;
     this.framedWorldObjectId = null;
     (this.controlSurface?.element ?? this.canvas).style.cursor = 'grabbing';
-    this.options.onInteract?.();
+    if(!this.controlsInteracting){this.controlsInteracting=true;this.options.onInteract?.();}
   }
 
   private onControlsChange(): void { this.invalidate(); }
-  private onControlsEnd(): void { this.updateControlsEnabled(); }
+  private onControlsEnd(): void { this.finishControlsInteraction();this.updateControlsEnabled(); }
+
+  private finishControlsInteraction():void {
+    if(!this.controlsInteracting)return;
+    this.controlsInteracting=false;this.options.onInteractEnd?.();
+  }
 
   private disposeControls(): void {
+    this.finishControlsInteraction();
     if (!this.controls) return;
     if (this.controlListeners) {
       this.controls.removeEventListener('start', this.controlListeners.start);
@@ -328,6 +354,10 @@ export class StudioViewport {
   setInteractionSurface(element: HTMLElement | null): void {
     if (!this.options.studioMode || this.options.capture || this.disposed) return;
     if ((element ?? this.canvas) === (this.interactionSurface ?? this.canvas)) return;
+    this.rebuildControls(element);
+  }
+
+  private rebuildControls(element:HTMLElement|null):void {
     const target = this.controls?.target.clone() ?? new THREE.Vector3(0, .073, 0);
     const position = this.camera.position.clone(), quaternion = this.camera.quaternion.clone();
     const zoom = this.camera.zoom;
@@ -342,11 +372,13 @@ export class StudioViewport {
     this.camera.updateMatrixWorld(true);
   }
 
-  private onVisibility = () => {
+  private onVisibility = () => this.handleVisibility();
+
+  private handleVisibility():void {
     this.updatePreviewQualitySuspension();
-    if (document.hidden) this.cancelRender();
+    if (document.hidden) {this.cancelRender();if(this.controlsInteracting)this.rebuildControls(this.interactionSurface);}
     else if (this.dirty) this.invalidate();
-  };
+  }
 
   private onContextLost = (event: Event) => {
     event.preventDefault();
@@ -452,7 +484,7 @@ export class StudioViewport {
     if (this.options.capture || this.suspended === suspended) return;
     this.suspended = suspended;
     this.updatePreviewQualitySuspension();
-    if (suspended) this.cancelRender();
+    if (suspended) {this.cancelRender();if(this.controlsInteracting)this.rebuildControls(this.interactionSurface);}
     else this.invalidate();
   }
 
@@ -850,7 +882,7 @@ export class StudioViewport {
     this.applyPartPreview();
   }
 
-  private indexProductParts(source: any): void {
+  private indexProductParts(source: any, preserveVisibility = false): void {
     const records: ViewportPart[] = [];
     for (const specification of source.product.components) {
       const root = this.components.get(specification.id);
@@ -876,10 +908,9 @@ export class StudioViewport {
         for (const child of object.children) visit(child, currentParent);
       };
       for (const child of root.children) visit(child, specification.id);
-      root.traverse(object => this.originalVisibility.set(object, object.visible));
+      if(!preserveVisibility)root.traverse(object => this.originalVisibility.set(object, object.visible));
     }
-    this.rebuildUvProbeIndex();
-    this.applyPartPreview();
+    if(!preserveVisibility){this.rebuildUvProbeIndex();this.applyPartPreview();}
     this.options.onParts?.(records);
   }
 
@@ -1554,10 +1585,10 @@ export class StudioViewport {
       const support = productSupportOrigin(source, this.latestSample?.props);
       const contactCenter = new THREE.Vector2(rigOrigin.x, rigOrigin.z);
       const productScale = source.environment.studioSizeM === undefined ? 1 : (source.placement.scale ?? 1);
-      const contactRadius = Math.max(source.product.dimensionsM[0], source.product.dimensionsM[2]) * productScale * .9;
+      const contactRadius = {value:Math.max(source.product.dimensionsM[0], source.product.dimensionsM[2]) * productScale * .9};
       shadowMaterial.onBeforeCompile = shader => {
         shader.uniforms.contactCenter = { value: contactCenter };
-        shader.uniforms.contactRadius = { value: contactRadius };
+        shader.uniforms.contactRadius = contactRadius;
         shader.vertexShader = 'varying vec2 contactPosition;\n' + shader.vertexShader.replace('#include <begin_vertex>',
           '#include <begin_vertex>\ncontactPosition = (modelMatrix * vec4(position, 1.0)).xz;');
         shader.fragmentShader = 'varying vec2 contactPosition;\nuniform vec2 contactCenter;\nuniform float contactRadius;\n' + shader.fragmentShader.replace('#include <tonemapping_fragment>',
@@ -1566,6 +1597,7 @@ export class StudioViewport {
       shadowMaterial.customProgramCacheKey = () => 'product-contact-shadow-v1';
       const ground = new THREE.Mesh(new THREE.PlaneGeometry(span, span), shadowMaterial);
       ground.name = 'Product contact shadow';
+      ground.userData.gessoContactShadow={center:contactCenter,radius:contactRadius};
       ground.rotation.x = -Math.PI / 2;
       ground.position.set(support[0], support[1] - .0001, support[2]);
       ground.receiveShadow = true;
@@ -1573,6 +1605,20 @@ export class StudioViewport {
       this.productGround = ground;
       this.content.add(ground);
     }
+    this.installLighting(source);
+  }
+
+  private installLighting(source:any):void {
+    const before=new Set(this.content.children);
+    this.makeLighting(source);
+    this.lightingObjects??=new Set();
+    for(const object of this.content.children)if(!before.has(object))this.lightingObjects.add(object);
+    this.lightingRigOrigin=this.studioRigOrigin(source);
+  }
+
+  private makeLighting(source:any):void {
+    const studioSize=source.environment.studioSizeM??Math.max(...source.product.dimensionsM);
+    const rigOrigin=this.studioRigOrigin(source);
     if (source.lighting) {
       if (!areaLightUniformsReady) { RectAreaLightUniformsLib.init(); areaLightUniformsReady = true; }
       const lighting = source.lighting;
@@ -1765,6 +1811,14 @@ export class StudioViewport {
     const revision = state.revision, loadVersion = this.loadVersion;
     if (state.running?.revision === revision && state.running.loadVersion === loadVersion) return state.running.promise;
     const descriptor = state.descriptor;
+    if(state.applied&&state.applied.descriptor&&materialPreviewResourceKey(state.applied.descriptor)===materialPreviewResourceKey(descriptor)){
+      this.restoreFocusMaterials();
+      this.updateSurfaceValues(state.applied.material,descriptor.material);
+      state.applied.descriptor=structuredClone(descriptor);
+      this.applyPartPreview();this.invalidate();
+      state.pending?.resolve();state.pending=null;
+      return Promise.resolve();
+    }
     const abort = new AbortController(); state.abort = abort;
     const material = createSurfaceMaterial(descriptor.material);
     let published = false;
@@ -1799,7 +1853,7 @@ export class StudioViewport {
           originals.set(mesh, { material: mesh.material, castShadow: mesh.castShadow });
           mesh.material = Array.isArray(mesh.material) ? mesh.material.map(() => material) : material;
         }
-        state.applied = { material, originals }; published = true;
+        state.applied = { material, descriptor: structuredClone(descriptor), originals }; published = true;
         this.applyPartPreview();
         this.invalidate();
         state.pending?.resolve(); state.pending = null;
@@ -1831,6 +1885,122 @@ export class StudioViewport {
     return JSON.stringify((source.product?.components || []).map((component: any) => [
       component.id, component.shape, component.asset?.sha256 || null,
     ]).sort((a: unknown[], b: unknown[]) => String(a[0]).localeCompare(String(b[0]))));
+  }
+
+  /** Update uniform values while retaining decoded maps, substrate shader hooks
+   * and original source-slot identity. Shader topology changes recompile only
+   * that material; they never reload geometry or immutable texture bytes. */
+  private updateSurfaceValues(material:THREE.MeshPhysicalMaterial,specification:MaterialSpecification):void {
+    const rgba=specification.baseColor,transmission=specification.transmission??0;
+    const transparent=rgba[3]<1||material.alphaTest>0;
+    const recompile=material.transparent!==transparent||(material.transmission>0)!==(transmission>0);
+    material.name=specification.name??'';material.color.copy(this.color(rgba));
+    material.roughness=specification.roughness;material.metalness=specification.metallic;
+    material.opacity=rgba[3];material.transparent=transparent;material.transmission=transmission;
+    material.ior=specification.ior??1.5;material.thickness=transmission ? .006 : 0;
+    material.normalScale.setScalar(specification.normalScale??1);material.bumpScale=specification.heightScaleM??0;
+    const repeat=specification.textureRepeat??[1,1];
+    for(const texture of [material.map,material.normalMap,material.roughnessMap,material.metalnessMap,material.bumpMap])texture?.repeat.fromArray(repeat);
+    if(recompile)material.needsUpdate=true;
+  }
+
+  private updateProductSurfaceValues(source:any):void {
+    const presets=new Map<string,MaterialSpecification>((source.product.materialPresets??[]).map((preset:any)=>[preset.id,preset.material]));
+    const updated=new Set<THREE.Material>();
+    for(const component of source.product.components){
+      const root=this.components.get(component.id);if(!root)continue;
+      root.userData.gessoAssemblyRotation=[...component.assembly.rotationXyzw];
+      const visit=(object:THREE.Object3D,inherited:MaterialSpecification|undefined)=>{
+        if(object.userData.gessoArtwork)return;
+        const binding=object.userData.gessoMaterialBindingPresetId;
+        const specification=binding?presets.get(binding):inherited;
+        if(object instanceof THREE.Mesh&&specification)for(const material of Array.isArray(object.material)?object.material:[object.material]){
+          if(material instanceof THREE.MeshPhysicalMaterial&&!updated.has(material)){
+            this.updateSurfaceValues(material,specification);updated.add(material);
+          }
+        }
+        for(const child of object.children)visit(child,specification);
+      };
+      visit(root,component.shape!=='mesh'||component.materialOverride===true?component.material:undefined);
+    }
+  }
+
+  private updateLighting(source:any,previous:any):void {
+    const lighting=source.lighting;
+    const topology=(value:any)=>JSON.stringify(value?.lights?.filter((light:any)=>light.enabled&&light.powerW!==0).map((light:any)=>[light.id,light.type??'area'])??null);
+    const rigChanged=this.studioRigOrigin(source).distanceToSquared(this.lightingRigOrigin??this.studioRigOrigin(previous))>1e-20;
+    if(topology(lighting)!==topology(previous.lighting)||(!lighting&&rigChanged)){
+      for(const object of this.lightingObjects??[]){
+        if(object instanceof THREE.Light)(object as THREE.DirectionalLight|THREE.SpotLight).shadow?.dispose();
+        object.removeFromParent();
+      }
+      this.lightingObjects?.clear();this.studioLights?.clear();this.installLighting(source);
+    }else if(lighting){
+      const size=source.environment.studioSizeM??Math.max(...source.product.dimensionsM);
+      const ambient=this.content.children.find(object=>object instanceof THREE.HemisphereLight) as THREE.HemisphereLight|undefined;
+      if(ambient){ambient.color.copy(this.color(lighting.ambientColor??source.environment.worldColor));ambient.intensity=lighting.ambientStrength*(1.2/.45);}
+      for(const specification of lighting.lights){
+        const entry=this.studioLights?.get(specification.id);if(!entry)continue;
+        const aim=new THREE.Vector3().fromArray(specification.targetM),position=new THREE.Vector3().fromArray(specification.positionM);
+        const distance=Math.max(.001,position.distanceTo(aim));
+        entry.light.name='Studio / '+specification.name;entry.light.color.copy(this.color(specification.color));entry.light.position.copy(position);
+        if(entry.light instanceof THREE.SpotLight){
+          entry.light.intensity=specification.powerW/(4*Math.PI);entry.light.angle=THREE.MathUtils.degToRad((specification.coneDeg??40)/2);
+          entry.light.penumbra=specification.blend??.3;entry.light.target.position.copy(aim);
+          entry.light.shadow.camera.near=Math.max(.001,distance*.1);entry.light.shadow.camera.far=distance*3+size*10;
+          entry.light.shadow.camera.updateProjectionMatrix();
+        }else{
+          const side=specification.diameterM*Math.sqrt(Math.PI)/2;
+          entry.light.width=side;entry.light.height=side;entry.light.intensity=specification.powerW/(Math.PI*side*side);entry.light.lookAt(aim);
+          if(entry.shadow){
+            entry.shadow.color.copy(entry.light.color);entry.shadow.intensity=specification.powerW/Math.max(.001,distance*distance)*.035;
+            entry.shadow.position.copy(position);entry.shadow.target.position.copy(aim);
+            entry.shadow.shadow.camera.far=Math.max(size*15,distance*2);entry.shadow.shadow.camera.updateProjectionMatrix();
+          }
+        }
+      }
+    }
+    if(lighting?.hdri){this.scene.environmentIntensity=lighting.hdri.intensity;this.scene.environmentRotation.set(0,lighting.hdri.rotationDeg*Math.PI/180,0);}
+  }
+
+  private updatePersistentScene(source:any,initialSample?:any):void {
+    const previous=this.loadedSource;
+    const partLayout=(value:any)=>JSON.stringify([value.placement.scale,value.product.components.map((component:any)=>[component.assembly.scale,component.sourceNodes])]);
+    this.partRecordsDirty ||= partLayout(previous)!==partLayout(source);
+    this.restoreFocusMaterials();this.restoreMaterialPreview();
+    this.updateProductSurfaceValues(source);
+    const oldFloor=sceneFloorY(previous),newFloor=sceneFloorY(source);
+    for(const object of this.environmentObjects.keys()){
+      if(object.userData.objectId===`plinth:${source.environment.plinth.id||'plinth'}`){
+        object.position.fromArray(source.environment.plinth.translationM);object.quaternion.fromArray(source.environment.plinth.rotationXyzw??[0,0,0,1]);
+        const visible=source.environment.plinth.visible!==false;this.environmentObjects.set(object,visible);object.visible=visible;
+        if(object instanceof THREE.Mesh&&object.material instanceof THREE.MeshPhysicalMaterial&&source.environment.plinth.material)this.updateSurfaceValues(object.material,source.environment.plinth.material);
+      }
+      if(object.name==='Authored environment sweep'&&object instanceof THREE.Mesh){
+        object.position.y+=newFloor-oldFloor;(object.material as THREE.MeshStandardMaterial).color.copy(this.color(source.environment.worldColor));
+      }
+    }
+    for(const specification of source.environment.props??[]){
+      const entry=this.sceneProps?.get(specification.id);if(!entry)continue;
+      entry.source={translationM:[...specification.translationM],rotationXyzw:[...specification.rotationXyzw]};
+      if(specification.shape!=='mesh'||specification.materialOverride===true)entry.object.traverse(object=>{
+        if(object instanceof THREE.Mesh)for(const material of Array.isArray(object.material)?object.material:[object.material])if(material instanceof THREE.MeshPhysicalMaterial)this.updateSurfaceValues(material,specification.material);
+      });
+    }
+    this.latestSample=initialSample??this.latestSample;
+    const support=productSupportOrigin(source,this.latestSample?.props),pivot=new THREE.Vector3().fromArray(source.placement.translationM).add(new THREE.Vector3().fromArray(support));
+    this.transformPlacement={pivot,scale:source.placement.scale??1};
+    if(this.productGround){
+      this.productGround.position.set(support[0],support[1]-.0001,support[2]);
+      const contact=this.productGround.userData.gessoContactShadow;
+      if(contact){const origin=this.studioRigOrigin(source);contact.center.set(origin.x,origin.z);contact.radius.value=Math.max(source.product.dimensionsM[0],source.product.dimensionsM[2])*(source.environment.studioSizeM===undefined?1:source.placement.scale??1)*.9;}
+    }
+    this.updateLighting(source,previous);
+    this.environmentBackground=this.color(source.environment.worldColor);
+    this.filmOutputAspect=source.render?.width/source.render?.height||this.filmOutputAspect;
+    this.applyFilmProjection(this.camera,this.pendingSize);
+    this.modelOutline?.dispose();this.modelOutline=null;
+    this.applyPartPreview();
   }
 
   /** Borrow the canonical Gaussian for one accurate pass without replacing the
@@ -1989,9 +2159,25 @@ export class StudioViewport {
   async load(source: any, assetUrl?: string, initialSample?: any): Promise<void> {
     // Export quality gates switch an immutable world URL while retaining the
     // canonical scene. That explicit source must participate in capture reuse.
+    const updateRequest=this.sceneUpdateRequest=(this.sceneUpdateRequest??0)+1;
     const visualKey=viewportSceneKey(source)+(this.options.capture?`\0${assetUrl??''}`:'');
+    this.requestedVisualKey=visualKey;
     this.setImageFinish(source.postProcessing);
     if(!this.disposed&&!this.loading&&!this.loadFailed&&this.loadedVisualKey===visualKey)return;
+    if(!this.options.capture&&!this.disposed&&!this.loading&&!this.loadFailed&&!this.awaitingSample
+        &&source.environment?.plinth&&source.product?.dimensionsM
+        &&this.loadedSource&&canUpdateViewportScene(this.loadedSource,source)){
+      const version=this.loadVersion;
+      this.frameRequest++;this.presentationVersion++;
+      await this.frameQueue.catch(()=>{});
+      if(this.liveRender)await this.liveRender;
+      if(this.disposed||version!==this.loadVersion||updateRequest!==this.sceneUpdateRequest)return;
+      this.updatePersistentScene(source,initialSample);
+      this.loadedSource=JSON.parse(JSON.stringify(source));this.loadedVisualKey=visualKey;
+      await this.restoreMaterialPreviewAfterLoad(version);
+      if(this.disposed||version!==this.loadVersion||updateRequest!==this.sceneUpdateRequest)return;
+      this.applyProductPreview();this.invalidate();return;
+    }
     if (Number.isFinite(source.render?.width) && Number.isFinite(source.render?.height) && source.render.width > 0 && source.render.height > 0) {
       this.filmOutputAspect = source.render.width / source.render.height;
       this.applyFilmProjection(this.camera, this.pendingSize);
@@ -2066,6 +2252,7 @@ export class StudioViewport {
       if (version === this.loadVersion && !this.disposed) {
         this.worldReady = !!this.worldRoot;
         this.loadedVisualKey=visualKey;
+        this.loadedSource=JSON.parse(JSON.stringify(source));
         this.options.onReady?.();
       }
     } catch (error: any) {
@@ -2084,6 +2271,32 @@ export class StudioViewport {
 
   private assetUrl(asset: any): string {
     return sceneAssetUrl(asset);
+  }
+
+  /** Current optical view, expressed in the same vertical 36mm sensor model as
+   * Cycles. Film guides request their inset gate; normal inspection requests
+   * the entire visible viewport. No document or camera state is changed. */
+  getProofView():ProofView|null {
+    if(this.disposed||this.loading||this.loadFailed||this.awaitingSample||this.productPreview||this.controlsInteracting
+        ||this.sampledLoadVersion!==this.loadVersion||!this.pendingSize||this.filmClip?.kind!=='scene')return null;
+    const shown=this.proofPresentation;
+    if(!shown||shown.loadVersion!==this.loadVersion||shown.sceneKey!==(this.requestedVisualKey??this.loadedVisualKey)
+      ||shown.sampleKey!==JSON.stringify(this.latestSample)||shown.finishKey!==JSON.stringify(this.imageFinish)
+      ||shown.presentationVersion!==(this.presentationVersion??0)
+      ||shown.draftRevision!==(this.materialPreviewState?.revision??0))return null;
+    return structuredClone(shown.view);
+  }
+
+  private proofView(camera:THREE.PerspectiveCamera,size:{width:number;height:number},gate:{width:number;height:number},
+    target:THREE.Vector3|undefined,optics:DepthOfFieldSample|null,inspection:boolean):ProofView|null {
+    const aspect=gate.width/gate.height;
+    const focalLengthMm=18/Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*camera.zoom/(gate.height/size.height);
+    const position=camera.position.clone(),direction=camera.getWorldDirection(new THREE.Vector3());
+    const distance=Math.max(.001,position.distanceTo(target??position.clone().add(direction)));
+    const aim=position.clone().addScaledVector(direction,distance);
+    if(![...position.toArray(),...aim.toArray(),aspect,focalLengthMm].every(Number.isFinite)||aspect<=0||focalLengthMm<1||focalLengthMm>1000)return null;
+    return {positionM:position.toArray(),targetM:aim.toArray(),focalLengthMm,
+      depthOfField:{...(optics??{enabled:false,fStop:2.8,focusDistanceM:distance})},aspect,inspection};
   }
 
   async frame(sample: any): Promise<void> {
@@ -2121,6 +2334,7 @@ export class StudioViewport {
         part.matrix.fromArray(pose.localMatrix);
         part.matrixWorldNeedsUpdate = true;
       }
+      if(this.partRecordsDirty&&this.loadedSource){this.partRecordsDirty=false;this.indexProductParts(this.loadedSource,true);}
       // The same sampled exclusion list drives Blender export. Only reapply
       // appearance when it changes; animation frames must not recreate focus materials.
       const removed: string[] = sample.removedPartIds ?? [];
@@ -2229,6 +2443,8 @@ export class StudioViewport {
     const size = this.pendingSize;
     const ratio = still?.pixelRatio ?? (this.options.capture ? 1 : this.previewBuffer(size).pixelRatio);
     const presentationVersion = this.presentationVersion ?? 0;
+    const proofRevision={loadVersion:version,sceneKey:this.loadedVisualKey,sampleKey:JSON.stringify(this.latestSample),
+      presentationVersion,draftRevision:this.materialPreviewState?.revision??0};
     if (this.filmContent && !this.productPreview && this.filmClip && this.filmClip.kind !== 'scene') {
       this.imageRenderer ??= new FilmImageRenderer();
       if (ratio !== (this.renderedPixelRatio ?? 1)) {
@@ -2240,6 +2456,7 @@ export class StudioViewport {
       const gate = this.filmGuides ? filmGateRect(size.width, size.height, this.filmOutputAspect) : {x: 0, y: 0, ...size};
       this.imageRenderer.draw(this.renderer, this.filmClip, size, gate);
       this.presentedFilm = null;
+      this.proofPresentation = null;
       this.options.onFilmGuide?.(this.filmGuides && !this.options.capture
         ? {gate, viewportWidth: size.width, viewportHeight: size.height} : null);
       if (settle) this.renderer.getContext().finish();
@@ -2262,6 +2479,9 @@ export class StudioViewport {
       : null;
     const spark = this.spark;
     const optics = this.sampledOptics ? {...this.sampledOptics, enabled: this.sampledOptics.enabled && !this.productPreview} : null;
+    const proofGate=this.filmGuides?filmGateRect(size.width,size.height,this.filmOutputAspect):size;
+    const proof=this.proofView(camera,size,proofGate,
+      this.inspectingCamera&&this.controls?this.controls.target:this.sampledCamera?.target,optics,this.inspectingCamera);
     const focalLengthMm = 18 / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
     if (spark) {
       spark.focalDistance = optics?.enabled ? optics.focusDistanceM : 0;
@@ -2322,6 +2542,7 @@ export class StudioViewport {
       this.presentedFilm = {camera: camera.clone(), target: new THREE.Vector3().fromArray(filmGuide.targetM)};
       this.options.onFilmGuide?.(filmGuide);
     }
+    this.proofPresentation=proof?{...proofRevision,finishKey:JSON.stringify(this.imageFinish),view:proof}:null;
     if (settle) this.renderer.getContext().finish();
     this.reportPresented(version);
   }
@@ -2722,6 +2943,7 @@ export class StudioViewport {
     if (this.materialPreviewState) this.materialPreviewState.running = null;
     this.restoreMaterialPreview();
     this.parts.clear();
+    this.partRecordsDirty=false;
     this.originalVisibility.clear();
     this.removedPartIds?.clear();
     this.transformPlacement = null;
@@ -2757,6 +2979,9 @@ export class StudioViewport {
     this.environmentMap?.dispose(); this.environmentMap = null;
     this.productGround = null;
     this.studioLights?.clear();
+    this.lightingObjects?.clear();
+    this.lightingRigOrigin=null;
+    this.loadedSource=null;
     this.sceneProps?.clear();
     this.latestSample = null;
   }
@@ -2897,6 +3122,7 @@ export function createViewport(host: HTMLElement, options: Omit<ViewportOptions,
     setHiddenParts(ids: string[]) { viewport.setHiddenParts(ids); },
     setWorldCleanupSelection(selection: WorldCleanupSelection | null) { viewport.setWorldCleanupSelection(selection); },
     frameWorldCleanupSelection() { return viewport.frameWorldCleanupSelection(); },
+    getProofView() { return viewport.getProofView(); },
     frameSelection() { viewport.frameSelection(); },
     fitProductInWorld(sample: any, aspect: number) { return viewport.fitProductInWorld(sample, aspect); },
     freezeSelectionFraming() { viewport.freezeSelectionFraming(); },

@@ -25,6 +25,7 @@ import struct
 import os
 import sys
 import tempfile
+import time
 
 import bpy
 from mathutils import Matrix, Quaternion, Vector
@@ -878,6 +879,13 @@ def environment(source, samples_root=None, first_sample=None):
         bpy.context.collection.objects.link(floor)
         sweep_color = source["environment"].get("worldColor", [0.26, 0.28, 0.26])
         floor.data.materials.append(material("Set / studio sweep", (*sweep_color, 1), 0.72))
+    studio_lights(source, first_sample)
+    return props
+
+
+def studio_lights(source, first_sample=None):
+    """The exact export rig, also reusable by the persistent proof renderer."""
+    studio_size = source["environment"].get("studioSizeM", max(source["product"]["dimensionsM"]))
     if "lighting" in source:
         for light in source["lighting"]["lights"]:
             if light["enabled"]:
@@ -888,7 +896,8 @@ def environment(source, samples_root=None, first_sample=None):
                     obj = area_light("Studio / " + light["name"], position, target, light["powerW"], light["diameterM"], light["color"])
                 # The sampled light poses are matched back by scene ID, never by name.
                 obj["gesso_light_id"] = light["id"]
-        return props
+                obj["gesso_studio_light"] = True
+        return
     # Use the fixed stage reference when supplied; legacy scenes follow product size.
     size = studio_size
     scale = size / 0.12
@@ -899,8 +908,9 @@ def environment(source, samples_root=None, first_sample=None):
         ("Studio / cool fill", (0.22, -0.07, 0.19), 0.8, 0.20, (0.82, 0.91, 1.0)),
         ("Studio / edge strip", (0.06, 0.19, 0.30), 3.4, 0.16, (1.0, 0.98, 0.90)),
     ):
-        area_light(name, Vector(position) + Vector(offset) * scale, target, power * scale * scale, diameter * scale, color)
-    return props
+        obj = area_light(name, Vector(position) + Vector(offset) * scale, target, power * scale * scale, diameter * scale, color)
+        obj["gesso_studio_light"] = True
+    return
 
 
 def verified_asset_record(asset, samples_root, role="World"):
@@ -1541,7 +1551,7 @@ def apply_label_texture(anchor, component, samples_root):
             "surfacePolicy": "Image alpha blends opaque label ink over the original surface"}
 
 
-def plate_compositor(source, frames, requested, samples_root, output_root, scene):
+def plate_compositor(source, frames, requested, samples_root, output_root, scene, *, relative_paths=True):
     """Composite the captured Gaussian world behind transparent Cycles geometry."""
     visible_frames = [sample for sample in frames if sample.get("clip", {}).get("kind", "scene") == "scene"]
     required = requested or [visible_frames[0]["frame"]]
@@ -1597,7 +1607,8 @@ def plate_compositor(source, frames, requested, samples_root, output_root, scene
     plate.frame_start = first_frame
     plate.frame_duration = scene.frame_end - first_frame + 1
     plate.use_auto_refresh = True
-    image.filepath = bpy.path.relpath(str(samples_root / "plate" / f"{first_frame:06d}.png"), start=str(output_root))
+    first_path = str(samples_root / "plate" / f"{first_frame:06d}.png")
+    image.filepath = bpy.path.relpath(first_path, start=str(output_root)) if relative_paths else first_path
     composite = tree.nodes.new("CompositorNodeAlphaOver")
     composite.inputs[0].default_value = 1
     tree.links.new(plate.outputs["Image"], composite.inputs[1])
@@ -1728,6 +1739,7 @@ def arguments():
     parser.add_argument("--width", type=int)
     parser.add_argument("--height", type=int)
     parser.add_argument("--samples-per-pixel", type=int)
+    parser.add_argument("--proof-session", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
     for name in ("width", "height", "samples_per_pixel"):
         value = getattr(args, name)
@@ -1738,6 +1750,36 @@ def arguments():
     except ValueError:
         parser.error("--frames must contain comma-separated integers")
     return args
+
+
+def proof_waiting():
+    """A bounded scheduling hint, never a reason to interrupt an active frame."""
+    path = os.environ.get('GESSO_PROOF_DEMAND_PATH')
+    if not path:
+        return False
+    try:
+        marker = Path(path)
+        if marker.is_symlink() or not marker.is_file() or marker.stat().st_size > 4096:
+            return False
+        value = json.loads(marker.read_text())
+        return (0 <= time.time()-value['updatedAt'] <= 300 and
+                (value.get('waiting', 0) > 0 or value.get('active') is True))
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
+def record_frame_yield(output, source, completed):
+    token = os.environ.get('GESSO_RENDER_BATCH_TOKEN', '')
+    if not re.fullmatch(r'[a-f0-9]{32}', token):
+        return False
+    receipt = {'schemaVersion':1, 'token':token,
+        'sourceDigest':hashlib.sha256(json.dumps(source, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest(),
+        'rendererDigest':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        'completed':[{'frame':frame, 'sha256':hashlib.sha256((output/'frames'/f'{frame:06d}.png').read_bytes()).hexdigest()} for frame in completed]}
+    temporary = output/'render-yield.partial'
+    temporary.write_text(json.dumps(receipt, allow_nan=False)+'\n')
+    temporary.replace(output/'render-yield.json')
+    return True
 
 
 def main():
@@ -1808,7 +1850,7 @@ def main():
             if source["environment"]["asset"]["format"] not in {"ply", "spz"}:
                 raise ValueError("Gaussian plate environments require a PLY or SPZ source asset")
             if args.frames or (args.samples.parent / "plate" / "capture-manifest.json").is_file():
-                world_details = plate_compositor(source, frames, args.frames, args.samples.parent, args.output, scene)
+                world_details = plate_compositor(source, frames, args.frames, args.samples.parent, args.output, scene, relative_paths=not args.proof_session)
             else:
                 world_details = {"flatContentOnly": True, "plate": "not needed for image or black frames"}
             limitations.extend([
@@ -1888,8 +1930,9 @@ def main():
     scene["render_config_json"] = json.dumps(render_config, sort_keys=True)
     (args.output / "render-config.json").write_text(json.dumps(render_config, indent=2) + "\n", encoding="utf-8")
     # Keep the native artifact self-contained if bundled assets are added later.
-    bpy.ops.file.pack_all()
-    bpy.ops.wm.save_as_mainfile(filepath=str(args.output / "scene.blend"))
+    if not args.proof_session:
+        bpy.ops.file.pack_all()
+        bpy.ops.wm.save_as_mainfile(filepath=str(args.output / "scene.blend"))
     if args.frames:
         destination = args.output / "frames"
         destination.mkdir(exist_ok=True)
@@ -1906,6 +1949,7 @@ def main():
                         or job["renderProfile"]["samples"] != scene.cycles.samples):
                     raise ValueError("Raw frame receipts require the pinned job source, renderer and render profile")
                 raw_processor, raw_identity = processor, processor.raw_frame_identity(job)
+        rendered = []
         for frame in args.frames:
             scene.frame_set(frame)
             scene.render.filepath = str(destination / f"{frame:06d}.png")
@@ -1913,7 +1957,15 @@ def main():
             if raw_processor is not None:
                 raw_processor.record_raw_frame_receipt(args.output, raw_identity, frame)
             print(f"FRAME_COMPLETE {frame}", flush=True)
-    print(f"SCENE_COMPLETE {args.output / 'scene.blend'}", flush=True)
+            rendered.append(frame)
+            if not args.proof_session and frame != args.frames[-1] and proof_waiting() and record_frame_yield(args.output, source, rendered):
+                print('FRAME_YIELD '+','.join(map(str, rendered)), flush=True)
+                break
+    if args.proof_session:
+        print(f"PROOF_COMPLETE {args.output}", flush=True)
+    else:
+        print(f"SCENE_COMPLETE {args.output / 'scene.blend'}", flush=True)
+    return {"scene": scene, "objects": objects, "partCarriers": part_carriers, "props": props}
 
 
 if __name__ == "__main__":
