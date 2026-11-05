@@ -3,9 +3,12 @@ import {createNativeProofSession,nativeProofSize,type NativeProofInput,type Nati
 
 const input:NativeProofInput={scene:{product:{id:'watch'}},frame:18,sourceDigest:'source',sourceKey:'view-a',width:540,height:960,samples:32,viewLabel:'Shot camera'};
 const proof=(extra:Partial<NativeProofSummary>={}):NativeProofSummary=>({id:'proof-a',state:'succeeded',sessionId:'session',sequence:1,sourceDigest:'source',frame:18,width:540,height:960,samples:32,imageUrl:'/api/proofs/proof-a/image.png',...extra});
-const json=(value:unknown,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json'}});
-const png=()=>new Response(new Blob(['image'],{type:'image/png'}));
-const flush=async()=>{await new Promise<void>(resolve=>setImmediate(resolve));};
+// Fetch is controlled here: native Response body streams settle differently
+// across Node versions and can outlive a test's request-ownership assertions.
+// Actual HTTP and PNG decoding are exercised by the API and browser checks.
+const json=(value:unknown,status=200)=>({ok:status>=200&&status<300,json:async()=>structuredClone(value)}) as Response;
+const png=()=>({ok:true,blob:async()=>new Blob(['image'],{type:'image/png'})}) as Response;
+const flush=async()=>{for(let i=0;i<50;i++)await Promise.resolve();};
 const deferred=<T,>()=>{let resolve!:(value:T)=>void;const promise=new Promise<T>(yes=>{resolve=yes;});return{promise,resolve};};
 
 describe('native proof request ownership',()=>{
