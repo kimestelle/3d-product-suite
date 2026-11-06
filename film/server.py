@@ -434,7 +434,7 @@ def make_handler(app):
             if self.command == "GET":
                 if path == "/api/bootstrap":
                     return self._json({"project": app.store.bootstrap(), "projects": app.store.list(),
-                                       "worlds": list_worlds(app.store.root), "capabilities": app.capabilities(), "jobs": app.renders.list()})
+                                       "worlds": list_worlds(app.store.root, include_archived=False), "capabilities": app.capabilities(), "jobs": app.renders.list()})
                 if path == "/api/polyhaven/assets":
                     query = parse_qs(parsed.query)
                     return self._json(app.polyhaven.list_assets(query.get("kind", ["textures"])[0],
@@ -469,7 +469,7 @@ def make_handler(app):
                 if path == "/api/github-worlds/runs":
                     return self._json(app.github.runs())
                 if path == "/api/worlds":
-                    return self._json(list_worlds(app.store.root))
+                    return self._json(list_worlds(app.store.root, include_archived=False))
                 if path == "/api/projects":
                     return self._json(app.store.list())
                 if path == "/api/jobs":

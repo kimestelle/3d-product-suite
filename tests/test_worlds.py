@@ -136,6 +136,18 @@ class WorldTests(unittest.TestCase):
         self.assertEqual(len(worlds.list_worlds(self.library)), 2)
         self.assertEqual(len(list((self.library / "assets").iterdir())), 1)
 
+    def test_archived_catalog_entry_retains_its_asset_and_survives_reseeding(self):
+        world = self.import_asset()
+        active = self.import_asset(name="Active world")
+        archive = self.library / "worlds" / "archive.json"
+        archive.write_text(json.dumps({"ids": [world["id"]]}), encoding="utf-8")
+        self.assertEqual(self.import_asset(), world)
+        self.assertEqual(worlds.list_worlds(self.library, include_archived=False), [active])
+        self.assertIn(world, worlds.list_worlds(self.library))
+        self.assertTrue(worlds.verify_scene_assets({"environment": world["environment"]}, self.library))
+        archive.unlink()
+        self.assertIn(world, worlds.list_worlds(self.library, include_archived=False))
+
     def test_actual_authored_glb_and_gaussian_ply_fixtures_import(self):
         for format_ in ("glb", "ply"):
             with self.subTest(format=format_):

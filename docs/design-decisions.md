@@ -1710,3 +1710,7 @@ The studio creates the comparison WebGL context on demand. The primary context r
 **Implemented for the connected editor.** A visible Stage object can be selected in the viewport or the object list. Its viewport tools move it along the scene axes, rotate it, or resize it along its local axes. A drag previews in the viewport and commits once on release. Escape cancels. Cylinder diameter stays circular, product supports stay level, and a relationship keeps control of linked position. The plinth offers Resize. Numeric fields remain in Object settings.
 
 The viewport shows a shot camera reset only in Film during inspection. Its label describes returning to the saved camera, and the Product link back to Film names that navigation separately. Viewport keyboard commands start only from the viewport. The transform overlay is excluded from stills and exports. Scope includes `App.tsx`, `viewport.ts`, `propTransform.ts`, `FilmViewportControls.tsx`, and `TransformShortcuts.tsx`.
+
+### 2026-11-06 — Curate the local world catalog without breaking saved scenes
+
+**Implemented for connected workspaces.** The editor omits world IDs listed in the workspace's `worlds/archive.json` from its available world choices. Existing scene revisions still refer directly to immutable assets. The full library remains available to internal tooling, and reseeding a bundled fixture does not bring an archived entry back into the picker. Scope includes `film/worlds.py`, `film/server.py`, and the catalog regression test.

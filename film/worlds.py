@@ -475,12 +475,23 @@ def import_world(source_path, library_root, *, name, provenance, source_up="Y", 
     return entry
 
 
-def list_worlds(library_root):
+def list_worlds(library_root, *, include_archived=True):
     root = Path(library_root).resolve()
     if not (root / "worlds").exists():
         return []
+    archived = set()
+    if not include_archived:
+        archive = safe_asset_path(root, "worlds/archive.json")
+        if archive.is_file():
+            metadata = json.loads(archive.read_text(encoding="utf-8"))
+            ids = metadata.get("ids") if isinstance(metadata, dict) else None
+            _require(isinstance(ids, list) and all(isinstance(id_, str) for id_ in ids),
+                     "World archive must contain a list of world IDs")
+            archived = set(ids)
     entries = []
     for path in sorted((root / "worlds").glob("world-*.json")):
+        if path.stem in archived:
+            continue
         _require(path.resolve().is_relative_to(root), "World library entry resolves outside library root")
         try:
             entry = json.loads(path.read_text(encoding="utf-8"))
