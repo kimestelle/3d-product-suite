@@ -112,7 +112,9 @@ export default function TransformShortcuts(props:TransformShortcutsProps) {
 
   useEffect(()=>{
     const keydown = (event:KeyboardEvent) => {
-      if (!current.current.enabled || !transaction.current && event.target instanceof Element && event.target.closest('.gesso-keyframe-editor,.keyframe-editor')) return;
+      if (!current.current.enabled) return;
+      if (!transaction.current && (!(event.target instanceof Node)
+        || !current.current.viewport?.contains(event.target) && !panel.current?.contains(event.target))) return;
       if (event.key === 'Shift' && transaction.current && !editableTarget(event.target)) {
         if (!pointerFine.current) {pointerFine.current = true;anchorPointer(transaction.current,latestPointer.current,true);}
         return;

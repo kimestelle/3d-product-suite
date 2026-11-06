@@ -15,7 +15,7 @@ import {roundedFrameNodes} from './frameGeometry';
 import StudioEntry, {type StudioEditorProps} from './StudioEntry';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { equalJson, canRedo, canUndo, commitHistory, createHistory, redoHistory, undoHistory } from './state';
-import { createViewport, type ViewportPart } from './viewport';
+import { createViewport, type PropTransformEdit, type ViewportPart } from './viewport';
 import type {MaterialHover, MaterialPreview} from './materials';
 import { resolveHierarchy, sceneParts } from './hierarchy';
 import ProductPanel, { type ProductLayer } from './ProductPanel';
@@ -31,7 +31,7 @@ import FilmPanel from './FilmPanel';
 import {FilmObjects, FilmInspector, FilmTimeline, FilmShotHeader, type FilmWorkspaceProps} from './FilmWorkspace';
 import FilmPoseInspector from './FilmPoseInspector';
 import FilmLightPose from './FilmLightPose';
-import {isLightTarget} from './world';
+import {isLightTarget, resizeProp} from './world';
 import {FilmClipDetails} from './FilmClipDetails';
 import {closeSequenceGaps, exactShotAtFrame, sequenceEnd, shotAtFrame} from './sequence';
 import {NewSceneChooser, StaticSceneComposer, type StaticSceneDraft} from './NewSceneFlow';
@@ -84,7 +84,7 @@ import {materializeAnimatedPose} from './keyframes';
 import avatar from './assets/gesso/avatar.png';
 import ComparisonPanel, { emptyCalibration, type CalibrationDraft, type PickRequest } from './ComparisonPanel';
 import { comparisonLabels, enableComparison, setComparisonWorld, updateWorldTransform, type ComparisonMode, type Side } from './comparison';
-import type { ResolvedObjects } from './sceneGraph';
+import { canPropSupportProduct, type ResolvedObjects } from './sceneGraph';
 import { demoApi } from './demo';
 import { backendEditMessage, isStaticDemo } from './runtime';
 
@@ -243,6 +243,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   const previewComparisonMode=showExport?'split':comparisonMode;
   const materialEditorVisible=!!scene&&productWorkspace&&layer==='Materials';
   const [worldObjectId,setWorldObjectId]=useState<string|null>(null);
+  const [stageTransformMode,setStageTransformMode]=useState<PropTransformEdit['mode']>('translate');
   useEffect(()=>setWorldObjectId(null),[project?.id,scene?.sceneId]);
   const worldEditorVisible=!!scene&&tab==='world'&&layer==='Props'&&!!worldObjectId&&[scene.environment.plinth,...(scene.environment.props??[])].some((item:any)=>item.id===worldObjectId);
   const sideEditorVisible=materialEditorVisible||worldEditorVisible;
@@ -691,15 +692,22 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   useEffect(()=>{if(!active||stillShowing||exportReviewVisible)return;const key=(e:KeyboardEvent)=>{const target=e.target as HTMLElement;if(e.defaultPrevented||transformModeRef.current)return;if(e.isComposing||target?.closest('input,textarea,select')||target?.isContentEditable)return;
     const destination=shortcutDestination(e,tab,mode);if(destination){e.preventDefault();if(target?.closest('.timeline,.gesso-sidebar,.gesso-world-object-editor')){const selector=destination.group?`.gesso-navrow button[data-category="${destination.group}"]`:`.gesso-sidebar-layers button[data-layer="${destination.layer}"]`;editorRoot.current?.querySelector<HTMLButtonElement>(selector)?.focus({preventScroll:true})}if(destination.group)chooseWorkspace(destination.group);if(destination.layer)selectLayer(destination.layer);setMenu(null);return}
     if(sceneCreation){if(e.key==='Escape'){e.preventDefault();cancelSceneCreation()}return}
-    if(showExport){if(e.key==='Escape'){e.preventDefault();closeExport()}else if(!e.metaKey&&!e.ctrlKey&&!e.altKey&&e.code==='Space'&&target?.tagName!=='BUTTON'){e.preventDefault();if(valid&&mode==='video'&&!e.repeat)togglePlayback()}return}
-    if(!e.altKey&&!e.ctrlKey&&!e.metaKey&&e.code==='KeyF'){e.preventDefault();setStillViewVersion(value=>value+1);setPlaying(false);if(e.shiftKey){setInspecting(false);viewport.current?.resetFraming();viewportB.current?.resetFraming()}else{setInspecting(true);viewport.current?.frameSelection();viewportB.current?.frameSelection()}return}
+    const inView=!!target&&!!stageHost.current?.contains(target);
+    const inTimeline=!!target?.closest('.timeline,.film-timeline-dock');
+    if(showExport){if(e.key==='Escape'){e.preventDefault();closeExport()}else if(inView&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&e.code==='Space'&&!target?.closest('button,a')){e.preventDefault();if(valid&&mode==='video'&&!e.repeat)togglePlayback()}return}
+    if(inView&&!e.altKey&&!e.ctrlKey&&!e.metaKey&&e.code==='KeyF'){
+      if(e.shiftKey&&filmWorkspace&&inspecting){e.preventDefault();resetView();}
+      else if(!e.shiftKey&&worldEditorVisible&&worldObjectId){e.preventDefault();frameProp(worldObjectId);}
+      else if(!e.shiftKey&&productWorkspace&&selected){e.preventDefault();framePart();}
+      return;
+    }
     if(e.key==='Escape'){setMenu(null);setPicking(null);setPickingSurface(false);return}
     if((e.metaKey||e.ctrlKey)&&e.code==='KeyS'){e.preventDefault();if(dirty&&!busy&&!evaluating)void save();return}
     if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo()}
     else if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='y'){e.preventDefault();redo()}
-    else if(!e.metaKey&&!e.ctrlKey&&!e.altKey&&e.code==='Space'){e.preventDefault();if(valid&&!stillFilm&&!e.repeat){togglePlayback()}}
-    else if(!e.metaKey&&!e.ctrlKey&&!e.altKey&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){e.preventDefault();setPlaying(false);setFrame(f=>Math.max(1,Math.min(total,f+(e.key==='ArrowRight'?1:-1))))}};
-    window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)},[active,showExport,sceneCreation,stillShowing,exportReviewVisible,total,valid,tab,mode,stillFilm,dirty,busy,evaluating,scene,project,chooseGroup,selectLayer,playbackStart,playbackEnd]);
+    else if((inTimeline||inView&&filmWorkspace)&&!target?.closest('button,a')&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&e.code==='Space'){e.preventDefault();if(valid&&!stillFilm&&!e.repeat){togglePlayback()}}
+    else if((inTimeline||inView&&filmWorkspace)&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){e.preventDefault();setPlaying(false);setFrame(f=>Math.max(1,Math.min(total,f+(e.key==='ArrowRight'?1:-1))))}};
+    window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)},[active,showExport,sceneCreation,stillShowing,exportReviewVisible,total,valid,tab,mode,stillFilm,dirty,busy,evaluating,scene,project,chooseGroup,selectLayer,playbackStart,playbackEnd,filmWorkspace,productWorkspace,inspecting,selected,worldEditorVisible,worldObjectId]);
   const perform=async(fn:()=>Promise<void>)=>{setBusy(true);setError('');try{await fn()}catch(e:any){setError(e.message)}finally{setBusy(false)}};
   const openCampaign=(id:string)=>{
     if(dirty||busy||id===project?.id)return;
@@ -918,6 +926,39 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   const groupName=groups.find(item=>item.id===tab)!.label;
   const toggleVisibility=(id:string)=>setHiddenParts(current=>current.includes(id)?current.filter(item=>item!==id):[...current,id]);
   const framePart=()=>{setStillViewVersion(value=>value+1);setPlaying(false);setInspecting(true);viewport.current?.frameSelection();viewportB.current?.frameSelection()};
+  const stagePlinth=worldEditorVisible&&scene?.environment.plinth.id===worldObjectId;
+  const stageProp=worldEditorVisible?(stagePlinth?scene.environment.plinth:scene.environment.props?.find((prop:any)=>prop.id===worldObjectId)):undefined;
+  const stageActive=active&&tab==='world'&&layer==='Props'&&!graphicsError.a&&!scene?.comparison;
+  const stageObjectVisible=!!(stageActive&&stageProp&&stageProp.visible!==false);
+  const stageToolsEnabled=stageObjectVisible&&!isStaticDemo;
+  const stageMoveLocked=!!stageProp?.relationship;
+  const activeStageMode=stagePlinth?'scale':stageMoveLocked&&stageTransformMode==='translate'?'rotate':stageTransformMode;
+  const stageInteractive=stageActive&&valid&&!busy&&!playing&&!showExport&&!stillShowing&&!nativeProofShowing&&!cleanupPreview&&!transformMode&&!materialPreview&&!pickingSurface;
+  const stageTarget=stageToolsEnabled&&stageInteractive?stageProp.id:null;
+  const commitStageTransform=useRef<(edit:PropTransformEdit)=>boolean>(()=>false);
+  commitStageTransform.current=(edit)=>{
+    if(edit.id!==stageTarget||edit.mode!==activeStageMode)return false;
+    const current=historyRef.current.present;
+    const prop=stagePlinth?current?.environment.plinth:current?.environment.props?.find((item:any)=>item.id===edit.id);
+    if(!prop||prop.id!==edit.id||prop.visible===false||edit.mode==='translate'&&prop.relationship)return false;
+    if(edit.mode==='rotate'&&current.placement.restsOn===edit.id&&!canPropSupportProduct({...prop,rotationXyzw:edit.rotationXyzw}))return false;
+    return change(next=>{
+      const target=stagePlinth?next.environment.plinth:next.environment.props.find((item:any)=>item.id===edit.id);
+      if(edit.mode==='translate')target.translationM=[...edit.translationM];
+      else if(edit.mode==='rotate')target.rotationXyzw=[...edit.rotationXyzw];
+      else edit.sizeM.forEach((size,axis)=>resizeProp(target,axis,size));
+    });
+  };
+  useEffect(()=>{
+    const view=viewport.current;
+    view?.setPropTransform(stageTarget,activeStageMode,edit=>commitStageTransform.current(edit));
+    return ()=>view?.setPropTransform(null,'translate');
+  },[stageTarget,activeStageMode]);
+  useEffect(()=>{
+    const view=viewport.current;
+    view?.setStagePropPicking(stageInteractive?setWorldObjectId:undefined);
+    return ()=>view?.setStagePropPicking();
+  },[stageInteractive]);
   const frameProp=(id:string)=>{setStillViewVersion(value=>value+1);setPlaying(false);setInspecting(true);viewport.current?.frameWorldObject(id);viewportB.current?.frameWorldObject(id)};
   const resetView=()=>{setStillViewVersion(value=>value+1);setInspecting(false);viewport.current?.resetFraming();viewportB.current?.resetFraming()};
   const undo=()=>{if(cleanupPreviewRef.current||randomPreview||!allowSceneEdit())return;if(frameSetupBaseline.current){discardFrameSetup(true);return;}setPlaying(false);setPicking(null);setHistory(undoHistory)};
@@ -1209,7 +1250,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
         {shownMenu==='File'&&<><div className="gesso-menu-heading">{project?.name??'Opening project…'}</div><button disabled={!!cleanupPreview||!!transformMode||!dirty||busy||evaluating} onClick={()=>{void save();setMenu(null)}}>Save revision <kbd>⌘ S</kbd></button><button onClick={()=>{navigate('product','Model');setShowProductImport(true);setMenu(null)}}>Import product…</button><button disabled={!scene||busy} onClick={()=>openExport()}>Export…</button>    <div className="project-switch"><Field label="Campaign"><select aria-label="Campaign" title={dirty?'Save this revision before switching campaigns':undefined} disabled={busy||dirty} value={project?.id??''} onChange={e=>openCampaign(e.target.value)}>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>{dirty&&<p className="gesso-note">Save this revision to switch campaigns.</p>}<button className="text-button" disabled={busy} onClick={()=>perform(async()=>{const p=await api('/api/projects','POST',{name:`Campaign ${projects.length+1}`,scene});loadProject(p);setProjects(await api('/api/projects'))})}>＋ Duplicate as new campaign</button></div>
 </>}
         {shownMenu==='Edit'&&<><button disabled={!!cleanupPreview||randomPreview||!canUndo(history)} onClick={undo}>Undo <kbd>⌘ Z</kbd></button><button disabled={!!cleanupPreview||randomPreview||!canRedo(history)} onClick={redo}>Redo <kbd>⇧ ⌘ Z</kbd></button></>}
-        {shownMenu==='View'&&<><button type="button" className="gesso-column-guide-toggle" aria-pressed={columnGuides} onKeyDown={event=>{if(event.key===' ')event.stopPropagation()}} onClick={()=>{setColumnGuides(value=>!value);setMenu(null)}}>Column guides<span aria-hidden="true">{columnGuides?'On':'Off'}</span></button><Field label="Section headings"><select value={sectionType} onChange={event=>setSectionType(event.target.value)}><option value="text">Halyard Text</option><option value="micro">Halyard Micro</option><option value="display">Halyard Display</option></select></Field>{!stillFilm&&!filmWorkspace&&!(productDecals)&&<button onClick={()=>{setShowTimeline(!timelineVisible);setMenu(null)}}>{timelineVisible?'Hide':'Show'} timeline</button>}{(productModel||productDecals)&&<button onClick={()=>{setFocused(v=>!v);setMenu(null)}}>{focused?'Show assembly':'Focus selected part'}</button>}<button onClick={()=>{framePart();setMenu(null)}}>Frame selected part <kbd>F</kbd></button><button onClick={()=>{resetView();setMenu(null)}}>Return to shot camera <kbd>⇧ F</kbd></button><p className="gesso-note"><span className="gesso-meta">Option / Alt 1–3 selects a step.<br/>Option / Alt {tab==='renders'?(stillFilm?'5–6':'5–8'):'5–7'} opens its controls.<br/>Drag to orbit. Shift-drag to pan.<br/>Scroll to zoom.</span></p><a href="/about">About gesso</a><a href="/aperture">Form + light</a></>}
+        {shownMenu==='View'&&<><button type="button" className="gesso-column-guide-toggle" aria-pressed={columnGuides} onKeyDown={event=>{if(event.key===' ')event.stopPropagation()}} onClick={()=>{setColumnGuides(value=>!value);setMenu(null)}}>Column guides<span aria-hidden="true">{columnGuides?'On':'Off'}</span></button><Field label="Section headings"><select value={sectionType} onChange={event=>setSectionType(event.target.value)}><option value="text">Halyard Text</option><option value="micro">Halyard Micro</option><option value="display">Halyard Display</option></select></Field>{!stillFilm&&!filmWorkspace&&!(productDecals)&&<button onClick={()=>{setShowTimeline(!timelineVisible);setMenu(null)}}>{timelineVisible?'Hide':'Show'} timeline</button>}{(productModel||productDecals)&&<button onClick={()=>{setFocused(v=>!v);setMenu(null)}}>{focused?'Show assembly':'Focus selected part'}</button>}{productWorkspace&&selected&&<button onClick={()=>{framePart();setMenu(null)}}>Frame selected part</button>}<p className="gesso-note"><span className="gesso-meta">Option / Alt 1–3 selects a step.<br/>Option / Alt {tab==='renders'?(stillFilm?'5–6':'5–8'):'5–7'} opens its controls.<br/>Drag to orbit. Shift-drag to pan.<br/>Scroll to zoom.</span></p><a href="/about">About gesso</a><a href="/aperture">Form + light</a></>}
         {shownMenu==='History'&&<><div className="gesso-menu-heading">{project?.name}</div><p className="gesso-note"><span className="gesso-meta">{history.past.length} undo steps · {history.future.length} redo steps</span></p>{!isStaticDemo&&<button disabled={busy} onClick={()=>{setMenu(null);openRecoveryChoices();}}>Review recovery drafts{recoveryCandidates.length?` (${recoveryCandidates.length})`:''}</button>}<button disabled={busy||dirty} onClick={approve}>Approve saved revision</button><button disabled={randomPreview||!project?.approvedRevisionId||busy} onClick={restore}>Restore approved scene</button><p className="gesso-note gesso-feedback" data-tone={dirty?'note':'success'}>{dirty?'Unsaved changes':'Current revision saved locally'}</p></>}
       </>}</EditorMenu>
     </header>
@@ -1222,7 +1263,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
         <div className={`gesso-sidebar-content gesso-condensed-sidebar ${productModel&&showProductImport?'has-import':''}`}>
           {transformError&&<div className="message error" role="alert">{transformError}</div>}{materialEditorVisible&&materialPreviewError&&<div className="message error" role="alert">Material preview: {materialPreviewError}</div>}{validationError&&<div className="message error" role="alert">{validationError}</div>}{error&&<div className="message error" role="alert">{error}</div>}
           {!scene&&<p className="gesso-note">{error?'The project could not be opened.':'Opening project…'}</p>}
-          {scene&&productWorkspace&&productPanel}{tab==='product'&&filmReturn.current&&<button type="button" className="film-return" onClick={returnToFilm}>Return to shot</button>}
+          {scene&&productWorkspace&&productPanel}{tab==='product'&&filmReturn.current&&<button type="button" className="film-return" onClick={returnToFilm}>Back to Film</button>}
           {productModel&&showProductImport&&<div className="import-form control-section">
             <div className="gesso-section-heading">Import product <button aria-label="Close import" onClick={()=>closeProductImport(true)}>×</button></div>
             <div className="gesso-import-body">
@@ -1244,7 +1285,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
             </div>
           </div>}
 
-          {scene&&tab==='world'&&<WorldPanel cleanupScopeKey={cleanupScopeKey} cleanupAvailable={!isStaticDemo&&caps.worldCleanupAvailable===true&&!scene.comparison} cleanupBusy={busy||saving||!!transformMode||!!materialPreview||!valid||visibleViewportLoading} cleanupPreview={cleanupPreview} onCleanupPreview={previewWorldCleanup} onCleanupApply={applyWorldCleanup} onCleanupSelection={setCleanupSelection} onCleanupFrame={()=>{if(viewport.current?.frameWorldCleanupSelection()){setPlaying(false);setInspecting(true);setStillViewVersion(value=>value+1);}}} analyzePostProcessing={analyzePostProcessing} postProcessingReady={postProcessingReady&&scene===renderScene} captureCurrentWorld={captureCurrentWorld} worldPreviewReady={!cleanupPreview&&tab==='world'&&!evaluating&&!visibleViewportLoading&&valid&&!playing&&!transformMode&&!showExport} worldPreviewRevision={digest} selectedObjectId={worldObjectId} onSelectObject={setWorldObjectId} editorHost={sideEditorHost} onFrameProp={frameProp} scene={scene} layer={layer as WorldLayer} worlds={worlds} onChange={change} onWorld={replaceWorld} onFitProduct={isStaticDemo?undefined:fitProduct} fitDisabled={!!cleanupPreview||!valid||visibleViewportLoading||busy||playing||!!transformMode} onImport={()=>setShowImport(value=>!value)} resolved={evaluatedScene.current===scene?objects:undefined} pickingSurface={pickingSurface} onPickSurface={startSurfacePick} onCancelPick={()=>setPickingSurface(false)} onFrameObjects={isStaticDemo?undefined:frameObjects} ready={valid&&!busy&&!cleanupPreview}>
+          {scene&&tab==='world'&&<WorldPanel cleanupScopeKey={cleanupScopeKey} cleanupAvailable={!isStaticDemo&&caps.worldCleanupAvailable===true&&!scene.comparison} cleanupBusy={busy||saving||!!transformMode||!!materialPreview||!valid||visibleViewportLoading} cleanupPreview={cleanupPreview} onCleanupPreview={previewWorldCleanup} onCleanupApply={applyWorldCleanup} onCleanupSelection={setCleanupSelection} onCleanupFrame={()=>{if(viewport.current?.frameWorldCleanupSelection()){setPlaying(false);setInspecting(true);setStillViewVersion(value=>value+1);}}} analyzePostProcessing={analyzePostProcessing} postProcessingReady={postProcessingReady&&scene===renderScene} captureCurrentWorld={captureCurrentWorld} worldPreviewReady={!cleanupPreview&&tab==='world'&&!evaluating&&!visibleViewportLoading&&valid&&!playing&&!transformMode&&!showExport} worldPreviewRevision={digest} selectedObjectId={worldObjectId} onSelectObject={setWorldObjectId} editorHost={sideEditorHost} scene={scene} layer={layer as WorldLayer} worlds={worlds} onChange={change} onWorld={replaceWorld} onFitProduct={isStaticDemo?undefined:fitProduct} fitDisabled={!!cleanupPreview||!valid||visibleViewportLoading||busy||playing||!!transformMode} onImport={()=>setShowImport(value=>!value)} resolved={evaluatedScene.current===scene?objects:undefined} pickingSurface={pickingSurface} onPickSurface={startSurfacePick} onCancelPick={()=>setPickingSurface(false)} onFrameObjects={isStaticDemo?undefined:frameObjects} ready={valid&&!busy&&!cleanupPreview}>
             {showImport&&<div className="import-form"><Field label="World name"><input value={worldName} onChange={e=>setWorldName(e.target.value)}/></Field><Field label="Asset owner"><input value={owner} onChange={e=>setOwner(e.target.value)} placeholder="Your company or creator"/></Field><Field label="Reuse basis"><input value={reuse} onChange={e=>setReuse(e.target.value)} placeholder="License or permission"/></Field><Field label="Source up axis"><select value={sourceUp} onChange={e=>setSourceUp(e.target.value)}><option>Y</option><option>Z</option></select></Field><input aria-label="World export file" type="file" accept=".glb,.spz,.ply" ref={file}/><button disabled={!owner||!reuse||importing} onClick={importFile}>{importing?'Importing…':'Import GLB / SPZ / PLY'}</button></div>}
             <details className="gesso-disclosure" open={scene.comparison?true:undefined}><summary>Compare environments</summary><ComparisonPanel scene={scene} worlds={worlds} info={comparisonInfo} busy={busy} ready={valid} mode={comparisonMode} drafts={calibrationDrafts} picking={picking} onMode={changeComparisonMode} onEnable={startComparison} onDisable={()=>change(s=>{delete s.comparison})} onWorld={comparisonWorld} onTransform={comparisonTransform} onDraft={draftCalibration} onPick={startPick} onCancelPick={()=>setPicking(null)} onCalibrate={applyCalibration} onReview={reviewComparison}/></details>
             {!isStaticDemo&&<AtlasWorldPanel request={api} onUse={useAtlasWorld} applyDisabled={busy||!valid||!!scene.comparison}/>}
@@ -1274,7 +1315,18 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
           {cleanupPreview&&<div className="pick-hint" role="status">{cleanupPreview.label} · not applied<button onClick={()=>previewWorldCleanup(null)}>Return to current world</button></div>}
           {picking&&<div className="pick-hint" role="status">View {picking.side.toUpperCase()}: click {picking.kind==='floor'?'the floor':`measurement point ${calibrationDrafts[picking.side].points.length+1} of 2`}<button onClick={()=>setPicking(null)}>Cancel</button></div>}
           {pickingSurface&&<div className="pick-hint" role="status">Click a level surface in the world to place the product.<button onClick={()=>setPickingSurface(false)}>Cancel</button></div>}
-          <div className="gesso-view-toolbar" hidden={showExport} inert={stillShowing} aria-hidden={stillShowing} style={{visibility:stillShowing?'hidden':undefined}}>{(!filmWorkspace||inspecting&&filmSceneVisible)&&<button onClick={resetView} title="Return to the saved shot framing">{inspecting?'Return to shot':'Shot camera'}</button>}{!filmWorkspace&&<span>{inspecting?'Inspection view · shot unchanged':`${shot?.name??'Black'} · ${((frame-1)/fps).toFixed(2)}s`}</span>}{filmWorkspace&&!playing&&frame!==filmEditFrame&&<button onClick={()=>previewFrame(frame)}>Edit this frame</button>}{!stillFilm&&!filmWorkspace&&<button aria-label={playing?'Pause playback':'Play preview'} disabled={!!transformMode||!valid} onClick={togglePlayback}>{playing?'Pause':'Play'} <kbd>Space</kbd></button>}</div>
+          {!showExport&&!stillShowing&&!nativeProofShowing&&stageObjectVisible&&<div className="gesso-view-toolbar gesso-stage-transform-toolbar" role="group" aria-label="Selected object tools">
+            {stageToolsEnabled&&<>
+            {!stagePlinth&&<><button type="button" aria-pressed={activeStageMode==='translate'} disabled={stageMoveLocked} title={stageMoveLocked?'Position follows the object relationship':undefined} onClick={()=>setStageTransformMode('translate')}>Move</button>
+            <button type="button" aria-pressed={activeStageMode==='rotate'} onClick={()=>setStageTransformMode('rotate')}>Rotate</button></>}
+            <button type="button" aria-pressed={activeStageMode==='scale'} onClick={()=>setStageTransformMode('scale')}>Resize</button>
+            </>}
+            <button type="button" disabled={!valid} onClick={()=>frameProp(stageProp.id)}>Frame selected object</button>
+          </div>}
+          {!showExport&&!stillShowing&&!nativeProofShowing&&filmWorkspace&&(inspecting&&filmSceneVisible||!playing&&frame!==filmEditFrame)&&<div className="gesso-view-toolbar" role="group" aria-label="Film view">
+            {inspecting&&filmSceneVisible&&<button type="button" onClick={resetView} title="Leave inspection view and show the saved shot framing">Use shot camera</button>}
+            {!playing&&frame!==filmEditFrame&&<button type="button" onClick={()=>previewFrame(frame)}>Edit this frame</button>}
+          </div>}
           {showExport&&!exportReviewVisible&&<ExportPreviewTransport mode={mode} frame={frame} total={total} fps={fps} playing={playing} disabled={!valid||visibleViewportLoading||busy} onPlay={togglePlayback} onFrame={previewExportFrame} paired={showComparison} sourceLabel={randomPreview?(exportDraft?'Random setup':'Current scene · choose a setup'):'Current scene'}/>}
           {exportReviewVisible&&exportReview&&<ExportArtifactPreview key={`${exportReview.job.id}-${!!exportReview.job.paired}`} job={exportReview.job} currentDigest={digest} onBack={returnToExportPreview}/>}
           <ViewportLoading loading={visibleViewportLoading}/>

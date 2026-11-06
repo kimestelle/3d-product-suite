@@ -70,3 +70,5 @@
 .gesso-transform-hints{margin:var(--gesso-space-8) 0 0;color:#666;max-width:290px}.gesso-transform-actions{margin-top:var(--gesso-space-12)}.gesso-transform-actions>button{flex:1}.gesso-transform-feedback{color:#805048;margin:var(--gesso-space-8) 0 0}
 
 .gesso-artwork-preview {display:block; width:96px; height:96px; object-fit:contain; margin:8px 0; background:rgba(255,255,255,.06);}
+
+.gesso-stage-transform-toolbar button[aria-pressed=true]{background:#454545;border-color:#aaa;color:#fff}

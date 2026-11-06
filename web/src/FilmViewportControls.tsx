@@ -42,7 +42,7 @@ export default function FilmViewportControls({guide, scene, frame, mode, end, ed
   const canAim = showHandle && !disabled;
   const hint = manualFocus ? 'Focus distance is set in the Camera controls.'
     : cameraMotionDriven ? 'Camera motion controls this target.'
-    : cameraGuide?.inspecting ? 'Return to shot to edit the camera target.'
+    : cameraGuide?.inspecting ? 'Use the shot camera to edit its target.'
     : !isEndpoint ? 'Select Start or End in Camera to move the target.'
     : dragging ? 'Release to aim. Escape cancels.' : 'Drag to aim. Arrow keys nudge; Shift moves farther.';
   const markerLabel = cameraGuide?.focus ? 'Focus point' : 'Camera target';

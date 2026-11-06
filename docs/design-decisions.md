@@ -1704,3 +1704,9 @@ Scope includes `film/atlas.py`, `film/atlas_client.py`, the authenticated routes
 Scope includes `film/atlas_worlds.py`, the bundled pavilion guide and `web/src/AtlasWorldPanel.tsx`. Saved builds keep their provider operation IDs for resuming after reload. The static demo uses its packaged scene and the connected editor uses the workspace's server-side Atlas credential.
 
 The studio creates the comparison WebGL context on demand. The primary context retries without multisampling, and a system with WebGL 2 disabled can still open the studio. The connected render backend can use the saved camera for a proof when the live viewport is unavailable.
+
+### 2026-11-06 — Keep Stage transforms in the selected object's viewport
+
+**Implemented for the connected editor.** A visible Stage object can be selected in the viewport or the object list. Its viewport tools move it along the scene axes, rotate it, or resize it along its local axes. A drag previews in the viewport and commits once on release. Escape cancels. Cylinder diameter stays circular, product supports stay level, and a relationship keeps control of linked position. The plinth offers Resize. Numeric fields remain in Object settings.
+
+The viewport shows a shot camera reset only in Film during inspection. Its label describes returning to the saved camera, and the Product link back to Film names that navigation separately. Viewport keyboard commands start only from the viewport. The transform overlay is excluded from stills and exports. Scope includes `App.tsx`, `viewport.ts`, `propTransform.ts`, `FilmViewportControls.tsx`, and `TransformShortcuts.tsx`.

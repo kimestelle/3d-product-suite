@@ -26,6 +26,9 @@ import {createCameraTargetPointerGesture, filmGateRect, filmGuideZoom, projectFi
 import { labelGeometry, labelImageDimensions, labelTemplateSvg, type LabelMapping } from './labelMapping';
 import { assetUrl as runtimeAssetUrl } from './runtime';
 import { productSupportOrigin, sceneFloorY } from './sceneGraph';
+import {PropTransform, type PropTransformCommit, type PropTransformMode} from './propTransform';
+
+export type {PropTransformEdit} from './propTransform';
 
 // The lookup textures are shared across both comparison renderers.
 let areaLightUniformsReady = false;
@@ -162,6 +165,10 @@ export class StudioViewport {
    * their authored poses as the fallback. Created on first use, like the rig. */
   private sceneProps: Map<string, {object: THREE.Object3D; source: {translationM: number[]; rotationXyzw: number[]}}> | null = null;
   private propEntries() { return this.sceneProps ??= new Map(); }
+  private propTransform: PropTransform | null = null;
+  private propTransformTarget: {id: string; mode: PropTransformMode; onCommit: PropTransformCommit} | null = null;
+  private stagePropPick: ((id: string) => void) | undefined;
+  private stagePropPointer: {id: number; x: number; y: number} | null = null;
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly resizeObserver: ResizeObserver;
@@ -261,11 +268,15 @@ export class StudioViewport {
         this.visible = entries[0]?.isIntersecting ?? true;
         this.updatePreviewQualitySuspension();
         if (this.visible) this.invalidate();
-        else this.cancelRender();
+        else {this.propTransform?.cancel();this.cancelRender();}
       });
       this.intersectionObserver.observe(canvas);
     }
     document.addEventListener('visibilitychange', this.onVisibility);
+    canvas.addEventListener('pointerdown', this.onStagePropDown);
+    canvas.addEventListener('pointermove', this.onStagePropMove);
+    canvas.addEventListener('pointercancel', this.onStagePropCancel);
+    canvas.addEventListener('lostpointercapture', this.onStagePropCancel);
     canvas.addEventListener('pointerup', this.onPointerUp);
     canvas.addEventListener('webglcontextlost', this.onContextLost);
     this.createControls();
@@ -310,9 +321,10 @@ export class StudioViewport {
   }
 
   private updateControlsEnabled(): void {
-    if (this.controls) this.controls.enabled = this.inspectionEnabled && !(this.filmContent && this.filmClip?.kind !== 'scene') && !this.disposed && !this.loading && !(this.deferredWorld?.loading && !this.productPreview) && !this.loadFailed && !this.awaitingSample && !this.worldPickEnabled && !this.surfacePickEnabled && this.parts.size > 0;
+    this.syncPropTransform();
+    if (this.controls) this.controls.enabled = this.inspectionEnabled && !(this.filmContent && this.filmClip?.kind !== 'scene') && !this.disposed && !this.loading && !(this.deferredWorld?.loading && !this.productPreview) && !this.loadFailed && !this.awaitingSample && !this.worldPickEnabled && !this.surfacePickEnabled && !this.propTransform?.dragging && this.parts.size > 0;
     if(this.controls&&!this.controls.enabled&&this.controlsInteracting)this.rebuildControls(this.interactionSurface);
-    (this.controlSurface?.element ?? this.canvas).style.cursor = this.worldPickEnabled || this.surfacePickEnabled ? 'crosshair' : this.controls?.enabled ? 'grab' : '';
+    (this.controlSurface?.element ?? this.canvas).style.cursor = this.worldPickEnabled || this.surfacePickEnabled ? 'crosshair' : this.propTransform?.dragging ? 'grabbing' : this.controls?.enabled ? 'grab' : '';
   }
 
   private onControlsStart(): void {
@@ -387,17 +399,44 @@ export class StudioViewport {
 
   private handleVisibility():void {
     this.updatePreviewQualitySuspension();
-    if (document.hidden) {this.cancelRender();if(this.controlsInteracting)this.rebuildControls(this.interactionSurface);}
+    if (document.hidden) {this.propTransform?.cancel();this.cancelRender();if(this.controlsInteracting)this.rebuildControls(this.interactionSurface);}
     else if (this.dirty) this.invalidate();
   }
 
   private onContextLost = (event: Event) => {
     event.preventDefault();
+    this.propTransform?.cancel();
     this.options.onLoading?.(false);
     this.options.onError?.('The 3D graphics context was lost. Reopen this project to restore the preview.');
   };
 
-  private onPointerUp = (event: PointerEvent) => { this.pickAtPointer(event); };
+  private onPointerUp = (event: PointerEvent) => {
+    const pick = this.stagePropPointer;
+    this.onStagePropMove(event);
+    if (this.stagePropPick && !this.worldPickEnabled && !this.surfacePickEnabled) {
+      if (pick?.id === event.pointerId && this.stagePropPointer) this.pickAtPointer(event);
+    } else this.pickAtPointer(event);
+    this.stagePropPointer = null;
+  };
+
+  private onStagePropDown = (event: PointerEvent) => {
+    this.stagePropPointer = this.stagePropPick && event.isPrimary && event.button === 0
+      ? {id: event.pointerId, x: event.clientX, y: event.clientY} : null;
+  };
+
+  private onStagePropMove = (event: PointerEvent) => {
+    const pick = this.stagePropPointer;
+    if (pick?.id === event.pointerId && Math.hypot(event.clientX - pick.x, event.clientY - pick.y) > 4) {
+      this.stagePropPointer = null;
+    }
+  };
+
+  private onStagePropCancel = () => { this.stagePropPointer = null; };
+
+  setStagePropPicking(onSelect?: (id: string) => void): void {
+    this.stagePropPointer = null;
+    this.stagePropPick = !this.disposed && this.options.studioMode && !this.options.capture ? onSelect : undefined;
+  }
 
   private pickAtPointer(event: PointerEvent): void {
     if (this.options.capture || this.disposed || event.button !== 0) return;
@@ -451,7 +490,32 @@ export class StudioViewport {
     }
     // In the studio the image operates the active layer. Part selection lives
     // in the persistent tree, so clicking the specimen never changes layers.
-    if (this.options.studioMode) return;
+    if (this.options.studioMode) {
+      if (this.stagePropPick && this.stagePropPointer && !this.loading && !this.awaitingSample && !this.loadFailed
+          && !this.suspended && !this.productPreview && !this.filmContent && this.inspectionEnabled
+          && !this.propTransform?.dragging && !this.deferredWorld?.loading) {
+        const props = new Map([...this.sceneProps ?? []].map(([id, entry]) => [entry.object, id]));
+        const plinthId = this.loadedSource?.environment?.plinth?.id;
+        const plinth = plinthId && this.plinthObject(plinthId);
+        if (plinth) props.set(plinth, plinthId);
+        if (!props.size) return;
+        const roots = [...props.keys(), ...this.components.values()];
+        if (world && this.loadedSource?.environment?.kind === 'mesh') roots.push(world);
+        this.content.updateMatrixWorld(true);
+        for (const hit of this.raycaster.intersectObjects(roots, true)) {
+          if (!this.objectVisible(hit.object)) continue;
+          const material = (hit.object as THREE.Mesh).material;
+          const surface = Array.isArray(material) ? material[hit.face?.materialIndex ?? 0] : material;
+          if (surface && (!surface.visible || (surface.transparent && surface.opacity <= 0))) continue;
+          for (let object: THREE.Object3D | null = hit.object; object; object = object.parent) {
+            const id = props.get(object);
+            if (id) {this.stagePropPick(id);break;}
+          }
+          return; // An opaque product part or mesh wall occludes props behind it.
+        }
+      }
+      return;
+    }
     const hits = this.raycaster.intersectObjects([...this.components.values()], true);
     for (const hit of hits) {
       let node: THREE.Object3D | null = hit.object;
@@ -494,6 +558,7 @@ export class StudioViewport {
   setSuspended(suspended: boolean): void {
     if (this.options.capture || this.suspended === suspended) return;
     this.suspended = suspended;
+    this.syncPropTransform();
     this.updatePreviewQualitySuspension();
     if (suspended) {this.cancelRender();if(this.controlsInteracting)this.rebuildControls(this.interactionSurface);}
     else this.invalidate();
@@ -594,6 +659,7 @@ export class StudioViewport {
 
   private captureImage(signal: AbortSignal | undefined, maxDimension: number, worldOnly = false, fullGaussian = false): Promise<ViewportStill> {
     if (this.stillCapture) return Promise.reject(new Error('A still is already rendering.'));
+    if (this.propTransform?.dragging) return Promise.reject(new Error('Finish moving the object before capturing a still.'));
     if (this.options.capture) return Promise.reject(new Error('Still previews are unavailable in the export viewport.'));
     const version = this.loadVersion, request = this.frameRequest;
     const presentation = this.presentationVersion ?? 0;
@@ -697,9 +763,11 @@ export class StudioViewport {
       this.stillRendering = false;
       this.updatePreviewQualitySuspension();
       if (this.stillCapture === result) this.stillCapture = null;
+      this.syncPropTransform();
       this.scheduleRender();
     });
     this.stillCapture = result;
+    this.syncPropTransform();
     this.frameQueue = result.then(() => {}, () => {});
     return result;
   }
@@ -1975,6 +2043,7 @@ export class StudioViewport {
   }
 
   private updatePersistentScene(source:any,initialSample?:any):void {
+    this.propTransform?.cancel();
     const previous=this.loadedSource;
     const partLayout=(value:any)=>JSON.stringify([value.placement.scale,value.product.components.map((component:any)=>[component.assembly.scale,component.sourceNodes])]);
     this.partRecordsDirty ||= partLayout(previous)!==partLayout(source);
@@ -2289,7 +2358,7 @@ export class StudioViewport {
    * the entire visible viewport. No document or camera state is changed. */
   getProofView():ProofView|null {
     if(this.disposed||this.loading||this.loadFailed||this.awaitingSample||this.productPreview||this.controlsInteracting
-        ||this.sampledLoadVersion!==this.loadVersion||!this.pendingSize||this.filmClip?.kind!=='scene')return null;
+        ||this.propTransform?.dragging||this.sampledLoadVersion!==this.loadVersion||!this.pendingSize||this.filmClip?.kind!=='scene')return null;
     const shown=this.proofPresentation;
     if(!shown||shown.loadVersion!==this.loadVersion||shown.sceneKey!==(this.requestedVisualKey??this.loadedVisualKey)
       ||shown.sampleKey!==JSON.stringify(this.latestSample)||shown.finishKey!==JSON.stringify(this.imageFinish)
@@ -2398,6 +2467,7 @@ export class StudioViewport {
    * free props, and samples from scenes without props, keep the authored pose. */
   private applyPropPoses(poses?: Record<string, { translationM: number[]; rotationXyzw: number[] }>): void {
     for (const [id, {object, source}] of this.sceneProps ?? []) {
+      if (object === this.propTransform?.draggedObject) continue;
       const pose = poses?.[id] ?? source;
       object.position.fromArray(pose.translationM);
       object.quaternion.fromArray(pose.rotationXyzw);
@@ -2531,6 +2601,7 @@ export class StudioViewport {
       changedBuffer = true;
       this.setDrawingBuffer(size, ratio);
       this.drawScenePixels(camera, size, optics, focalLengthMm, !!spark && spark.visible !== false);
+      if (!still) this.propTransform?.render(this.renderer, camera);
       still?.copyPixels();
       copiedPixels = !!still;
     } finally {
@@ -2872,6 +2943,45 @@ export class StudioViewport {
     this.framedWorldObjectId = null;
   }
 
+  /** Attach editor-only controls to a live scene prop. */
+  setPropTransform(id: string | null, mode: PropTransformMode, onCommit?: PropTransformCommit): void {
+    if (!this.options.studioMode || this.options.capture || this.disposed) return;
+    this.propTransformTarget = id && onCommit ? {id, mode, onCommit} : null;
+    if (!this.propTransformTarget && this.propTransform) {
+      const controls = this.propTransform;
+      this.propTransform = null;
+      controls.dispose();
+    }
+    this.syncPropTransform();
+    this.invalidate();
+  }
+
+  private syncPropTransform(): void {
+    const target = this.propTransformTarget;
+    if (!target || this.disposed || this.loading || this.loadFailed || this.awaitingSample
+        || this.suspended || this.stillCapture || this.productPreview || this.filmContent || !this.inspectionEnabled
+        || this.worldPickEnabled || this.surfacePickEnabled || this.deferredWorld?.loading) {
+      this.propTransform?.setTarget(null);
+      return;
+    }
+    const source = this.loadedSource;
+    const plinth = source?.environment?.plinth;
+    const isPlinth = plinth?.id === target.id;
+    const prop = isPlinth ? plinth : source?.environment?.props?.find((value: any) => value.id === target.id);
+    const object = isPlinth ? this.plinthObject(target.id) : this.sceneProps?.get(target.id)?.object;
+    if (!prop || !object || !this.objectVisible(object) || isPlinth && target.mode !== 'scale'
+        || prop.relationship && target.mode === 'translate') {
+      this.propTransform?.setTarget(null);
+      return;
+    }
+    this.propTransform ??= new PropTransform(this.canvas, this.camera, () => this.invalidate(), () => {
+      if (this.propTransform?.dragging) this.freezeSelectionFraming();
+      this.updateControlsEnabled();
+    });
+    this.propTransform.setTarget({...target, object, sizeM: prop.sizeM, cylinder: prop.shape === 'cylinder',
+      yawOnly: target.mode === 'rotate' && source.placement?.restsOn === target.id});
+  }
+
   /** Frame the real prop instance while keeping the sampled shot available to reset. */
   frameWorldObject(id: string): void {
     if (!this.options.studioMode || this.options.capture || this.disposed) return;
@@ -2890,7 +3000,8 @@ export class StudioViewport {
   private fitSelection(): void {
     const bounds = new THREE.Box3();
     const roots = this.framedWorldObjectId
-      ? [...this.environmentObjects.keys()].filter(object => object.name === this.framedWorldObjectId)
+      ? [...this.environmentObjects.keys()].filter(object => object.name === this.framedWorldObjectId
+        || object.userData.objectId === `plinth:${this.framedWorldObjectId}`)
       : this.focusedRoots();
     for (const selected of roots) {
       if (!this.objectVisible(selected)) continue;
@@ -2915,6 +3026,10 @@ export class StudioViewport {
       this.controls.update();
     }
     this.camera.updateMatrixWorld(true);
+  }
+
+  private plinthObject(id: string): THREE.Object3D | undefined {
+    return [...this.environmentObjects.keys()].find(object => object.userData.objectId === `plinth:${id}`);
   }
 
   resetFraming(): void {
@@ -2944,6 +3059,8 @@ export class StudioViewport {
   }
 
   private clearContent(preserveInspection = false): void {
+    this.stagePropPointer = null;
+    this.propTransform?.setTarget(null);
     this.clearWorldCleanupOverlay();
     this.restoreCaptureSplat?.();
     this.modelOutline?.dispose();this.modelOutline=null;
@@ -3030,6 +3147,7 @@ export class StudioViewport {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.propTransform?.dispose(); this.propTransform = null; this.propTransformTarget = null;
     this.worldCleanupSelection=null;
     this.previewQuality?.dispose();this.previewQuality=null;
     this.previewConnection?.removeEventListener?.('change',this.onPreviewDataChange);this.previewConnection=null;
@@ -3047,6 +3165,11 @@ export class StudioViewport {
     this.resizeObserver.disconnect();
     this.intersectionObserver?.disconnect();
     document.removeEventListener('visibilitychange', this.onVisibility);
+    this.setStagePropPicking();
+    this.canvas.removeEventListener('pointerdown', this.onStagePropDown);
+    this.canvas.removeEventListener('pointermove', this.onStagePropMove);
+    this.canvas.removeEventListener('pointercancel', this.onStagePropCancel);
+    this.canvas.removeEventListener('lostpointercapture', this.onStagePropCancel);
     this.canvas.removeEventListener('pointerup', this.onPointerUp);
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
     this.disposeControls();
@@ -3145,6 +3268,8 @@ export function createViewport(host: HTMLElement, options: Omit<ViewportOptions,
     fitProductInWorld(sample: any, aspect: number) { return viewport.fitProductInWorld(sample, aspect); },
     freezeSelectionFraming() { viewport.freezeSelectionFraming(); },
     createTransformGesture(target: TransformTarget, pointer: TransformPointer, posedScene?: any) { return viewport.createTransformGesture(target, pointer, posedScene); },
+    setPropTransform(id: string | null, mode: PropTransformMode, onCommit?: PropTransformCommit) { viewport.setPropTransform(id, mode, onCommit); },
+    setStagePropPicking(onSelect?: (id: string) => void) { viewport.setStagePropPicking(onSelect); },
     frameWorldObject(id: string) { viewport.frameWorldObject(id); },
     resetFraming() { viewport.resetFraming(); },
     setWorldPickEnabled(enabled: boolean) { viewport.setWorldPickEnabled(enabled); },
