@@ -223,13 +223,24 @@ export class StudioViewport {
   constructor(canvas: HTMLCanvasElement, options: ViewportOptions = {}) {
     this.canvas = canvas;
     this.options = options;
+    // Request the context before installing observers. A failed attempt can
+    // then release the canvas without leaving any listeners or render work.
+    const attributes: WebGLContextAttributes = {
+      alpha: true, antialias: !options.capture, preserveDrawingBuffer: !!options.capture,
+    };
+    const context = canvas.getContext('webgl2', attributes) ?? (!options.capture
+      ? canvas.getContext('webgl2', {...attributes, antialias: false, powerPreference: 'low-power'})
+      : null);
+    if (!context) {
+      throw new Error('WebGL 2 is unavailable. In Chrome, enable graphics acceleration in Settings → System, relaunch, and try again.');
+    }
+    this.renderer = new THREE.WebGLRenderer({canvas, context});
     if(!options.capture){
       this.previewQuality=new PreviewQualityController(()=>{this.dirty=true;this.scheduleRender();});
       this.previewConnection=(navigator as Navigator&{connection?:PreviewDataConnection}).connection??null;
       this.onPreviewDataChange();
       this.previewConnection?.addEventListener?.('change',this.onPreviewDataChange);
     }
-    this.renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: !options.capture, preserveDrawingBuffer: !!options.capture });
     this.renderer.setPixelRatio(1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     // Plates enter Blender as sRGB, are composited in linear light, then receive
@@ -3081,7 +3092,14 @@ export function createViewport(host: HTMLElement, options: Omit<ViewportOptions,
     canvas.style.height = `${height}px`;
   };
   fitCanvas();
-  const viewport = new StudioViewport(canvas, options);
+  let viewport: StudioViewport;
+  try {
+    viewport = new StudioViewport(canvas, options);
+  } catch (error) {
+    canvas.remove();
+    if (!options.capture) host.style.position = previousPosition;
+    throw error;
+  }
   const hostObserver = new ResizeObserver(() => { fitCanvas(); viewport.resize(); });
   hostObserver.observe(host);
   let version = 0;

@@ -189,8 +189,13 @@ class AtlasClient:
         self.timeout = timeout
 
     def submit(self, body, idempotency_key):
+        return self.submit_task("images2PosedRGBD", body, idempotency_key)
+
+    def submit_task(self, task, body, idempotency_key):
+        if task not in ("images2PosedRGBD", "atlasChisel", "posedImages2Splats"):
+            raise AtlasError("Unsupported Marble 2 task.")
         key = _identifier(idempotency_key, "idempotency key")
-        return self._request("POST", "/tasks:images2PosedRGBD", body, idempotency_key=key)
+        return self._request("POST", "/tasks:" + task, body, idempotency_key=key)
 
     def operation(self, operation_id):
         return self._request("GET", "/operations/" + _identifier(operation_id, "operation ID"))
@@ -226,10 +231,11 @@ class AtlasClient:
             raise AtlasError("Marble 2 API returned an unexpected response.")
         return result
 
-    def read_asset(self, asset_id, destination, *, kind):
+    def read_asset(self, asset_id, destination, *, kind, max_bytes=None):
         """Download a validated output into the caller's staging directory."""
-        if kind not in ("image", "depth", "confidence"):
+        if kind not in ("image", "depth", "confidence", "splat"):
             raise AtlasError("Unsupported Marble 2 output kind.")
+        max_bytes = MAX_ASSET_BYTES if max_bytes is None else max_bytes
         asset = _identifier(asset_id, "asset ID")
         grant = self._request("POST", f"/assets/{asset}:createReadUrl")
         host, path = _asset_target(grant.get("readUrl"))
@@ -250,7 +256,7 @@ class AtlasClient:
                         raise AtlasError(f"Marble 2 asset download returned HTTP {response.status}.")
                     declared = response.getheader("Content-Length")
                     if declared is not None and (
-                            re.fullmatch(r"[0-9]{1,9}", declared) is None or int(declared) > MAX_ASSET_BYTES):
+                            re.fullmatch(r"[0-9]{1,9}", declared) is None or int(declared) > max_bytes):
                         raise AtlasError("Marble 2 asset exceeds the download size limit.")
                     with tempfile.NamedTemporaryFile(mode="w+b", prefix=".atlas-", dir=destination.parent,
                                                      delete=False) as output:
@@ -261,16 +267,22 @@ class AtlasClient:
                             if remaining <= 0:
                                 raise TimeoutError
                             stream.settimeout(remaining)
-                            chunk = response.read1(min(1024 * 1024, MAX_ASSET_BYTES - total + 1))
+                            chunk = response.read1(min(1024 * 1024, max_bytes - total + 1))
                             if not chunk:
                                 break
                             total += len(chunk)
-                            if total > MAX_ASSET_BYTES:
+                            if total > max_bytes:
                                 raise AtlasError("Marble 2 asset exceeds the download size limit.")
                             output.write(chunk)
                         if not total or (declared is not None and total != int(declared)):
                             raise AtlasError("Marble 2 returned an empty or incomplete asset.")
-                        suffix = _asset_suffix(output, kind)
+                        if kind == "splat":
+                            output.seek(0)
+                            if output.read(2) != b"\x1f\x8b":
+                                raise AtlasError("Marble 2 returned an unsupported SPZ container.")
+                            suffix = ".spz"
+                        else:
+                            suffix = _asset_suffix(output, kind)
             os.replace(temporary, destination)
             return suffix
         except (OSError, http.client.HTTPException):

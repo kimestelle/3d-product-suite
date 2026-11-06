@@ -36,6 +36,7 @@ from .hosting import HostedAccess, LoginRequired, return_path
 from .presets import PresetLibrary
 from .world_cleanup import WorldCleanup
 from .atlas import AtlasQuickstart
+from .atlas_worlds import AtlasWorlds
 from .proofs import NativeProofService
 from .capture_schedule import run_scheduled_capture
 
@@ -254,6 +255,7 @@ class Application:
         self.presets = PresetLibrary(self.store.root)
         self.world_cleanup = WorldCleanup(self.store.root)
         self.atlas = AtlasQuickstart(self.store.root)
+        self.atlas_worlds = AtlasWorlds(self.store.root)
         self.polyhaven = PolyHavenLibrary(self.store.root, material_library=self.materials)
         self.renders = RenderQueue(self.store, base_url=f"http://127.0.0.1:{port}", blender=blender, ffmpeg=ffmpeg)
         self.comparison_renders = ComparisonJobs(self.renders)
@@ -454,6 +456,13 @@ def make_handler(app):
                     return self._json(app.atlas.status())
                 if path == "/api/atlas/quickstart":
                     return self._json(app.atlas.list())
+                if path == "/api/atlas/worlds":
+                    return self._json(app.atlas_worlds.list())
+                if len(parts) == 6 and parts[:3] == ["api", "atlas", "worlds"]:
+                    if parts[3] == "guides" and parts[5] == "reference":
+                        return self._file(app.atlas_worlds.guide_reference(parts[4]))
+                    if parts[4] == "views":
+                        return self._file(app.atlas_worlds.view(parts[3], parts[5]))
                 if len(parts) == 6 and parts[:3] == ["api", "atlas", "quickstart"] and parts[4] == "assets":
                     asset = app.atlas.asset(parts[3], parts[5])
                     return self._file(asset, download_name="atlas-depth.exr" if parts[5] == "depth" else None)
@@ -575,6 +584,13 @@ def make_handler(app):
             if self.command == "POST":
                 if path == "/api/atlas/quickstart":
                     return self._json(app.atlas.submit(body["imageUrl"]), 202)
+                if path == "/api/atlas/worlds":
+                    return self._json(app.atlas_worlds.submit(body), 202)
+                if len(parts) == 5 and parts[:3] == ["api", "atlas", "worlds"]:
+                    if parts[4] == "refresh":
+                        return self._json(app.atlas_worlds.refresh(parts[3]))
+                    if parts[4] in ("draft", "refine"):
+                        return self._json(app.atlas_worlds.reconstruct(parts[3], parts[4]), 202)
                 if len(parts) == 5 and parts[:3] == ["api", "atlas", "quickstart"] and parts[4] == "refresh":
                     return self._json(app.atlas.refresh(parts[3]))
                 if path == "/api/proofs":

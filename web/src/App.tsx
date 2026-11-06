@@ -21,6 +21,7 @@ import { resolveHierarchy, sceneParts } from './hierarchy';
 import ProductPanel, { type ProductLayer } from './ProductPanel';
 import {productImportAccept, productImportKind, productImportSettings, productImportNotice, type ProductSourceUp, type ProductSourceUnits} from './productImport';
 import WorldPanel, { type WorldLayer } from './WorldPanel';
+import AtlasWorldPanel from './AtlasWorldPanel';
 import {worldCleanupRenderScene,canApplyWorldCleanup,type WorldCleanupOwner} from './worldCleanupPreview';
 import type {WorldCleanupPreview,WorldCleanupSelection} from './WorldCleanupPanel';
 import ProductFitGuide, {type ProductFitRect} from './ProductFitGuide';
@@ -117,6 +118,7 @@ function Capture() {
 
 function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   const [presented, setPresented] = useState({a: false, b: false});
+  const [graphicsError, setGraphicsError] = useState({a:'',b:''});
   const [viewportLoading, setViewportLoading] = useState({a: false, b: false});
   const entranceReported = useRef(false);
   const entranceCallbacks = useRef({onReady, onLoadError}); entranceCallbacks.current = {onReady, onLoadError};
@@ -453,7 +455,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
       // canvases cannot present a frame until the editor has enough room.
       if (innerWidth < 900) {entranceReported.current=true;entranceCallbacks.current.onReady?.();return;}
       if (error || validationError) {entranceCallbacks.current.onLoadError?.(error || validationError); return;}
-      if (valid && presented.a && (!showComparison || presented.b)) {
+      if (valid && (presented.a || graphicsError.a) && (!showComparison || presented.b || graphicsError.b || graphicsError.a)) {
         entranceReported.current = true; entranceCallbacks.current.onReady?.();
       }
     };
@@ -461,7 +463,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     if (entranceReported.current) return;
     window.addEventListener('resize', report);
     return () => window.removeEventListener('resize', report);
-  }, [valid, presented, showComparison, error, validationError]);
+  }, [valid, presented, showComparison, error, validationError, graphicsError]);
   const calibrationRef=useRef(calibrationDrafts);calibrationRef.current=calibrationDrafts;
   const calibrationKey=JSON.stringify(scene?.comparison?.calibration??{});
   const calibrationWorldKey=JSON.stringify([scene?.environment,scene?.comparison?.alternative].map(environment=>[environment?.asset?.sha256,environment?.asset?.sourceUp,environment?.revisionId]));
@@ -558,8 +560,33 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     finally{if(owned())setRecoveryBusy(false);}
   };
   useEffect(()=>{const abort=new AbortController();api('/api/bootstrap','GET',undefined,abort.signal).then(async b=>{let remembered:string|null=null;try{remembered=localStorage.getItem('gesso.project')}catch{}let opened=b.project;const initialId=startupProjectId(b.projects,opened.id,remembered);if(initialId!==opened.id){try{opened=await api(`/api/projects/${initialId}`,'GET',undefined,abort.signal)}catch{}}if(abort.signal.aborted)return;loadProject(opened);setProjects(b.projects);setWorlds(b.worlds);setCaps(b.capabilities);setJobs(b.jobs)}).catch(e=>{if(!abort.signal.aborted)setError(e.message)});return()=>abort.abort()},[]);
-  useEffect(()=>{const hostElement=host.current;const secondHost=hostB.current;if(!hostElement||!secondHost)return;const view=createViewport(hostElement,{studioMode:true,onWorldCleanupError:message=>setNotice(message,'error'),onPresented:()=>setPresented(value=>({...value,a:true})),onLoading:loading=>setViewportLoading(value=>({...value,a:loading})),onFilmGuide:setFilmGuide,onInteract:()=>{setNativeProofInteracting(true);setPlaying(false);setInspecting(true);setStillViewVersion(value=>value+1)},onInteractEnd:()=>{setNativeProofInteracting(false);setStillViewVersion(value=>value+1)},onParts:setParts,onError:setValidationError,onWorldPoint:point=>pickHandler.current('a',point),onSurfacePoint:point=>surfacePickHandler.current('a',point)});const second=createViewport(secondHost,{studioMode:true,onPresented:()=>setPresented(value=>({...value,b:true})),onLoading:loading=>setViewportLoading(value=>({...value,b:loading})),onInteract:()=>{setNativeProofInteracting(true);setPlaying(false);setInspecting(true);setStillViewVersion(value=>value+1)},onInteractEnd:()=>{setNativeProofInteracting(false);setStillViewVersion(value=>value+1)},onError:message=>{if(renderSceneRef.current?.comparison)setValidationError(message)},onWorldPoint:point=>pickHandler.current('b',point),onSurfacePoint:point=>surfacePickHandler.current('b',point)});viewport.current=view;viewportB.current=second;
-    return()=>{++previewRequest.current;currentPreviewScope.current=null;view.dispose();second.dispose();viewport.current=null;viewportB.current=null}},[]);
+  useEffect(()=>{
+    if(!host.current)return;
+    let view:ReturnType<typeof createViewport>;
+    try{
+      view=createViewport(host.current,{studioMode:true,onWorldCleanupError:message=>setNotice(message,'error'),onPresented:()=>setPresented(value=>({...value,a:true})),onLoading:loading=>setViewportLoading(value=>({...value,a:loading})),onFilmGuide:setFilmGuide,onInteract:()=>{setNativeProofInteracting(true);setPlaying(false);setInspecting(true);setStillViewVersion(value=>value+1)},onInteractEnd:()=>{setNativeProofInteracting(false);setStillViewVersion(value=>value+1)},onParts:setParts,onError:setValidationError,onWorldPoint:point=>pickHandler.current('a',point),onSurfacePoint:point=>surfacePickHandler.current('a',point)});
+    }catch(error){
+      setGraphicsError(previous=>({...previous,a:error instanceof Error?error.message:String(error)}));
+      return;
+    }
+    viewport.current=view;
+    setGraphicsError(previous=>({...previous,a:''}));
+    return()=>{++previewRequest.current;currentPreviewScope.current=null;view.dispose();viewport.current=null;};
+  },[]);
+  const needsComparisonViewport=!!renderScene?.comparison;
+  useEffect(()=>{
+    if(!needsComparisonViewport||!hostB.current||!viewport.current)return;
+    let second:ReturnType<typeof createViewport>;
+    try{
+      second=createViewport(hostB.current,{studioMode:true,onPresented:()=>setPresented(value=>({...value,b:true})),onLoading:loading=>setViewportLoading(value=>({...value,b:loading})),onInteract:()=>{setNativeProofInteracting(true);setPlaying(false);setInspecting(true);setStillViewVersion(value=>value+1)},onInteractEnd:()=>{setNativeProofInteracting(false);setStillViewVersion(value=>value+1)},onError:message=>{if(renderSceneRef.current?.comparison)setValidationError(message)},onWorldPoint:point=>pickHandler.current('b',point),onSurfacePoint:point=>surfacePickHandler.current('b',point)});
+    }catch(error){
+      setGraphicsError(previous=>({...previous,b:error instanceof Error?error.message:String(error)}));
+      return;
+    }
+    viewportB.current=second;
+    setGraphicsError(previous=>({...previous,b:''}));
+    return()=>{second.dispose();viewportB.current=null;setPresented(value=>({...value,b:false}));};
+  },[needsComparisonViewport]);
   useEffect(()=>{const scene=renderScene;if(!scene)return;const request=++newest.current;const abort=new AbortController();
     const finishOnly=fullViewportInstalls.current===0&&isImageFinishOnlyChange(evaluatedScene.current,scene)&&samples.length>0;
     const reuseSamples=!scene.comparison&&fullViewportInstalls.current===0&&samplesRef.current.length>0&&canReuseViewportSamples(evaluatedScene.current,scene)&&canUpdateViewportScene(evaluatedScene.current,scene);
@@ -600,18 +627,18 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
       } finally {fullViewportInstalls.current--;}
     }).catch(e=>{if(request===newest.current){setValidationError(e.message);setEvaluating(false)}})
   },180);return()=>{clearTimeout(timer);abort.abort();++newest.current}},[renderScene]);
-  useEffect(()=>{viewport.current?.setFilmContent(filmWorkspace);viewportB.current?.setFilmContent(filmWorkspace)},[filmWorkspace]);
-  useEffect(()=>{viewport.current?.setPlaybackActive(playing);viewportB.current?.setPlaybackActive(playing)},[playing]);
-  useEffect(()=>{viewport.current?.setFilmGuides(filmGuidesVisible);viewportB.current?.setFilmGuides(showExport&&showComparison)},[filmGuidesVisible,showExport,showComparison]);
+  useEffect(()=>{viewport.current?.setFilmContent(filmWorkspace);viewportB.current?.setFilmContent(filmWorkspace)},[filmWorkspace,needsComparisonViewport]);
+  useEffect(()=>{viewport.current?.setPlaybackActive(playing);viewportB.current?.setPlaybackActive(playing)},[playing,needsComparisonViewport]);
+  useEffect(()=>{viewport.current?.setFilmGuides(filmGuidesVisible);viewportB.current?.setFilmGuides(showExport&&showComparison)},[filmGuidesVisible,showExport,showComparison,needsComparisonViewport]);
   useEffect(()=>{const sample=samples[frame-1];if(sample&&evaluatedScene.current===renderScene)void Promise.all([viewport.current?.setSample(sample),renderScene?.comparison?viewportB.current?.setSample(sample):Promise.resolve()]).catch(e=>setValidationError(e.message))},[samples,frame,renderScene]);
   useEffect(()=>{setUvLayout(selected?viewport.current?.getUvLayout(selected)??null:null)},[parts,selected]);
-  useEffect(()=>{viewport.current?.setSelected(selected);viewportB.current?.setSelected(selected)},[selected]);
+  useEffect(()=>{viewport.current?.setSelected(selected);viewportB.current?.setSelected(selected)},[selected,needsComparisonViewport]);
   useEffect(()=>{const part=productDecals?selected:null;viewport.current?.setUvProbePart(part);viewportB.current?.setUvProbePart(part)},[tab,layer,selected]);
   const hoverUv=useCallback((uv:[number,number]|null)=>{viewport.current?.setUvProbe(uv);viewportB.current?.setUvProbe(uv)},[]);
   const decalInteractionSurface=useCallback((element:HTMLDivElement|null)=>{viewport.current?.setInteractionSurface(element)},[]);
   useEffect(()=>{if(!scene)return;const all=parts.length?parts:sceneParts(scene);const {parents}=resolveHierarchy(scene,all);const members=all.filter(part=>{let id:string|null=part.id;const visited=new Set<string>();while(id&&!visited.has(id)){if(id===selected)return true;visited.add(id);id=parents[id]??null}return false}).map(part=>part.id);viewport.current?.setFocusParts(members);viewportB.current?.setFocusParts(members);const hidden=all.filter(part=>{let id:string|null=part.id;const visited=new Set<string>();while(id&&!visited.has(id)){if(hiddenParts.includes(id))return true;visited.add(id);id=parents[id]??null}return false}).map(part=>part.id);viewport.current?.setHiddenParts(showExport?[]:hidden);viewportB.current?.setHiddenParts(showExport?[]:hidden)},[parts,selected,scene,hiddenParts,showExport]);
   useEffect(()=>{const enabled=!showComparison&&!transformMode&&!showExport;viewport.current?.setInspectionEnabled(enabled);viewportB.current?.setInspectionEnabled(enabled);if(showComparison){viewport.current?.resetFraming();viewportB.current?.resetFraming();setInspecting(false)}},[showComparison,transformMode,showExport]);
-  useEffect(()=>{viewport.current?.setProductPreview(productWorkspace);viewportB.current?.setProductPreview(productWorkspace);setPicking(null)},[productWorkspace]);
+  useEffect(()=>{viewport.current?.setProductPreview(productWorkspace);viewportB.current?.setProductPreview(productWorkspace);setPicking(null)},[productWorkspace,needsComparisonViewport]);
   useEffect(()=>{const enabled=focused&&(productModel||productDecals);viewport.current?.setPartFocus(enabled);viewportB.current?.setPartFocus(enabled)},[focused,tab,layer,animatorVisible]);
   useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>setNotice(''),4500);return()=>clearTimeout(timer)},[notice]);
   useEffect(()=>{const outside=(e:PointerEvent)=>{if(!menuHost.current?.contains(e.target as Node))setMenu(null)};document.addEventListener('pointerdown',outside);return()=>document.removeEventListener('pointerdown',outside)},[]);
@@ -796,17 +823,17 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     setProductFitGuide({scene:committed,frame:atFrame,a:fits[0].targetRect,b:fits[1]?.targetRect});
     setNotice(`Product fitted · ${formatScalePercent(next.placement.scale ?? 1)}% of source size · Undo to restore`,'success');
   });
-  const replaceWorld=(id:string)=>{
+  const replaceWorld=(id:string,library=worlds)=>{
     if(!allowSceneEdit())return;
     pendingWorldFit.current=null;
-    const selectedWorld=worlds.find(world=>world.id===id);
+    const selectedWorld=library.find(world=>world.id===id);
     const providerId=scene?.environment.provenance?.providerWorldId;
     const sameProviderWorld=typeof providerId==='string'&&!!providerId.trim()&&selectedWorld?.environment.provenance?.providerWorldId===providerId;
     change(s=>{
       // A picked world contact belongs to its mesh; elsewhere the product returns to the floor.
       const leaveSurface=()=>{if(s.placement.restsOn!=='world-surface')return;s.placement.restsOn='floor';delete s.placement.contactPointM;s.placement.translationM=[0,0,0]};
       if(id==='authored'){const e=clone(s.environment);delete e.asset;delete e.previewAsset;delete e.fixture;delete e.collider;leaveSurface();e.kind='authored';e.revisionId='neutral-studio-v1';e.displayName='Authored studio';e.provenance={source:'Original authored studio',owner:'3d-product-suite',reuseBasis:'Original project geometry',allowedExternalDestinations:[]};s.environment=e;return}
-      const world=worlds.find(w=>w.id===id);if(!world)return;
+      const world=library.find(w=>w.id===id);if(!world)return;
       const e=clone(world.environment);if(s.environment.studioSizeM!==undefined)e.studioSizeM=s.environment.studioSizeM;e.plinth=clone(s.environment.plinth);if(s.environment.floorY!==undefined)e.floorY=s.environment.floorY;else delete e.floorY;if(s.environment.props)e.props=clone(s.environment.props);if(e.kind!=='mesh')leaveSurface();s.environment=e;
     });
     // Published samples already contain the product/camera poses; fitting here
@@ -825,6 +852,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     pendingWorldFit.current=null;
     void fitProduct();
   },[scene,tab,valid,visibleViewportLoading,busy]);
+  const useAtlasWorld=async(id:string)=>{const library:World[]=await api('/api/worlds');if(!library.some(world=>world.id===id))throw new Error('The Atlas world is not available in this workspace');setWorlds(library);replaceWorld(id,library);};
   const importFile=async()=>{if(!allowSceneEdit())return;const chosen=file.current?.files?.[0];if(!chosen)return;setImporting(true);setError('');try{const q=new URLSearchParams({name:worldName,owner,reuseBasis:reuse,sourceUp});const result=await fetch(`/api/worlds/import?${q}`,{method:'POST',headers:{'X-Product-Suite':'1','Content-Type':'application/octet-stream','X-Asset-Filename':chosen.name},body:chosen});const data=await result.json();if(!result.ok)throw new Error(data.error);setWorlds(await api('/api/worlds'));setShowImport(false);setNotice(`${data.name} imported; review its alignment before rendering`)}catch(e:any){setError(e.message)}finally{setImporting(false)}};
   const runProductImport=async(choice:ProductImportChoice,discardPrevious:boolean)=>{
     const owner=currentCampaignOwner();
@@ -1109,7 +1137,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     viewport.current?.setSuspended(suspended);viewportB.current?.setSuspended(suspended);
   },[stillShowing,nativeProofShowing,exportReviewVisible]);
   const stillBlocked=
-    !active?'Open the editor to render.':nativeProofShowing?'Return to preview to capture a browser snapshot.':cleanupPreview?'Apply the cleanup preview or return to the original before rendering.':!valid||visibleViewportLoading?'Wait for the preview to load.':
+    !active?'Open the editor to render.':graphicsError.a?'Browser snapshots need a live WebGL 2 preview.':nativeProofShowing?'Return to preview to capture a browser snapshot.':cleanupPreview?'Apply the cleanup preview or return to the original before rendering.':!valid||visibleViewportLoading?'Wait for the preview to load.':
     busy?'Wait for the current operation.':transformMode?'Apply or cancel the transform first.':
     materialPreviewError?'Wait for a valid material preview.':
     scene?.comparison?'Use Export for a comparison render.':
@@ -1144,7 +1172,11 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     if(nativeProofReason)throw new Error(nativeProofReason);
     const source=renderSceneRef.current,view=viewport.current,key=nativeProofScopeRef.current,at=frameRef.current;
     const sample=samplesRef.current[at-1];
-    if(!source||!view||!sample||evaluatedScene.current!==source)throw new Error('Wait for the current view to load.');
+    if(!source||!sample||evaluatedScene.current!==source)throw new Error('Wait for the current view to load.');
+    if(!view){
+      if(!graphicsError.a)throw new Error('Wait for the current view to load.');
+      return {scene:source,frame:at,sourceDigest:digest,sourceKey:key,...nativeProofSize(source.render.width/source.render.height),samples:32,viewLabel:'Shot camera'};
+    }
     await view.setSample(sample);
     if(nativeProofScopeRef.current!==key||renderSceneRef.current!==source||frameRef.current!==at)throw new DOMException('The view changed.','AbortError');
     const pose=view.getProofView();if(!pose)throw new Error('Wait for the current camera to settle, then try again.');
@@ -1215,6 +1247,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
           {scene&&tab==='world'&&<WorldPanel cleanupScopeKey={cleanupScopeKey} cleanupAvailable={!isStaticDemo&&caps.worldCleanupAvailable===true&&!scene.comparison} cleanupBusy={busy||saving||!!transformMode||!!materialPreview||!valid||visibleViewportLoading} cleanupPreview={cleanupPreview} onCleanupPreview={previewWorldCleanup} onCleanupApply={applyWorldCleanup} onCleanupSelection={setCleanupSelection} onCleanupFrame={()=>{if(viewport.current?.frameWorldCleanupSelection()){setPlaying(false);setInspecting(true);setStillViewVersion(value=>value+1);}}} analyzePostProcessing={analyzePostProcessing} postProcessingReady={postProcessingReady&&scene===renderScene} captureCurrentWorld={captureCurrentWorld} worldPreviewReady={!cleanupPreview&&tab==='world'&&!evaluating&&!visibleViewportLoading&&valid&&!playing&&!transformMode&&!showExport} worldPreviewRevision={digest} selectedObjectId={worldObjectId} onSelectObject={setWorldObjectId} editorHost={sideEditorHost} onFrameProp={frameProp} scene={scene} layer={layer as WorldLayer} worlds={worlds} onChange={change} onWorld={replaceWorld} onFitProduct={isStaticDemo?undefined:fitProduct} fitDisabled={!!cleanupPreview||!valid||visibleViewportLoading||busy||playing||!!transformMode} onImport={()=>setShowImport(value=>!value)} resolved={evaluatedScene.current===scene?objects:undefined} pickingSurface={pickingSurface} onPickSurface={startSurfacePick} onCancelPick={()=>setPickingSurface(false)} onFrameObjects={isStaticDemo?undefined:frameObjects} ready={valid&&!busy&&!cleanupPreview}>
             {showImport&&<div className="import-form"><Field label="World name"><input value={worldName} onChange={e=>setWorldName(e.target.value)}/></Field><Field label="Asset owner"><input value={owner} onChange={e=>setOwner(e.target.value)} placeholder="Your company or creator"/></Field><Field label="Reuse basis"><input value={reuse} onChange={e=>setReuse(e.target.value)} placeholder="License or permission"/></Field><Field label="Source up axis"><select value={sourceUp} onChange={e=>setSourceUp(e.target.value)}><option>Y</option><option>Z</option></select></Field><input aria-label="World export file" type="file" accept=".glb,.spz,.ply" ref={file}/><button disabled={!owner||!reuse||importing} onClick={importFile}>{importing?'Importing…':'Import GLB / SPZ / PLY'}</button></div>}
             <details className="gesso-disclosure" open={scene.comparison?true:undefined}><summary>Compare environments</summary><ComparisonPanel scene={scene} worlds={worlds} info={comparisonInfo} busy={busy} ready={valid} mode={comparisonMode} drafts={calibrationDrafts} picking={picking} onMode={changeComparisonMode} onEnable={startComparison} onDisable={()=>change(s=>{delete s.comparison})} onWorld={comparisonWorld} onTransform={comparisonTransform} onDraft={draftCalibration} onPick={startPick} onCancelPick={()=>setPicking(null)} onCalibrate={applyCalibration} onReview={reviewComparison}/></details>
+            {!isStaticDemo&&<AtlasWorldPanel request={api} onUse={useAtlasWorld} applyDisabled={busy||!valid||!!scene.comparison}/>}
             <details className="gesso-disclosure"><summary>Generate environment</summary><section className="control-section"><p className="small-copy">Choose a default above to start immediately. Or generate one world and compare World Labs’ mesh with a mesh reconstructed from its Gaussians.</p><Field label="Generation preset"><select value={preset} onChange={e=>setPreset(e.target.value)}><option value="botanical-studio">Botanical studio</option><option value="warm-gallery">Warm limestone gallery</option><option value="modern-loft">Modern loft</option></select></Field><Field label="Reference image URL (optional)"><input type="url" value={imageUrl} onChange={e=>setImageUrl(e.target.value)} placeholder="https://…/reference.jpg"/></Field><p className="small-copy">Use a public HTTPS image URL, or leave blank to generate from the preset. Private image files can use the local CLI. Your key stays encrypted in GitHub.</p><NumberControl label="API credit limit" value={creditLimit} min={5080} max={6000} step={100} onChange={setCreditLimit}/><p className="small-copy">Matching image and preset reuse saved results; product, camera and scene edits need no new generation. A new standard world + textured mesh costs about 5,080 API credits ($4.06). No automatic paid retries.</p><label className="gesso-check"><input type="checkbox" checked={forceNew} onChange={e=>setForceNew(e.target.checked)}/><span>Generate a new variation (uses credits)</span></label><button className="wide" disabled={busy||!caps.githubWorldsAvailable} onClick={generate}>{forceNew?'Generate new variation ↗':'Reuse or generate mesh comparison ↗'}</button><a className="text-link" style={{marginTop:12}} href={caps.githubWorkflowUrl??'https://github.com/kimestelle/3d-product-suite/actions/workflows/worldlabs-pair.yml'} target="_blank" rel="noreferrer">Open GitHub workflow ↗</a><button className="text-button" disabled={busy} onClick={refreshRuns}>Refresh generation runs</button>{remoteRuns.map(run=><article key={run.id} className="job"><div className="job-heading"><b>{run.name}</b><span className="job-state">{run.conclusion??run.status}</span></div><a className="text-link" href={run.url} target="_blank" rel="noreferrer">View generation ↗</a>{run.conclusion==='success'&&<button className="wide" style={{marginTop:12}} disabled={busy} onClick={()=>importRun(run.id)}>Import both meshes</button>}</article>)}</section></details>
           </WorldPanel>}
           {scene&&filmWorkspace&&(frameSetupProps?<FrameSetupObjects {...frameSetupProps}/>:!filmSceneSelected?<FilmClipDetails {...filmClipProps} side="objects"/>:<FilmObjects {...filmProps}/>)}
@@ -1245,7 +1278,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
           {showExport&&!exportReviewVisible&&<ExportPreviewTransport mode={mode} frame={frame} total={total} fps={fps} playing={playing} disabled={!valid||visibleViewportLoading||busy} onPlay={togglePlayback} onFrame={previewExportFrame} paired={showComparison} sourceLabel={randomPreview?(exportDraft?'Random setup':'Current scene · choose a setup'):'Current scene'}/>}
           {exportReviewVisible&&exportReview&&<ExportArtifactPreview key={`${exportReview.job.id}-${!!exportReview.job.paired}`} job={exportReview.job} currentDigest={digest} onBack={returnToExportPreview}/>}
           <ViewportLoading loading={visibleViewportLoading}/>
-          {validationError&&<div className="gesso-render-status" role="status">Preview needs attention</div>}
+          {(graphicsError.a||showComparison&&graphicsError.b||validationError)&&<div className="gesso-render-status" role="status">{graphicsError.a||(showComparison&&graphicsError.b)||'Preview needs attention'}</div>}
         </FrameWindow>
         {!filmWorkspace&&<div className="timeline-reveal" data-frame-outside aria-hidden={!timelineVisible} inert={!timelineVisible}><section className="timeline" aria-label="Shot timeline"><div className="transport"><span className="timecode">{((frame-1)/fps).toFixed(2)} / {(total/fps).toFixed(2)}s</span><div className="transport-right"><NumberField label="Frame" value={frame} onChange={n=>{setPlaying(false);setFrame(Math.max(1,Math.min(total,Math.round(n))))}} min={1} max={total} step={1}/><span>Space to play · ← → scrub</span></div></div><input className="scrubber" aria-label="Scrub scene" type="range" min={1} max={total} value={frame} onChange={e=>{setPlaying(false);setFrame(Number(e.target.value))}}/><div className="shots">{scene?.shots.map((item:any,i:number)=><button className={`shot ${item.id===shot?.id?'selected':''}`} key={item.id} onClick={()=>{setPlaying(false);setFrame(item.startFrame)}} style={{flex:item.endFrame-item.startFrame+1}}><span>{String(i+1).padStart(2,'0')}　{item.name}</span><small>{((item.endFrame-item.startFrame+1)/fps).toFixed(1)}s</small></button>)}</div></section></div>}
       </main>

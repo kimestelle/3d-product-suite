@@ -1,0 +1,561 @@
+{
+  "name": "Water-light pavilion",
+  "prompt": "A single unoccupied daylight pavilion with a continuous ribbed-glass wall and a shallow indoor reflecting channel. Follow the supplied depth layout. Use the posed image to match the appearance and distinguish the three dry shooting surfaces. In the near foreground a thick frosted glass slab with a translucent pale green edge sits on a mineral plaster base. In midroom a low charcoal basalt plinth has broad rounded ends and a level top. At the back a hollow brushed stainless steel console stands on a single low mineral step. The left wall is full-height translucent sea-green fluted cast glass from front to back. At its base a clearly visible straight shallow water channel runs the entire length of the room. Show the same unbroken window rhythm, dark stone channel edge and calm reflected glass stripes in each overlapping view of that wall. Keep it separate from the dry floor and shooting surfaces. Soft daylight through the ribbed glass, a few fine optical caustics on the lower wall above the channel, cooler quiet light elsewhere. Calm blue-gray mineral plaster, desaturated glass, soft silver metal, natural charcoal basalt. Straight architectural edges and consistent surfaces across all cameras, exactly one of each station. Empty, clean surfaces. No markings, lettering, props, people or watch.",
+  "frames": [
+    {
+      "camera": {
+        "extrinsics": {
+          "coordinateSystem": "rub",
+          "position": [
+            -0.25,
+            1.57,
+            1.63
+          ],
+          "quaternion": [
+            -0.035609458207328255,
+            -0.03470622876243228,
+            -0.0012374016702941936,
+            0.9987621904179075
+          ]
+        },
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 360.0,
+          "fx": 850,
+          "fy": 850,
+          "height": 720,
+          "width": 1280
+        }
+      },
+      "depthFile": "depth-00.png",
+      "zMin": 1.731480876453186,
+      "zMax": 6.933391662178598
+    },
+    {
+      "camera": {
+        "extrinsics": {
+          "coordinateSystem": "rub",
+          "position": [
+            1.55,
+            1.55,
+            1.38
+          ],
+          "quaternion": [
+            -0.055675863663116235,
+            0.19742120609794722,
+            0.011231133520209121,
+            0.9786720222975873
+          ]
+        },
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 360.0,
+          "fx": 850,
+          "fy": 850,
+          "height": 720,
+          "width": 1280
+        }
+      },
+      "depthFile": "depth-01.png",
+      "zMin": 1.8773516259266834,
+      "zMax": 7.97800558135963
+    },
+    {
+      "camera": {
+        "extrinsics": {
+          "coordinateSystem": "rub",
+          "position": [
+            -1.92,
+            1.53,
+            0.92
+          ],
+          "quaternion": [
+            -0.03849858456178357,
+            -0.23438793753398687,
+            -0.009289888101350221,
+            0.9713361167507196
+          ]
+        },
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 360.0,
+          "fx": 850,
+          "fy": 850,
+          "height": 720,
+          "width": 1280
+        }
+      },
+      "depthFile": "depth-02.png",
+      "zMin": 1.3779070560001725,
+      "zMax": 7.770849721110941
+    },
+    {
+      "camera": {
+        "extrinsics": {
+          "coordinateSystem": "rub",
+          "position": [
+            0.95,
+            1.55,
+            0.56
+          ],
+          "quaternion": [
+            -0.16197661803420374,
+            0.4170155806208063,
+            0.07579884773046082,
+            0.8911319292969071
+          ]
+        },
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 360.0,
+          "fx": 850,
+          "fy": 850,
+          "height": 720,
+          "width": 1280
+        }
+      },
+      "depthFile": "depth-03.png",
+      "zMin": 0.9933572153980782,
+      "zMax": 7.12320015592877
+    },
+    {
+      "camera": {
+        "extrinsics": {
+          "coordinateSystem": "rub",
+          "position": [
+            -0.65,
+            1.35,
+            0.54
+          ],
+          "quaternion": [
+            -0.19927942609321656,
+            -0.06139183415555608,
+            -0.012510131073230594,
+            0.9779377534667049
+          ]
+        },
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 360.0,
+          "fx": 850,
+          "fy": 850,
+          "height": 720,
+          "width": 1280
+        }
+      },
+      "depthFile": "depth-04.png",
+      "zMin": 0.7636758996486726,
+      "zMax": 5.99017933754074
+    },
+    {
+      "camera": {
+        "extrinsics": {
+          "coordinateSystem": "rub",
+          "position": [
+            1.85,
+            1.34,
+            -1.05
+          ],
+          "quaternion": [
+            -0.16815551366316495,
+            0.3836789255956695,
+            0.07127249326160072,
+            0.9052261800139814
+          ]
+        },
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 360.0,
+          "fx": 850,
+          "fy": 850,
+          "height": 720,
+          "width": 1280
+        }
+      },
+      "depthFile": "depth-05.png",
+      "zMin": 1.1511267836558141,
+      "zMax": 6.680759342450211
+    },
+    {
+      "camera": {
+        "extrinsics": {
+          "coordinateSystem": "rub",
+          "position": [
+            -1.55,
+            1.29,
+            -1.68
+          ],
+          "quaternion": [
+            -0.15301254193995956,
+            -0.5270530615326956,
+            -0.09713054945572994,
+            0.8302818128205102
+          ]
+        },
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 360.0,
+          "fx": 850,
+          "fy": 850,
+          "height": 720,
+          "width": 1280
+        }
+      },
+      "depthFile": "depth-06.png",
+      "zMin": 1.1298787883521957,
+      "zMax": 6.033588694013405
+    },
+    {
+      "camera": {
+        "extrinsics": {
+          "coordinateSystem": "rub",
+          "position": [
+            0.55,
+            1.21,
+            -1.55
+          ],
+          "quaternion": [
+            -0.2916751186690183,
+            0.11678804817638712,
+            0.035906847960854894,
+            0.948681651146516
+          ]
+        },
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 360.0,
+          "fx": 850,
+          "fy": 850,
+          "height": 720,
+          "width": 1280
+        }
+      },
+      "depthFile": "depth-07.png",
+      "zMin": 0.7832159342503772,
+      "zMax": 4.338245636089572
+    },
+    {
+      "camera": {
+        "extrinsics": {
+          "coordinateSystem": "rub",
+          "position": [
+            2.42,
+            1.59,
+            -2.55
+          ],
+          "quaternion": [
+            -0.19099472367147588,
+            0.2115538102634285,
+            0.04219499771486407,
+            0.9575936419277878
+          ]
+        },
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 360.0,
+          "fx": 850,
+          "fy": 850,
+          "height": 720,
+          "width": 1280
+        }
+      },
+      "depthFile": "depth-08.png",
+      "zMin": 1.1607009882227983,
+      "zMax": 4.592551644289616
+    },
+    {
+      "camera": {
+        "extrinsics": {
+          "coordinateSystem": "rub",
+          "position": [
+            0.15,
+            1.47,
+            -3.28
+          ],
+          "quaternion": [
+            -0.13840608038820745,
+            -0.5091545169136602,
+            -0.0833596854042536,
+            0.8453736438210587
+          ]
+        },
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 360.0,
+          "fx": 850,
+          "fy": 850,
+          "height": 720,
+          "width": 1280
+        }
+      },
+      "depthFile": "depth-09.png",
+      "zMin": 0.8197234060105827,
+      "zMax": 3.8538790842512
+    },
+    {
+      "camera": {
+        "extrinsics": {
+          "coordinateSystem": "rub",
+          "position": [
+            1.6,
+            1.7,
+            -3.18
+          ],
+          "quaternion": [
+            -0.35412792669100834,
+            -0.050591786784199295,
+            -0.019189569438990185,
+            0.9336303567645261
+          ]
+        },
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 360.0,
+          "fx": 850,
+          "fy": 850,
+          "height": 720,
+          "width": 1280
+        }
+      },
+      "depthFile": "depth-10.png",
+      "zMin": 0.9456977026530974,
+      "zMax": 2.345491103528442
+    },
+    {
+      "camera": {
+        "extrinsics": {
+          "coordinateSystem": "rub",
+          "position": [
+            -0.92,
+            1.61,
+            -3.48
+          ],
+          "quaternion": [
+            -0.03115224084198051,
+            -0.9497389557939767,
+            -0.10033120232825342,
+            0.29488828999683425
+          ]
+        },
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 360.0,
+          "fx": 850,
+          "fy": 850,
+          "height": 720,
+          "width": 1280
+        }
+      },
+      "depthFile": "depth-11.png",
+      "zMin": 1.766911886582183,
+      "zMax": 7.037194514531671
+    },
+    {
+      "camera": {
+        "extrinsics": {
+          "coordinateSystem": "rub",
+          "position": [
+            -0.68,
+            1.59,
+            1.35
+          ],
+          "quaternion": [
+            -0.05744888257756453,
+            0.2765615728066163,
+            0.016565094800055555,
+            0.9591344639682098
+          ]
+        },
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 360.0,
+          "fx": 850,
+          "fy": 850,
+          "height": 720,
+          "width": 1280
+        }
+      },
+      "depthFile": "depth-12.png",
+      "zMin": 1.390737333664056,
+      "zMax": 7.031127624740181
+    },
+    {
+      "camera": {
+        "extrinsics": {
+          "coordinateSystem": "rub",
+          "position": [
+            -1.67,
+            1.43,
+            0.27
+          ],
+          "quaternion": [
+            -0.07746758658558424,
+            0.19931987501046605,
+            0.015808541009789342,
+            0.9767397045710586
+          ]
+        },
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 360.0,
+          "fx": 850,
+          "fy": 850,
+          "height": 720,
+          "width": 1280
+        }
+      },
+      "depthFile": "depth-13.png",
+      "zMin": 1.0255755989022284,
+      "zMax": 5.743193013609043
+    },
+    {
+      "camera": {
+        "extrinsics": {
+          "coordinateSystem": "rub",
+          "position": [
+            -1.66,
+            1.47,
+            -1.36
+          ],
+          "quaternion": [
+            -0.08730341650353181,
+            0.29889673886652945,
+            0.02747139705347557,
+            0.9498864012636957
+          ]
+        },
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 360.0,
+          "fx": 850,
+          "fy": 850,
+          "height": 720,
+          "width": 1280
+        }
+      },
+      "depthFile": "depth-14.png",
+      "zMin": 1.503300683508337,
+      "zMax": 4.260971933191705
+    },
+    {
+      "camera": {
+        "extrinsics": {
+          "coordinateSystem": "rub",
+          "position": [
+            -1.63,
+            1.42,
+            -2.76
+          ],
+          "quaternion": [
+            -0.04028669015929058,
+            0.9148425730131263,
+            0.09436773133583869,
+            0.39055701309957147
+          ]
+        },
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 360.0,
+          "fx": 850,
+          "fy": 850,
+          "height": 720,
+          "width": 1280
+        }
+      },
+      "depthFile": "depth-15.png",
+      "zMin": 1.4499099389187453,
+      "zMax": 4.726605153714757
+    },
+    {
+      "camera": {
+        "extrinsics": {
+          "coordinateSystem": "rub",
+          "position": [
+            -0.52,
+            1.58,
+            -4.22
+          ],
+          "quaternion": [
+            -0.020083971145569472,
+            0.9519172268912903,
+            0.06395542095151573,
+            0.29893131549159296
+          ]
+        },
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 360.0,
+          "fx": 850,
+          "fy": 850,
+          "height": 720,
+          "width": 1280
+        }
+      },
+      "depthFile": "depth-16.png",
+      "zMin": 2.413302045910428,
+      "zMax": 6.812045136728993
+    }
+  ],
+  "references": [
+    {
+      "camera": {
+        "extrinsics": {
+          "coordinateSystem": "rub",
+          "position": [
+            -0.25,
+            1.57,
+            1.63
+          ],
+          "quaternion": [
+            -0.035609458207328255,
+            -0.03470622876243228,
+            -0.0012374016702941936,
+            0.9987621904179075
+          ]
+        },
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 360.0,
+          "fx": 850,
+          "fy": 850,
+          "height": 720,
+          "width": 1280
+        }
+      },
+      "imageFile": "reference-00.jpg"
+    },
+    {
+      "camera": {
+        "extrinsics": {
+          "coordinateSystem": "rub",
+          "position": [
+            -1.66,
+            1.47,
+            -1.36
+          ],
+          "quaternion": [
+            -0.08730341650353181,
+            0.29889673886652945,
+            0.02747139705347557,
+            0.9498864012636957
+          ]
+        },
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 360.0,
+          "fx": 850,
+          "fy": 850,
+          "height": 720,
+          "width": 1280
+        }
+      },
+      "imageFile": "reference-01.jpg"
+    }
+  ],
+  "seed": 731,
+  "translationM": [
+    0,
+    0,
+    0
+  ]
+}

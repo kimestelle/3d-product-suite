@@ -89,7 +89,7 @@ def _identifier(value, label):
 
 
 @contextmanager
-def _state_lock(directory):
+def _state_lock(directory, *, blocking=False):
     """Do not let concurrent local commands submit the same paid request."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
@@ -97,7 +97,7 @@ def _state_lock(directory):
     descriptor = os.open(lock, os.O_CREAT | os.O_WRONLY, 0o600)
     try:
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(descriptor, fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
             raise WorldLabsError("World Labs state is busy in another local command") from error
         yield

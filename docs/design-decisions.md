@@ -1696,3 +1696,11 @@ Scope: App proof/readiness integration, viewport incremental adapters, native pr
 Use the Atlas v2 API from the server with a project key. Record the input and idempotency key before submitting. Check the returned operation through its ID and reuse the same local run on reopening. Use asset IDs to obtain fresh read grants and cache validated downloads. This keeps the existing comparison viewport focused on inspectable world representations. See [local setup and API flow](atlas-beta.md).
 
 Scope includes `film/atlas.py`, `film/atlas_client.py`, the authenticated routes in `film/server.py`, the Marble 2 panel in World Comparison, and focused transport and operation tests.
+
+### 2026-11-06 — Atlas world builds stay separate from the product and camera
+
+**Implemented for the connected editor.** Stage → Environment → Build with Atlas opens the Water-light pavilion guide. The guide keeps measured room geometry, posed material references and overlapping cameras together. The director can add a short material or lighting note and inspect the generated views before choosing a draft. Refinement is a separate action. Draft and refined splats remain separate library entries and applying either is an explicit scene edit. The studio keeps using its existing product and camera setup.
+
+Scope includes `film/atlas_worlds.py`, the bundled pavilion guide and `web/src/AtlasWorldPanel.tsx`. Saved builds keep their provider operation IDs for resuming after reload. The static demo uses its packaged scene and the connected editor uses the workspace's server-side Atlas credential.
+
+The studio creates the comparison WebGL context on demand. The primary context retries without multisampling, and a system with WebGL 2 disabled can still open the studio. The connected render backend can use the saved camera for a proof when the live viewport is unavailable.
