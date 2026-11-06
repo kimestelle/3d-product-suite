@@ -1,4 +1,5 @@
 import {createViewport,type ViewportPart} from './viewport';
+import './atlasQuickstart';
 import './worldComparison.css';
 
 type World={id:string;name:string;environment:any};
@@ -157,7 +158,7 @@ representationSelect.addEventListener('change',()=>{selectedRepresentationId=rep
 refreshButton.addEventListener('click',()=>{void refreshWorlds();});captureButton.addEventListener('click',()=>{void captureAll();});
 cancelButton.addEventListener('click',()=>{cancelled=true;currentAbort?.abort();viewport.clearScene();loadedRepresentationId='';cancelButton.disabled=true;status.textContent='Cancelling…';});
 manifestButton.addEventListener('click',()=>{const record={schemaVersion:1,batchStartedAt,comparison:selectedWorldId.startsWith('reference:')?'authored geometry control, not a model output':'source-space, metric alignment unreviewed',worldId:selectedWorldId,
-  captures:captures.map(({url,sha256,...capture})=>({...capture,sourceAssetSha256:sha256})),models:[{name:'Atlas',state:'not-run'},{name:'GenRecon',state:'not-run'},{name:'WorldSculpt',state:'not-run'}]};
+  captures:captures.map(({url,sha256,...capture})=>({...capture,sourceAssetSha256:sha256})),models:[{name:'Atlas',state:'not-run',task:'world benchmark'},{name:'GenRecon',state:'not-run'},{name:'WorldSculpt',state:'not-run'}]};
   const url=URL.createObjectURL(new Blob([JSON.stringify(record,null,2)+'\n'],{type:'application/json'}));objectUrls.add(url);const link=document.createElement('a');link.href=url;link.download='world-comparison.json';link.click();
 });
 function dispose(){if(disposed)return;disposed=true;++request;currentAbort?.abort();viewport.dispose();for(const url of objectUrls)URL.revokeObjectURL(url);objectUrls.clear();}

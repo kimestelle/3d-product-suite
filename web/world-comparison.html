@@ -8,7 +8,7 @@
   <body>
     <main>
       <header class="review-header"><a href="/">gesso studio ↗</a><p>environment review</p><h1>World comparison</h1></header>
-      <p class="review-intro">Inspect existing world representations and a separate authored geometry control. The product is hidden; saved projects stay unchanged.</p>
+      <p class="review-intro">Inspect existing world representations and a separate authored geometry control. The product is hidden; saved projects stay unchanged. <a href="#marble-2">Marble 2 quickstart ↓</a></p>
       <section class="review-controls" aria-label="Comparison controls">
         <label>World<select id="world" aria-label="World" disabled></select></label>
         <label>Representation<select id="representation" aria-label="Representation" disabled></select></label>
@@ -27,14 +27,38 @@
         <p id="capture-note">Each image uses the same fixed camera and the editor’s actual renderer. Captures run one at a time.</p>
         <div id="results" class="review-results"></div>
       </section>
+      <section id="marble-2" class="model-section atlas-section" aria-labelledby="atlas-heading">
+        <div class="section-heading">
+          <h2 id="atlas-heading">Marble 2 quickstart</h2>
+          <a href="https://docs.atlas-beta.worldlabs.ai/quickstart" target="_blank" rel="noopener noreferrer">API quickstart ↗</a>
+        </div>
+        <p>Send one public image to World Labs. The task estimates its camera and depth for use in a world workflow.</p>
+        <form id="atlas-form">
+          <fieldset id="atlas-inputs" disabled>
+            <label>Public HTTPS image URL
+              <input id="atlas-image-url" type="url" required value="https://images.pexels.com/photos/31252468/pexels-photo-31252468.jpeg?auto=compress&amp;cs=tinysrgb&amp;w=1280" aria-describedby="atlas-input-note" />
+            </label>
+            <button id="atlas-submit" type="submit">Run Marble 2</button>
+          </fieldset>
+        </form>
+        <p id="atlas-input-note">The quickstart sample is <a href="https://www.pexels.com/photo/scenic-view-of-red-torii-gate-at-lake-ashi-31252468/" target="_blank" rel="noopener noreferrer">Daniel Erlandson’s torii gate photo</a>. Submissions use your Atlas project credits.</p>
+        <p id="atlas-status" role="status">Checking Atlas connection…</p>
+        <p id="atlas-configure" hidden>Create a key in <a href="https://atlas-beta.worldlabs.ai/developers" target="_blank" rel="noopener noreferrer">Atlas Developers</a>. Save it in <code>workspace-data/secrets/atlas-api-key</code> with permissions <code>0600</code>, then reload runs.</p>
+        <p id="atlas-error" role="alert" hidden></p>
+        <div class="atlas-run-controls">
+          <label id="atlas-runs-label" hidden>Saved run<select id="atlas-runs"></select></label>
+          <button id="atlas-reload" type="button">Reload runs</button>
+          <button id="atlas-check" type="button" hidden>Check operation</button>
+        </div>
+        <div id="atlas-result"></div>
+      </section>
       <section class="model-section" aria-label="Model benchmark availability">
         <h2>Other models</h2>
         <table><thead><tr><th>Candidate</th><th>Result</th><th>Required input / access</th><th>Published examples</th></tr></thead><tbody>
-          <tr><td>Atlas</td><td>Not run</td><td>Account access to the depth-guided generation task</td><td><a href="https://www.worldlabs.ai/blog/atlas" target="_blank" rel="noopener noreferrer">Atlas examples ↗</a></td></tr>
           <tr><td>GenRecon</td><td>Not run</td><td>CUDA worker and consistent images with camera poses</td><td><a href="https://kasothaphie.github.io/GenRecon/" target="_blank" rel="noopener noreferrer">GenRecon examples ↗</a></td></tr>
           <tr><td>WorldSculpt</td><td>Not run</td><td>CUDA worker, camera poses, instance masks and 3D boxes</td><td><a href="https://alaya-lab.github.io/WorldSculpt/" target="_blank" rel="noopener noreferrer">WorldSculpt examples ↗</a></td></tr>
         </tbody></table>
-        <p>These models have not run here. Published examples use different inputs and are separate from the local captures. This page makes no external generation requests.</p>
+        <p>Published examples use different inputs from the local captures.</p>
       </section>
     </main>
     <script type="module" src="/src/worldComparison.ts"></script>

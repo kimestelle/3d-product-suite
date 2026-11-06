@@ -64,6 +64,41 @@ class EditorApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         return value
 
+    def test_atlas_quickstart_checks_operation_and_serves_cached_output(self):
+        from unittest.mock import Mock
+        from film.atlas import SAMPLE_IMAGE
+        from tests.test_atlas import completed, raster_asset
+
+        provider = Mock()
+        provider.submit.return_value = {"id": "op_test", "done": False}
+        provider.operation.return_value = completed()
+        provider.read_asset.side_effect = raster_asset
+        self.app.atlas.client_factory = lambda _: provider
+        path = "/api/atlas/quickstart"
+        body = {"imageUrl": SAMPLE_IMAGE}
+        with patch.dict("os.environ", {"WLT_API_KEY": "fixture-private-key"}):
+            self.assertEqual(self.request("GET", "/api/atlas/status")[1], {"configured": True})
+            self.assertEqual(self.request("POST", path, body, mutate=False)[0], 403)
+            status, run, _ = self.request("POST", path, body)
+            self.assertEqual(status, 202)
+            self.assertEqual(run["state"], "pending")
+            self.assertEqual(self.request("POST", path, body)[1], run)
+            status, result, _ = self.request("POST", f"{path}/{run['id']}/refresh", {})
+            self.assertEqual(status, 200)
+            self.assertEqual(result["state"], "succeeded")
+            self.assertEqual(self.request("GET", path)[1], {"runs": [result]})
+            image_url = result["result"]["assets"][0]["url"]
+            status, payload, headers = self.request("GET", image_url)
+            self.assertEqual(status, 200)
+            self.assertEqual(headers["Content-Type"], "image/png")
+            self.assertEqual(headers["Cache-Control"], "no-store")
+            self.assertTrue(payload.startswith(b"\x89PNG"))
+            self.assertEqual(self.request("GET", image_url)[1], payload)
+            self.assertEqual(self.request("GET", image_url.replace("/image", "/run.json"))[0], 404)
+        provider.submit.assert_called_once()
+        provider.operation.assert_called_once_with("op_test")
+        provider.read_asset.assert_called_once()
+
     def test_world_cleanup_is_source_bound_and_does_not_save_campaign(self):
         from tests.test_world_cleanup import grid_glb
         bootstrap = self.bootstrap()

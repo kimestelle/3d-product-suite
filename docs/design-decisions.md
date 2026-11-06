@@ -1688,3 +1688,11 @@ Use the real export adapter in one persistent pinned Cycles process. Camera/ligh
 Reuse only verified ungraded whole-frame masters with exact source, sampled physical state, optical/profile, native executable/adapter and actual execution identities. Grade/encode revisions and unchanged same-index editorial frames may reuse them; Gaussian raw masters, renumbered frames and changed physics render again. The optional cache has a 256 MiB admission budget and safe native fallback. Preserve earlier exports and sources. Native warm/cold pixels and graded cached/fresh output were checked for equality in local fixtures; those timings do not establish cloud or full-film performance.
 
 Scope: App proof/readiness integration, viewport incremental adapters, native proof UI/service/worker, render arbitration, scheduled capture, raw render reuse and their tests. See [loop behavior and measured limits](edit-proof-export-loop.md). Baseline: /private/tmp/gesso-before-loop-root-20261104. Other-chat interface/brand changes remain separate.
+
+### 2026-11-06 — D247 — Add the Marble 2 quickstart to World Comparison
+
+**Implemented locally.** Estelle received Atlas beta access and requested the first documented API task here. World Comparison gains a Marble 2 section for an explicit single-image request, with the official credited example as its initial input. Keep operation status, camera, normalized image, depth and confidence together in the saved run. The returned camera describes the depth grid. Multi-view reconstruction and metric alignment remain separate decisions.
+
+Use the Atlas v2 API from the server with a project key. Record the input and idempotency key before submitting. Check the returned operation through its ID and reuse the same local run on reopening. Use asset IDs to obtain fresh read grants and cache validated downloads. This keeps the existing comparison viewport focused on inspectable world representations. See [local setup and API flow](atlas-beta.md).
+
+Scope includes `film/atlas.py`, `film/atlas_client.py`, the authenticated routes in `film/server.py`, the Marble 2 panel in World Comparison, and focused transport and operation tests.
