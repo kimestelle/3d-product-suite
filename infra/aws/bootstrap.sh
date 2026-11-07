@@ -70,25 +70,48 @@ docker logout "$registry"
 python3 - <<'PY'
 import json,os
 from pathlib import Path
-names=('AWS_DEFAULT_REGION','GESSO_IMAGE_URI','GESSO_SECRET_ARN','GESSO_DOMAIN','GESSO_PUBLIC_URL')
-Path('/opt/gesso/config.json').write_text(json.dumps({name:os.environ[name] for name in names}))
+names=('AWS_DEFAULT_REGION','GESSO_IMAGE_URI','GESSO_SECRET_ARN','GESSO_DOMAIN','GESSO_PUBLIC_URL',
+       'GESSO_ATLAS_SECRET_ARN','GESSO_FAL_SECRET_ARN')
+Path('/opt/gesso/config.json').write_text(json.dumps({name:os.environ.get(name,'') for name in names}))
 PY
 cat >/opt/gesso/start-app.py <<'PY'
-import json,os,pathlib,subprocess
+import json,os,pathlib,re,subprocess
 c=json.loads(pathlib.Path('/opt/gesso/config.json').read_text())
 os.environ['AWS_DEFAULT_REGION']=c['AWS_DEFAULT_REGION']
 directory=pathlib.Path('/run/gesso');directory.mkdir(mode=0o700,exist_ok=True)
-key=directory/'access-key'
-value=subprocess.check_output(['aws','secretsmanager','get-secret-value','--secret-id',c['GESSO_SECRET_ARN'],'--query','SecretString','--output','text']).strip()
-if len(value)<32 or b'\n' in value:raise SystemExit('Invalid workspace access key')
-key.write_bytes(value);key.chmod(0o400);os.chown(key,10001,10001)
+def load_secret(arn, filename, minimum=1):
+    # Capture AWS output so a denied request cannot print secret content. Each
+    # file is replaced only after validating its complete plain-string value.
+    result=subprocess.run(['aws','secretsmanager','get-secret-value','--secret-id',arn,'--query','SecretString','--output','text'],capture_output=True,check=False)
+    if result.returncode:raise SystemExit('Cannot load a configured Gesso secret; check exact ARN and host permission')
+    value=result.stdout.strip()
+    if not minimum<=len(value)<=4096 or re.fullmatch(rb'[!-~]+',value) is None or value[:1] in (b'{',b'['):
+        raise SystemExit('A configured secret must contain the plain key on one line')
+    key=directory/filename
+    temporary=directory/(filename+'.new')
+    descriptor=os.open(temporary,os.O_WRONLY|os.O_CREAT|os.O_TRUNC|os.O_NOFOLLOW,0o600)
+    with os.fdopen(descriptor,'wb') as output:output.write(value)
+    temporary.chmod(0o400);os.chown(temporary,10001,10001);temporary.replace(key)
+load_secret(c['GESSO_SECRET_ARN'],'access-key',32)
+provider_args=[]
+for setting,filename,environment in [('GESSO_ATLAS_SECRET_ARN','atlas-key','WLT_API_KEY_FILE'),('GESSO_FAL_SECRET_ARN','fal-key','FAL_KEY_FILE')]:
+    if c.get(setting):
+        load_secret(c[setting],filename)
+        provider_args += ['--mount',f'type=bind,src=/run/gesso/{filename},dst=/run/secrets/{filename},readonly',
+                          '--env',f'{environment}=/run/secrets/{filename}']
+# Reserve a quarter of host RAM and one CPU for SSM, TLS and recovery. An
+# oversized render may fail its container, rather than exhausting the host.
+memory_bytes=os.sysconf('SC_PHYS_PAGES')*os.sysconf('SC_PAGE_SIZE')*3//4
+cpu_budget=max(1,(os.cpu_count() or 2)-1)
 subprocess.run(['docker','rm','--force','gesso-api'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False)
-os.execvp('docker',['docker','run','--rm','--init','--name','gesso-api','--gpus','all','--shm-size','1g','--pids-limit','1024','--log-opt','max-size=20m','--log-opt','max-file=3',
+os.execvp('docker',['docker','run','--rm','--init','--name','gesso-api','--gpus','all','--shm-size','1g','--pids-limit','1024','--security-opt','no-new-privileges',
+ '--memory',str(memory_bytes),'--memory-swap',str(memory_bytes),'--cpus',str(cpu_budget),
+ '--log-opt','max-size=20m','--log-opt','max-file=3',
  '--publish','127.0.0.1:8787:8787','--mount','type=bind,src=/data/workspace,dst=/data/workspace',
  '--mount','type=bind,src=/run/gesso/access-key,dst=/run/secrets/gesso-access-key,readonly',
  '--env','GESSO_ACCESS_KEY_FILE=/run/secrets/gesso-access-key','--env','GESSO_DATA_DIR=/data/workspace','--env','GESSO_CYCLES_DEVICE=AUTO',
  '--env','GESSO_CAPTURE_DEVICE=auto','--env','NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics','--env','AWS_EC2_METADATA_DISABLED=true',
- '--env','GESSO_PUBLIC_URL='+c['GESSO_PUBLIC_URL'],'--env','GESSO_BACKEND_URL=https://'+c['GESSO_DOMAIN'],c['GESSO_IMAGE_URI']])
+ '--env','GESSO_PUBLIC_URL='+c['GESSO_PUBLIC_URL'],'--env','GESSO_BACKEND_URL=https://'+c['GESSO_DOMAIN'],*provider_args,c['GESSO_IMAGE_URI']])
 PY
 chmod 700 /opt/gesso/start-app.py
 cat >/etc/systemd/system/gesso.service <<'UNIT'

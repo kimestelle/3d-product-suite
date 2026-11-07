@@ -7,6 +7,7 @@ provider dispatch, request parsing and project mutation.
 
 import copy
 import http.client
+import io
 from http.cookies import SimpleCookie
 from http.server import ThreadingHTTPServer
 import json
@@ -121,6 +122,47 @@ class HostedApiTests(unittest.TestCase):
         self.assertEqual(value, {"status": "ok"})
         self.assertIn("no-store", headers["Cache-Control"])
         self.assertNotIn("Set-Cookie", headers)
+        self.assertEqual(self.app.store.list(), [])
+
+    def test_full_heavy_admission_leaves_health_and_authentication_available(self):
+        slots = self.app.heavy_requests
+        for _ in range(self.app.limits.heavy_requests):
+            self.assertTrue(slots.acquire(blocking=False))
+        try:
+            status, _, _ = self.request("POST", "/api/products/import", raw=b"not a model")
+            self.assertEqual(status, 401)
+            status, error, headers = self.request("POST", "/api/products/import", raw=b"not a model",
+                                                 cookie=self.session_cookie())
+            self.assertEqual(status, 503)
+            self.assertEqual(headers["Retry-After"], "2")
+            self.assertIn("preparing other assets", error["error"])
+            self.assertEqual(self.request("GET", "/api/health")[0], 200)
+            self.assertEqual(self.request("GET", "/api/projects", cookie=self.session_cookie())[0], 200)
+        finally:
+            for _ in range(self.app.limits.heavy_requests):
+                slots.release()
+        self.assertEqual(self.request("POST", "/api/products/import", raw=b"not a model",
+                                      cookie=self.session_cookie())[0], 400)
+
+    def test_hosted_internal_error_keeps_private_details_in_server_logs(self):
+        private = "fixture private runtime path /data/secrets/provider-key"
+        with patch.object(self.app.store, "list", side_effect=RuntimeError(private)), patch("sys.stderr", new_callable=io.StringIO) as logs:
+            status, response, _ = self.request("GET", "/api/projects", cookie=self.session_cookie())
+        self.assertEqual(status, 500)
+        self.assertNotIn(private, json.dumps(response))
+        self.assertNotIn("RuntimeError", json.dumps(response))
+        self.assertIn(private, logs.getvalue())
+
+    def test_ambiguous_request_framing_is_rejected_before_mutation(self):
+        status, error, _ = self.request("POST", "/api/projects", raw=b"{}", cookie=self.session_cookie(),
+            headers={"Content-Type":"application/json", "Content-Length":"2", "Transfer-Encoding":"chunked"})
+        self.assertEqual(status, 400)
+        self.assertIn("no Transfer-Encoding", error["error"])
+        self.assertEqual(self.app.store.list(), [])
+        status, error, _ = self.request("POST", "/api/projects", raw=b"{}", cookie=self.session_cookie(),
+            headers={"Content-Type":"application/json", "Content-Length":"+2"})
+        self.assertEqual(status, 400)
+        self.assertIn("decimal digits", error["error"])
         self.assertEqual(self.app.store.list(), [])
 
     def test_login_sets_browser_cookie_and_authenticated_project_edits_reopen(self):
@@ -289,12 +331,14 @@ class HostedConfigurationTests(unittest.TestCase):
         self.assertNotIn(ACCESS_KEY, access.cookie())
 
     def test_public_binding_fails_before_opening_a_socket_without_hosted_access(self):
-        with (patch.object(server, "Application", return_value=SimpleNamespace(access=HostedAccess())),
+        with (patch.dict(os.environ, {}, clear=True),
+              patch.object(server, "Application", return_value=SimpleNamespace(access=HostedAccess())) as application,
               patch.object(server, "ThreadingHTTPServer") as http_server):
             for host in ("0.0.0.0", "::", "192.0.2.1"):
                 with self.subTest(host=host), self.assertRaisesRegex(ValueError, "Public binding requires"):
                     server.serve(host=host)
             http_server.assert_not_called()
+            application.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ import {captureWorldCoverWithRetry, createWorldCoverObject, fitWorldCover, world
 import './world-covers.css';
 
 export interface CurrentWorldCapture {
+  worldPreviewEnabled?: boolean;
   captureCurrentWorld?: (signal: AbortSignal) => Promise<Blob>;
   worldPreviewReady?: boolean;
   worldPreviewRevision?: string;
@@ -42,6 +43,7 @@ export function useWorldCovers(items: WorldCoverItem[], current: WorldCoverItem,
   const publish = () => setCovers(Object.fromEntries(cache));
 
   useEffect(() => {
+    if(options.worldPreviewEnabled===false)return;
     let disposed = false, busy = false, unavailable = false;
     let active: AbortController | undefined;
     let renderer: THREE.WebGLRenderer | undefined;
@@ -113,11 +115,11 @@ export function useWorldCovers(items: WorldCoverItem[], current: WorldCoverItem,
       disposed = true; active?.abort(); clearTimeout(idle); observer?.disconnect();
       document.removeEventListener('visibilitychange', visibility); syncRef.current = null; releaseRenderer();
     };
-  }, []);
+  }, [options.worldPreviewEnabled]);
   useEffect(() => {syncRef.current?.();}, [key, selectedKey]);
 
   useEffect(() => {
-    if (!options.captureCurrentWorld || !options.worldPreviewReady) return;
+    if (options.worldPreviewEnabled===false || !options.captureCurrentWorld || !options.worldPreviewReady) return;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       void captureWorldCoverWithRetry(options.captureCurrentWorld!, controller.signal).then(pngUrl).then(url => {
@@ -128,7 +130,7 @@ export function useWorldCovers(items: WorldCoverItem[], current: WorldCoverItem,
       });
     }, 160);
     return () => {clearTimeout(timer); controller.abort();};
-  }, [selectedKey, options.captureCurrentWorld, options.worldPreviewReady, options.worldPreviewRevision]);
+  }, [selectedKey, options.captureCurrentWorld, options.worldPreviewReady, options.worldPreviewRevision, options.worldPreviewEnabled]);
 
   const displayedCovers = Object.fromEntries([...items, current].map(item => {
     const itemKey = worldCoverKey(item.environment, item.productDimensionsM);

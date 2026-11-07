@@ -7,12 +7,14 @@ Polygon PLY meshes use the bounded normalizer in film.mesh_import.
 from __future__ import annotations
 
 import copy
+from collections import OrderedDict
 from contextlib import contextmanager
 import hashlib
 import json
 import math
 from pathlib import Path
 import struct
+import threading
 
 from .worlds import (_canonical, _data_uri, _immutable_write, _read_asset, _require,
                      _validate_glb, bundle_assets, safe_asset_path,
@@ -20,6 +22,38 @@ from .worlds import (_canonical, _data_uri, _immutable_write, _read_asset, _requ
 
 ROOT = Path(__file__).resolve().parents[1]
 _IDENTITY = ((1., 0., 0., 0.), (0., 1., 0., 0.), (0., 0., 1., 0.), (0., 0., 0., 1.))
+_FACT_CACHE = OrderedDict()
+_FACT_CACHE_LOCK = threading.Lock()
+_FACT_CACHE_MAX_BYTES = 2 * 1024 * 1024
+_FACT_CACHE_MAX_RECORD_BYTES = 256 * 1024
+_FACT_CACHE_MAX_ENTRIES = 64
+
+
+def _glb_facts(kind, payload, compute):
+    """Keep bounded, byte-derived facts; never retain source buffers or scenes.
+
+    Callers still read and hash the actual file and validate each scene's
+    dimensions, source hierarchy and material targets. Changed bytes cannot
+    reuse these facts, even when filesystem timestamps are restored.
+    """
+    _require(isinstance(payload, bytes) and len(payload) <= 128 * 1024 * 1024,
+             "Product GLB exceeds the 128 MiB limit")
+    key = (kind, hashlib.sha256(payload).hexdigest())
+    with _FACT_CACHE_LOCK:
+        cached = _FACT_CACHE.get(key)
+        if cached is not None:
+            _FACT_CACHE.move_to_end(key)
+            return copy.deepcopy(cached[0])
+    facts = compute(payload)
+    size = len(_canonical(facts))
+    if size <= _FACT_CACHE_MAX_RECORD_BYTES:
+        with _FACT_CACHE_LOCK:
+            _FACT_CACHE[key] = (copy.deepcopy(facts), size)
+            _FACT_CACHE.move_to_end(key)
+            while (len(_FACT_CACHE) > _FACT_CACHE_MAX_ENTRIES
+                   or sum(item[1] for item in _FACT_CACHE.values()) > _FACT_CACHE_MAX_BYTES):
+                _FACT_CACHE.popitem(last=False)
+    return facts
 
 
 def _numbers(value, size, name):
@@ -82,6 +116,11 @@ def _accessor_rows(document, buffers, index, *, positions=False):
 
 
 def inspect_product_glb(payload):
+    """Validate the GLB and return independent, byte-derived geometry facts."""
+    return _glb_facts("inspection", payload, _inspect_product_glb)
+
+
+def _inspect_product_glb(payload):
     """Validate bounded static GLB content and measure its active-scene vertices.
 
     Bounds are measured from actual positions and node transforms, not untrusted
@@ -184,6 +223,11 @@ def inspect_product_glb(payload):
 
 
 def product_source_nodes(payload):
+    """Return the immutable source hierarchy and measured local bounds."""
+    return _glb_facts("source-nodes", payload, _product_source_nodes)
+
+
+def _product_source_nodes(payload):
     """Immutable physical hierarchy + measured local bounds from verified GLB bytes."""
     json_length = struct.unpack_from("<I", payload, 12)[0]
     document = json.loads(payload[20:20 + json_length])

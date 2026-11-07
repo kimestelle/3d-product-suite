@@ -1,0 +1,96 @@
+{
+  "date": "2026-11-07",
+  "preview": {
+    "before": {
+      "cold": {
+        "milliseconds": 16082,
+        "taskMilliseconds": 2832.84,
+        "transferredBytes": 42343737,
+        "contexts": 2,
+        "mainDraws": 2143,
+        "otherDraws": 1
+      },
+      "idle": {
+        "contexts": 0,
+        "mainDraws": 0,
+        "otherDraws": 0,
+        "taskMilliseconds": 9.1190000000001
+      },
+      "orbit": {
+        "contexts": 0,
+        "mainDraws": 9486,
+        "otherDraws": 0,
+        "taskMilliseconds": 317.7169999999996,
+        "milliseconds": 1688
+      },
+      "hidden": {
+        "contexts": 0,
+        "mainDraws": 0,
+        "otherDraws": 0
+      },
+      "initialPngSha256": "18f57af941bc94a6706a6224e444d89cbbdd4b09be379e5a6e282fead0422ce0",
+      "orbitPngSha256": "b170422a815a0b7ed308fbeced24179080f39519f7de7fdf17dd08d729c676fc"
+    },
+    "after": {
+      "cold": {
+        "milliseconds": 12850,
+        "taskMilliseconds": 1460.228,
+        "transferredBytes": 42343815,
+        "contexts": 1,
+        "mainDraws": 1470,
+        "otherDraws": 0
+      },
+      "idle": {
+        "contexts": 0,
+        "mainDraws": 0,
+        "otherDraws": 0,
+        "taskMilliseconds": 1.028000000000029
+      },
+      "orbit": {
+        "contexts": 0,
+        "mainDraws": 3813,
+        "otherDraws": 0,
+        "taskMilliseconds": 163.06200000000004,
+        "milliseconds": 1548
+      },
+      "hidden": {
+        "contexts": 0,
+        "mainDraws": 0,
+        "otherDraws": 0
+      },
+      "initialPngSha256": "4feb02962f5f0da9d92bce23583f6d48e81afd7d52f3904b5f9278703d4181bb",
+      "orbitPngSha256": "8a334c028ec9e0b34801ee054349fa938b4575a343761541e2b7ed3d28f741eb"
+    }
+  },
+  "assetVerification": {
+    "before": {
+      "milliseconds": [
+        598.4910419792868,
+        566.5276249928866,
+        476.5669169719331,
+        467.29237501858734,
+        470.9900409798138
+      ],
+      "medianMs": 476.5669169719331,
+      "assets": 2,
+      "assetBytes": 35735458
+    },
+    "after": {
+      "milliseconds": [
+        99.01920901029371,
+        98.07441700831987,
+        98.94937500939704,
+        96.86787499231286,
+        109.24191700178199
+      ],
+      "medianMs": 98.94937500939704,
+      "assets": 2,
+      "assetBytes": 35735458
+    }
+  },
+  "limits": [
+    "One local Chrome orbit trial per version; no export speed claim.",
+    "Five repeated warm asset-verification calls per version.",
+    "Cold-load observations are single trials."
+  ]
+}

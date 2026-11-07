@@ -23,6 +23,7 @@ GPU_QUOTA = 'L-DB2E81BA'
 PUBLIC_REPOSITORY = 'https://raw.githubusercontent.com/kimestelle/3d-product-suite'
 REGION = re.compile(r'(?:us|eu|ap|sa|ca|me|af|il|mx)-[a-z]+-[0-9]+\Z')
 ECR = re.compile(r'(?P<account>[0-9]{12})\.dkr\.ecr\.(?P<region>[a-z0-9-]+)\.amazonaws\.com/(?P<repository>[a-z0-9]+(?:[._/-][a-z0-9]+)*)@(?P<digest>sha256:[a-f0-9]{64})\Z')
+SECRET_ARN = re.compile(r'arn:aws:secretsmanager:(?P<region>[a-z0-9-]+):(?P<account>[0-9]{12}):secret:[A-Za-z0-9/_+=.@-]+\Z')
 
 
 def require(condition, message):
@@ -66,7 +67,8 @@ def commands(packet, plan, profile=None):
 
 def prepare(*, region='us-east-1', domain, image_uri, output, instance_type='g6.2xlarge', availability_zone=None,
             existing_volume_id=None, workspace_gib=100, root_gib=80, ami_id=None,
-            public_editor_url='https://gesso-studio-gold.vercel.app', stack_name='gesso-workspace', root=ROOT):
+            public_editor_url='https://gesso-studio-gold.vercel.app', stack_name='gesso-workspace',
+            atlas_key_secret_arn=None, fal_key_secret_arn=None, root=ROOT):
     require(bool(REGION.fullmatch(region)), 'Choose a standard commercial AWS region.')
     domain=domain.lower()
     label=r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?'
@@ -74,6 +76,11 @@ def prepare(*, region='us-east-1', domain, image_uri, output, instance_type='g6.
             and not re.fullmatch(r'[0-9.]+',domain), 'Backend domain must be an exact DNS hostname, without a scheme, port or wildcard.')
     image=ECR.fullmatch(image_uri)
     require(image is not None and image['region']==region, 'Image must be a same-region private ECR URI pinned with @sha256:<digest>.')
+    for value in (atlas_key_secret_arn, fal_key_secret_arn):
+        if value:
+            secret = SECRET_ARN.fullmatch(value)
+            require(secret is not None and secret['region']==region and secret['account']==image['account'],
+                    'Provider keys must use exact same-account, same-region Secrets Manager ARNs; never pass a key value.')
     require(instance_type in INSTANCE_TYPES, 'Unsupported GPU instance type.')
     require(type(workspace_gib) is int and 20<=workspace_gib<=4096, 'Workspace size must be 20–4096 GiB.')
     require(type(root_gib) is int and 60<=root_gib<=1024, 'Root size must be 60–1024 GiB.')
@@ -103,6 +110,7 @@ def prepare(*, region='us-east-1', domain, image_uri, output, instance_type='g6.
           'sourceCommitted':bool(source_committed),'region':region,'backendDomain':domain,'publicEditorUrl':public_editor_url,
           'imageUri':image_uri,'image':image.groupdict(),'instanceType':instance_type,'availabilityZone':availability_zone,
           'existingWorkspaceVolumeId':existing_volume_id or '', 'workspaceGiB':workspace_gib,'rootGiB':root_gib,'amiId':ami_id,
+          'atlasKeySecretArn':atlas_key_secret_arn or '', 'falKeySecretArn':fal_key_secret_arn or '',
           'stackName':stack_name,'bootstrapUrl':bootstrap_url(commit),'bootstrapSha256':sha(sources['bootstrap.sh']),
           'files':{name:sha(content) for name,content in sources.items()},
           'limits':['One shared workspace and one serial queue; no horizontal replicas.',
@@ -151,6 +159,11 @@ def validate_packet(path,root=ROOT):
     require(bool(REGION.fullmatch(plan['region'])),'Unsupported region.')
     match=ECR.fullmatch(plan['imageUri'])
     require(match is not None and match.groupdict()==plan['image'] and match['region']==plan['region'],'Private ECR image identity changed.')
+    for name in ('atlasKeySecretArn', 'falKeySecretArn'):
+        if value:=plan.get(name):
+            secret=SECRET_ARN.fullmatch(value)
+            require(secret is not None and secret['region']==plan['region'] and secret['account']==match['account'],
+                    'Provider secret must be an exact same-account, same-region ARN.')
     return packet,plan
 
 
@@ -176,6 +189,14 @@ def preflight(plan_path,*,profile=None,root=ROOT,reader=None,fetch=public_bootst
         identity=aws.call('sts','get-caller-identity')
         require(identity['Account']==plan['image']['account'],'AWS credentials and private ECR image must belong to the same account.')
         report['checks']['account']={'account':identity['Account'],'arn':identity['Arn']}
+        for name in ('atlasKeySecretArn', 'falKeySecretArn'):
+            if secret_arn:=plan.get(name):
+                secret=aws.call('secretsmanager','describe-secret','--secret-id',secret_arn)
+                require(secret.get('ARN')==secret_arn and not secret.get('DeletedDate'),
+                        'A configured provider secret is missing or scheduled for deletion.')
+                require(secret.get('KmsKeyId') in (None, 'alias/aws/secretsmanager'),
+                        'Provider secrets using a customer-managed KMS key need an explicit decrypt policy; use the AWS-managed Secrets Manager key for this template.')
+                report['checks'][name]={'arn':secret_arn,'read':'metadata only; value is fetched privately by the host at service start'}
         instance=aws.call('ec2','describe-instance-types','--instance-types',plan['instanceType'])['InstanceTypes'][0]
         require('x86_64' in instance['ProcessorInfo']['SupportedArchitectures'] and instance.get('GpuInfo',{}).get('Gpus'),'The selected instance must support x86_64 and a GPU.')
         required=instance['VCpuInfo']['DefaultVCpus']
@@ -229,6 +250,8 @@ def preflight(plan_path,*,profile=None,root=ROOT,reader=None,fetch=public_bootst
             'BackendDomain':plan['backendDomain'],'PublicEditorUrl':plan['publicEditorUrl'],'ImageUri':plan['imageUri'],
             'RepositoryName':plan['image']['repository'],'WorkspaceGiB':plan['workspaceGiB'],'RootGiB':plan['rootGiB'],
             'ExistingWorkspaceVolumeId':plan['existingWorkspaceVolumeId'],'BootstrapUrl':plan['bootstrapUrl'],'BootstrapSha256':plan['bootstrapSha256']}
+        values['AtlasKeySecretArn']=plan.get('atlasKeySecretArn','')
+        values['FalKeySecretArn']=plan.get('falKeySecretArn','')
         write_json(packet/'parameters.json',[{'ParameterKey':key,'ParameterValue':str(value)} for key,value in values.items()])
         report['status']='ok'
         report['commands']=commands(packet,plan,profile)
@@ -249,6 +272,8 @@ def main(argv=None):
     create.add_argument('--workspace-gib',type=int,default=100);create.add_argument('--root-gib',type=int,default=80)
     create.add_argument('--ami-id');create.add_argument('--public-editor-url',default='https://gesso-studio-gold.vercel.app')
     create.add_argument('--stack-name',default='gesso-workspace')
+    create.add_argument('--atlas-key-secret-arn',help='Exact same-region Secrets Manager ARN containing the Atlas key, not the key value.')
+    create.add_argument('--fal-key-secret-arn',help='Exact same-region Secrets Manager ARN containing the fal key, not the key value.')
     check=sub.add_parser('preflight',help='Read-only AWS, source and storage checks; never launch resources.')
     check.add_argument('--plan',type=Path,required=True);check.add_argument('--profile')
     args=vars(parser.parse_args(argv));mode=args.pop('command')

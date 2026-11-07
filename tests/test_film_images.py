@@ -4,9 +4,11 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import struct
 import tempfile
 import unittest
 from unittest.mock import patch
+import zlib
 
 from PIL import Image
 
@@ -42,6 +44,19 @@ class FilmImageTests(unittest.TestCase):
         asset = import_film_image(image_bytes(), "photo.png", self.root)
         self.scene["shots"][0].update(kind="image", image={"asset": asset, "fit": fit})
         return asset
+
+    def test_repeated_exif_markers_are_rejected_before_an_asset_is_saved(self):
+        # A small, valid one-pixel PNG reaches the same EXIF normalization as a
+        # photo upload. Repeated markers exercised CVE-2026-96643 in Pillow <13.
+        def chunk(kind, data):
+            return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)
+        payload = (b"\x89PNG\r\n\x1a\n"
+                   + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+                   + chunk(b"eXIf", b"Exif\0\0" * 3000)
+                   + chunk(b"IDAT", zlib.compress(b"\0\0\0\0")) + chunk(b"IEND", b""))
+        with self.assertRaisesRegex(ValueError, "could not be decoded safely"):
+            import_film_image(payload, "photo.png", self.root)
+        self.assertEqual(list(self.root.rglob("*.png")), [])
 
     def test_duration_includes_leading_internal_and_trailing_gaps(self):
         other = copy.deepcopy(self.scene["shots"][0])

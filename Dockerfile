@@ -10,6 +10,8 @@ RUN --mount=type=secret,id=proxy_ca \
 COPY web ./web
 COPY examples ./examples
 RUN npm run build --prefix web
+# Only the capture runtime's production packages cross into the final image.
+RUN npm prune --prefix web --omit=dev --ignore-scripts --no-audit --no-fund
 
 FROM python:3.12.14-slim-trixie AS runtime
 ENV PYTHONUNBUFFERED=1 \
@@ -56,7 +58,7 @@ RUN --mount=type=secret,id=proxy_ca \
     && ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
     && python -m pip install -e '.[cad]' \
-    && cd /app/web && npx playwright install --with-deps chromium \
+    && cd /app/web && npx --no-install playwright install --with-deps chromium \
     && cd /app \
     && python -c "from film.jobs import _check_tool, BLENDER_VERSION, FFMPEG_VERSION; _check_tool('blender', 'blender', BLENDER_VERSION); _check_tool('ffmpeg', 'ffmpeg', FFMPEG_VERSION)" \
     && useradd --create-home --uid 10001 gesso \

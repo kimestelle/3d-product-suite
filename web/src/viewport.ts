@@ -266,6 +266,8 @@ export class StudioViewport {
     this.renderer.toneMappingExposure = 1;
     this.renderer.shadowMap.enabled = !options.capture;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.autoUpdate = false;
+    this.renderer.shadowMap.needsUpdate = true;
     this.renderer.setClearColor(0x000000, 0);
     this.camera.up.set(0, 1, 0);
     this.camera.position.set(0.17, 0.15, 0.35);
@@ -355,7 +357,7 @@ export class StudioViewport {
       this.camera.lookAt(this.controls.target);
       this.camera.updateMatrixWorld(true);
     }
-    this.invalidate();
+    this.invalidate(false);
   }
   private onControlsEnd(): void { this.finishControlsInteraction();this.updateControlsEnabled(); }
 
@@ -700,7 +702,11 @@ export class StudioViewport {
     let captureSpark: SparkRenderer | null = null;
     let restoreSplat:(()=>void)|null=null;
     const hiddenForCover = new Map<THREE.Object3D, boolean>();
-    const restoreCover = () => {for(const [object,visible] of hiddenForCover)object.visible=visible;hiddenForCover.clear();};
+    const restoreCover = () => {
+      if(hiddenForCover.size&&this.renderer?.shadowMap)this.renderer.shadowMap.needsUpdate=true;
+      for(const [object,visible] of hiddenForCover)object.visible=visible;
+      hiddenForCover.clear();
+    };
     const waitWithoutCancellingSource = <T>(promise: Promise<T>): Promise<T> => {
       if (!signal) return promise;
       return new Promise<T>((resolve, reject) => {
@@ -744,7 +750,10 @@ export class StudioViewport {
       const pixelRatio = maxDimension / Math.max(size!.width, size!.height);
       const width = Math.max(1, Math.floor(size!.width * pixelRatio));
       const height = Math.max(1, Math.floor(size!.height * pixelRatio));
-      if(worldOnly)for(const object of this.components.values()){hiddenForCover.set(object,object.visible);object.visible=false;}
+      if(worldOnly){
+        if(this.renderer?.shadowMap)this.renderer.shadowMap.needsUpdate=true;
+        for(const object of this.components.values()){hiddenForCover.set(object,object.visible);object.visible=false;}
+      }
       // Cleanup tint is an editor inspection aid, never a source image/export.
       for(const object of this.worldCleanupOverlay?.meshes??[]){hiddenForCover.set(object,object.visible);object.visible=false;}
       try {
@@ -851,7 +860,7 @@ export class StudioViewport {
     this.applyFilmProjection(this.camera, this.pendingSize);
     this.updateUvProbeScale();
     if (this.framedSelection) this.fitSelection();
-    this.invalidate();
+    this.invalidate(false);
   }
 
   private cancelRender(): void {
@@ -866,7 +875,10 @@ export class StudioViewport {
       && (this.options.capture || (!document.hidden && this.visible));
   }
 
-  private invalidate(): void {
+  private invalidate(shadows = true): void {
+    // Camera inspection and buffer refinement reuse the same light-space maps.
+    // Scene, material and object changes retain the default shadow invalidation.
+    if(shadows&&this.renderer?.shadowMap)this.renderer.shadowMap.needsUpdate=true;
     this.previewQuality?.activity();
     this.invalidationVersion = (this.invalidationVersion ?? 0) + 1;
     this.dirty = true;
@@ -2470,6 +2482,7 @@ export class StudioViewport {
       if (!this.options.capture && this.liveRender) await this.liveRender;
       if (this.disposed || version !== this.loadVersion || (!this.options.capture && request !== this.frameRequest)) return;
       if (this.loading || this.loadFailed) { this.dirty = true; return; }
+      if(this.renderer?.shadowMap)this.renderer.shadowMap.needsUpdate=true;
       const previousKind = this.filmClip?.kind; this.filmClip = sample.clip ?? {kind: 'scene'};
       if (previousKind !== this.filmClip.kind) this.updateControlsEnabled();
       if (!this.stageProductRoot || this.propTransform?.draggedObject !== this.stageProductRoot) {

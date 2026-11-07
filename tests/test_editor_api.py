@@ -64,6 +64,33 @@ class EditorApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         return value
 
+    def test_eager_sampling_is_bounded_before_evaluation_or_proof_dispatch(self):
+        scene = self.bootstrap()["project"]["scene"]
+        scene["render"]["durationFrames"] = 9007199254740991
+        with patch.object(server, "sample_scene", side_effect=AssertionError("No eager allocation")):
+            for path in ("/api/evaluate", "/api/proofs", "/api/renders"):
+                status, error, _ = self.request("POST", path, {"scene":scene})
+                self.assertEqual(status, 400)
+                self.assertIn("3600 frames", error["error"])
+        self.assertIsNone(self.app._proofs)
+        self.assertEqual(list(self.app.renders.root.iterdir()), [])
+        status, result, _ = self.request("POST", "/api/evaluate", {"scene":scene,"frame":1})
+        self.assertEqual(status, 200)
+        self.assertEqual(result["sample"]["frame"], 1)
+
+    def test_full_sampling_uses_heavy_admission_but_visible_frame_stays_available(self):
+        scene = self.bootstrap()["project"]["scene"]
+        for _ in range(self.app.limits.heavy_requests):
+            self.assertTrue(self.app.heavy_requests.acquire(blocking=False))
+        try:
+            status, _, headers = self.request("POST", "/api/evaluate", {"scene":scene})
+            self.assertEqual(status, 503)
+            self.assertEqual(headers["Retry-After"], "2")
+            self.assertEqual(self.request("POST", "/api/evaluate", {"scene":scene,"frame":1})[0], 200)
+        finally:
+            for _ in range(self.app.limits.heavy_requests):
+                self.app.heavy_requests.release()
+
     def test_atlas_quickstart_checks_operation_and_serves_cached_output(self):
         from unittest.mock import Mock
         from film.atlas import SAMPLE_IMAGE

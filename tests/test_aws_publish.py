@@ -99,6 +99,26 @@ class AwsPublishTests(unittest.TestCase):
         self.assertNotIn('aws cloudformation', workflow)
         self.assertNotIn('aws ec2', workflow)
 
+    def test_runtime_omits_build_tools_but_retains_pinned_browser_capture(self):
+        dockerfile=(ROOT/'Dockerfile').read_text()
+        editor,runtime=dockerfile.split('FROM python:',1)
+        self.assertLess(editor.index('npm run build --prefix web'),editor.index('npm prune --prefix web --omit=dev --ignore-scripts'))
+        self.assertIn('COPY --from=editor /app/web ./web',runtime)
+        self.assertIn('npx --no-install playwright install --with-deps chromium',runtime)
+        package=json.loads((ROOT/'web/package.json').read_text())
+        lock=json.loads((ROOT/'web/package-lock.json').read_text())
+        version=package['dependencies']['playwright']
+        self.assertRegex(version,r'^[0-9]+\.[0-9]+\.[0-9]+$')
+        self.assertNotIn('playwright',package['devDependencies'])
+        self.assertEqual(lock['packages']['']['dependencies']['playwright'],version)
+        self.assertEqual(lock['packages']['node_modules/playwright']['version'],version)
+        self.assertFalse(lock['packages']['node_modules/playwright'].get('dev',False))
+        self.assertFalse(lock['packages']['node_modules/playwright-core'].get('dev',False))
+        # Image verification actually launches the pinned production capture
+        # runtime after pruning, before the publication role can be assumed.
+        workflow=(ROOT/'.github/workflows/aws-image.yml').read_text()
+        self.assertLess(workflow.index('python scripts/check_render_runtime.py'),workflow.index('name: Assume the main-only ECR publisher'))
+
 
 class ContainerHttpSmokeTests(unittest.TestCase):
     def test_never_sends_workspace_credentials_to_non_loopback_or_non_origin_urls(self):

@@ -14,6 +14,7 @@ from film.comparison import comparison_payload, set_alternative
 from film.comparison_jobs import ComparisonJobs
 from film.scene import load_scene, scene_digest
 from film.store import ConflictError, ProjectStore, ROOT
+from film.service_limits import ServiceBusyError
 from film.worlds import list_worlds
 from tests import test_editor_api as editor_api
 from tests.test_jobs import png_bytes
@@ -101,6 +102,29 @@ class ComparisonQueueTests(unittest.TestCase):
         self.assertEqual(self.renders.pending.qsize(), 0)
         self.assertEqual(self.renders.active, set())
         self.assertEqual(self.renders.prepared, set())
+
+    def test_pair_capacity_failure_rolls_back_reserved_child_before_enqueue(self):
+        self.renders.limit = 1
+        with self.assertRaisesRegex(ServiceBusyError, "queue is full"):
+            self.create()
+        self.assertEqual(list(self.renders.root.iterdir()), [])
+        self.assertEqual(list(self.pairs.root.iterdir()), [])
+        self.assertEqual(self.renders.pending.qsize(), 0)
+        self.assertEqual(self.renders.active, set())
+        self.assertEqual(self.renders.prepared, set())
+
+    def test_pair_resume_checks_capacity_before_clearing_either_cancellation(self):
+        pair = self.create()
+        self.pairs.cancel(pair["id"])
+        self.renders.active.clear()
+        self.renders.limit = 1
+        paths = [self.renders.directory(pair["children"][side]["id"])/"request.json" for side in ("a","b")]
+        before = [path.read_bytes() for path in paths]
+        with patch.object(self.renders, "enqueue", wraps=self.renders.enqueue) as enqueue, self.assertRaises(ServiceBusyError):
+            self.pairs.resume(pair["id"])
+        enqueue.assert_not_called()
+        self.assertEqual([path.read_bytes() for path in paths], before)
+        self.assertTrue(all(path.with_name("cancel.requested").exists() for path in paths))
 
     def test_mismatched_child_profile_is_rolled_back_before_enqueue(self):
         create = self.renders.create

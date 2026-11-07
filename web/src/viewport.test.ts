@@ -54,6 +54,21 @@ function source(asset: unknown, materialOverride = false) {
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+describe('preview shadow reuse', () => {
+  it('retains light-space maps for inspection and invalidates them for sampled or authored changes', async () => {
+    const view = viewport();
+    view.renderer = {shadowMap: {needsUpdate: false}};
+    view.onControlsChange();
+    expect(view.renderer.shadowMap.needsUpdate).toBe(false);
+    view.invalidate();
+    expect(view.renderer.shadowMap.needsUpdate).toBe(true);
+    view.renderer.shadowMap.needsUpdate = false;
+    vi.stubGlobal('document', {hidden: true});
+    await view.frame({frame: 1, components: {}, camera: {positionM: [.2, .2, .3], targetM: [0, .1, 0], focalLengthMm: 50}});
+    expect(view.renderer.shadowMap.needsUpdate).toBe(true);
+  });
+});
+
 describe('real product component meshes', () => {
   it('applies a section material without changing its sibling or original slot identity', async () => {
     const fixture = glb({ nodes: [

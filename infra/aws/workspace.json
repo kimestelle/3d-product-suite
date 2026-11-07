@@ -81,6 +81,18 @@
     "BootstrapSha256": {
       "Type": "String",
       "AllowedPattern": "^[a-f0-9]{64}$"
+    },
+    "AtlasKeySecretArn": {
+      "Type": "String",
+      "Default": "",
+      "AllowedPattern": "^$|^arn:aws:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+$",
+      "Description": "Optional exact same-account, same-region Secrets Manager ARN holding the plain Atlas API key. Use the AWS-managed Secrets Manager encryption key. Never pass the key itself."
+    },
+    "FalKeySecretArn": {
+      "Type": "String",
+      "Default": "",
+      "AllowedPattern": "^$|^arn:aws:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+$",
+      "Description": "Optional exact same-account, same-region Secrets Manager ARN holding the plain Fal API key. Use the AWS-managed Secrets Manager encryption key. Never pass the key itself."
     }
   },
   "Conditions": {
@@ -98,6 +110,30 @@
           "Fn::Equals": [
             {
               "Ref": "AvailabilityZone"
+            },
+            ""
+          ]
+        }
+      ]
+    },
+    "UseAtlasKey": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "AtlasKeySecretArn"
+            },
+            ""
+          ]
+        }
+      ]
+    },
+    "UseFalKey": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "FalKeySecretArn"
             },
             ""
           ]
@@ -487,6 +523,36 @@
                   "Resource": {
                     "Ref": "AWS::StackId"
                   }
+                },
+                {
+                  "Fn::If": [
+                    "UseAtlasKey",
+                    {
+                      "Effect": "Allow",
+                      "Action": "secretsmanager:GetSecretValue",
+                      "Resource": {
+                        "Ref": "AtlasKeySecretArn"
+                      }
+                    },
+                    {
+                      "Ref": "AWS::NoValue"
+                    }
+                  ]
+                },
+                {
+                  "Fn::If": [
+                    "UseFalKey",
+                    {
+                      "Effect": "Allow",
+                      "Action": "secretsmanager:GetSecretValue",
+                      "Resource": {
+                        "Ref": "FalKeySecretArn"
+                      }
+                    },
+                    {
+                      "Ref": "AWS::NoValue"
+                    }
+                  ]
                 }
               ]
             }
@@ -571,7 +637,7 @@
         "UserData": {
           "Fn::Base64": {
             "Fn::Sub": [
-              "#!/bin/bash\nset -Eeuo pipefail\numask 077\nexec >>/var/log/gesso-cloud-init.log 2>&1\nexport AWS_DEFAULT_REGION='${AWS::Region}'\nexport GESSO_STACK_ID='${AWS::StackId}'\nexport GESSO_DOMAIN='${BackendDomain}'\nexport GESSO_PUBLIC_URL='${PublicEditorUrl}'\nexport GESSO_IMAGE_URI='${ImageUri}'\nexport GESSO_VOLUME_ID='${VolumeId}'\nexport GESSO_SECRET_ARN='${WorkspaceAccessKey}'\nexport GESSO_FORMAT_NEW_VOLUME='${FormatNewVolume}'\ntrap 'aws cloudformation signal-resource --stack-name \"$GESSO_STACK_ID\" --logical-resource-id RenderHost --unique-id bootstrap --status FAILURE || true' ERR\nmkdir -p /opt/gesso\ncurl --fail --location --retry 5 --max-time 180 '${BootstrapUrl}' --output /opt/gesso/bootstrap.sh\nprintf '${BootstrapSha256}  /opt/gesso/bootstrap.sh\\n' | sha256sum --check --status\nexec bash /opt/gesso/bootstrap.sh\n",
+              "#!/bin/bash\nset -Eeuo pipefail\numask 077\nexec >>/var/log/gesso-cloud-init.log 2>&1\nexport AWS_DEFAULT_REGION='${AWS::Region}'\nexport GESSO_STACK_ID='${AWS::StackId}'\nexport GESSO_DOMAIN='${BackendDomain}'\nexport GESSO_PUBLIC_URL='${PublicEditorUrl}'\nexport GESSO_IMAGE_URI='${ImageUri}'\nexport GESSO_VOLUME_ID='${VolumeId}'\nexport GESSO_SECRET_ARN='${WorkspaceAccessKey}'\nexport GESSO_ATLAS_SECRET_ARN='${AtlasKeySecretArn}'\nexport GESSO_FAL_SECRET_ARN='${FalKeySecretArn}'\nexport GESSO_ATLAS_SECRET_ARN='${AtlasKeySecretArn}'\nexport GESSO_FAL_SECRET_ARN='${FalKeySecretArn}'\nexport GESSO_FORMAT_NEW_VOLUME='${FormatNewVolume}'\ntrap 'aws cloudformation signal-resource --stack-name \"$GESSO_STACK_ID\" --logical-resource-id RenderHost --unique-id bootstrap --status FAILURE || true' ERR\nmkdir -p /opt/gesso\ncurl --fail --location --retry 5 --max-time 180 '${BootstrapUrl}' --output /opt/gesso/bootstrap.sh\nprintf '${BootstrapSha256}  /opt/gesso/bootstrap.sh\\n' | sha256sum --check --status\nexec bash /opt/gesso/bootstrap.sh\n",
               {
                 "VolumeId": {
                   "Fn::If": [

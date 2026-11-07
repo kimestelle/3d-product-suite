@@ -237,6 +237,7 @@ class ComparisonJobs:
             record = self._read(pair_id)
             # Validate both immutable children before scheduling either one.
             children = {side: self._child(pinned) for side, pinned in record["children"].items()}
+            self.renders.check_capacity([child["id"] for child in children.values() if child["state"] != "succeeded"])
             for child in children.values():
                 if child["state"] != "succeeded":
                     self.renders.check_resume(child["id"])

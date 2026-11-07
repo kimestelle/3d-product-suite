@@ -21,11 +21,15 @@ class Reader:
         self.snapshot_size=60;self.offered=True
         self.volume={'VolumeId':'vol-0123456789abcdef0','Encrypted':True,'AvailabilityZone':'us-east-1a','State':'available','Size':100}
         self.digest='sha256:'+'a'*64
+        self.secret_metadata={}
 
     def call(self,*args):
         self.calls.append(args)
         operation=args[:2]
         if operation==('sts','get-caller-identity'):return {'Account':self.account,'Arn':'arn:aws:iam::'+self.account+':user/test'}
+        if operation==('secretsmanager','describe-secret'):
+            arn=args[args.index('--secret-id')+1]
+            return {'ARN':arn,**self.secret_metadata}
         if operation==('service-quotas','get-service-quota'):return {'Quota':{'Value':self.quota}}
         if operation==('ec2','describe-instance-types'):
             types=args[args.index('--instance-types')+1:]
@@ -156,3 +160,30 @@ class AwsDeployTests(unittest.TestCase):
         (self.output/'bootstrap.sh').write_text('modified after review\n')
         self.assertEqual(self.check()['status'],'failed')
         self.assertFalse((self.output/'parameters.json').exists())
+
+    def test_provider_secret_inputs_are_arns_and_preflight_reads_only_metadata(self):
+        atlas='arn:aws:secretsmanager:us-east-1:123456789012:secret:gesso/atlas-AbCd12'
+        fal='arn:aws:secretsmanager:us-east-1:123456789012:secret:gesso/fal-EfGh34'
+        plan,_=self.prepare(atlas_key_secret_arn=atlas,fal_key_secret_arn=fal)
+        self.assertEqual(plan['atlasKeySecretArn'],atlas)
+        reader=Reader();report=self.check(reader)
+        self.assertEqual(report['status'],'ok',report['errors'])
+        self.assertIn(('secretsmanager','describe-secret','--secret-id',atlas),reader.calls)
+        self.assertFalse(any(call[:2]==('secretsmanager','get-secret-value') for call in reader.calls))
+        parameters={p['ParameterKey']:p['ParameterValue'] for p in json.loads((self.output/'parameters.json').read_text())}
+        self.assertEqual(parameters['AtlasKeySecretArn'],atlas)
+        self.assertEqual(parameters['FalKeySecretArn'],fal)
+        reader.secret_metadata={'KmsKeyId':'arn:aws:kms:us-east-1:123456789012:key/custom'}
+        self.assertIn('explicit decrypt policy',self.check(reader)['errors'][0])
+        self.assertFalse((self.output/'parameters.json').exists())
+        reader.secret_metadata={'DeletedDate':1234}
+        self.assertIn('scheduled for deletion',self.check(reader)['errors'][0])
+
+    def test_provider_secret_values_cross_account_region_and_wildcards_are_rejected_offline(self):
+        for value in ('actual-key-value',
+                      'arn:aws:secretsmanager:us-west-2:123456789012:secret:atlas-AbCd12',
+                      'arn:aws:secretsmanager:us-east-1:111111111111:secret:atlas-AbCd12',
+                      'arn:aws:secretsmanager:us-east-1:123456789012:secret:*'):
+            with self.subTest(value=value),self.assertRaisesRegex(ValueError,'Secrets Manager ARNs'):
+                self.prepare(atlas_key_secret_arn=value)
+        self.assertFalse(self.output.exists())

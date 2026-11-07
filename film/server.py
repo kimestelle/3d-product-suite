@@ -10,7 +10,10 @@ from pathlib import Path
 import queue
 import re
 import shutil
+import socket
 import threading
+import time
+import traceback
 import uuid
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -40,9 +43,49 @@ from .atlas_worlds import AtlasWorlds
 from .marketplace import Marketplace
 from .proofs import NativeProofService
 from .capture_schedule import run_scheduled_capture
+from .service_limits import ServiceBusyError, ServiceLimits, workspace_server_lock
 
 ARTIFACTS = {"scene.blend", "contact-sheet.png", "still-01.png", "still-02.png", "still-03.png"} | {item[1] for item in FORMATS.values()}
 ASSET_NAME = re.compile(r"[0-9a-f]{64}\.(?:glb|spz|ply|png|jpg|jpeg|webp|hdr|mp3|wav|m4a)\Z")
+
+
+class BoundedHTTPServer(ThreadingHTTPServer):
+    """Cap connection threads before reading headers or allocating upload bytes."""
+
+    request_queue_size = 64
+
+    def __init__(self, address, handler, *, limits=None):
+        self.limits = limits or ServiceLimits.from_environment()
+        self._connections = threading.BoundedSemaphore(self.limits.connections)
+        super().__init__(address, handler)
+
+    def get_request(self):
+        request, address = super().get_request()
+        request.settimeout(self.limits.socket_timeout)
+        return request, address
+
+    def process_request(self, request, address):
+        if not self._connections.acquire(blocking=False):
+            try:
+                request.settimeout(1)
+                request.sendall(b"HTTP/1.0 503 Service Unavailable\r\nContent-Length: 0\r\n"
+                                b"Retry-After: 2\r\nConnection: close\r\n\r\n")
+            except OSError:
+                pass
+            finally:
+                self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, address)
+        except BaseException:
+            self._connections.release()
+            raise
+
+    def process_request_thread(self, request, address):
+        try:
+            super().process_request_thread(request, address)
+        finally:
+            self._connections.release()
 
 
 def export_filename(value):
@@ -64,7 +107,11 @@ def artifact_download_name(request, name, job):
 
 
 class RenderQueue:
-    def __init__(self, store, *, base_url, blender="blender", ffmpeg="ffmpeg"):
+    def __init__(self, store, *, base_url, blender="blender", ffmpeg="ffmpeg", limit=8, limits=None):
+        if type(limit) is not int or not 1 <= limit <= 64:
+            raise ValueError("Render queue limit must be 1–64")
+        self.limit = limit
+        self.limits = limits or ServiceLimits.from_environment()
         self.store = store
         self.root = store.root / "renders"
         self.root.mkdir(exist_ok=True)
@@ -81,7 +128,11 @@ class RenderQueue:
         return self.root / identifier(job_id)
 
     def _request(self, job_id):
-        return json.loads((self.directory(job_id) / "request.json").read_text())
+        request = json.loads((self.directory(job_id) / "request.json").read_text())
+        if (not isinstance(request, dict) or request.get("id") != job_id or request.get("kind") not in ("still", "reel")
+                or not isinstance(request.get("createdAt"), str)):
+            raise ValueError("Render queue request metadata is invalid")
+        return request
 
     def summary(self, job_id):
         output = self.directory(job_id)
@@ -127,8 +178,25 @@ class RenderQueue:
                 continue
         return sorted(summaries, key=lambda item: item["createdAt"], reverse=True)
 
+    def _admit(self, job_id=None):
+        if job_id not in self.active | self.prepared and len(self.active | self.prepared) >= self.limit:
+            raise ServiceBusyError("The render queue is full. Wait for an export to finish or cancel one.")
+
+    def check_capacity(self, job_ids):
+        with self.lock:
+            if len(self.active | self.prepared | set(job_ids)) > self.limit:
+                raise ServiceBusyError("The render queue is full. Wait for an export to finish or cancel one.")
+
     def create(self, data, *, enqueue=True):
+        # Reserve by holding the same lock through snapshot creation and enqueue.
+        # Paired jobs use this reentrant lock and roll both children back on failure.
+        with self.lock:
+            self._admit()
+            return self._create(data, enqueue=enqueue)
+
+    def _create(self, data, *, enqueue=True):
         scene = validate_scene(data["scene"])
+        self.limits.check_sampling(scene)
         kind = data.get("kind", "still")
         if kind not in ("still", "reel"):
             raise ValueError("Render kind must be still or reel")
@@ -173,6 +241,7 @@ class RenderQueue:
                 self.check_resume(job_id)
             if job_id in self.active:
                 return
+            self._admit(job_id)
             output = self.directory(job_id)
             request = self._request(job_id)
             if resume:
@@ -198,9 +267,10 @@ class RenderQueue:
     def _worker(self):
         while True:
             job_id = self.pending.get()
-            output = self.directory(job_id)
-            request = self._request(job_id)
+            output, request = None, None
             try:
+                output = self.directory(job_id)
+                request = self._request(job_id)
                 with jobs._lock(output, ".pipeline.lock", blocking=False) as pipeline_lock:
                     jobs._check_cancel(output)
                     job = jobs._read_job(output)
@@ -230,22 +300,39 @@ class RenderQueue:
                     result = runner(output, blender=self.blender, ffmpeg=self.ffmpeg, reset_cancellation=False)
                     request.update(pipelineState=result["state"], stage="complete" if result["state"] == "succeeded" else result["state"])
             except jobs._Cancelled:
-                request.update(pipelineState="cancelled", stage="cancelled")
+                if isinstance(request, dict):
+                    request.update(pipelineState="cancelled", stage="cancelled")
             except BaseException as error:
                 message = str(error)
-                capture_log = output / "splat-capture.log"
-                if request.get("stage") == "capturing" and capture_log.exists():
-                    message += "\n" + capture_log.read_text(errors="replace")[-2000:]
-                request.update(pipelineState="failed", stage="failed", error=message)
+                if isinstance(request, dict):
+                    capture_log = output / "splat-capture.log"
+                    if request.get("stage") == "capturing" and capture_log.exists():
+                        try:
+                            with capture_log.open("rb") as handle:
+                                handle.seek(max(0, capture_log.stat().st_size - 2000))
+                                message += "\n" + handle.read(2000).decode(errors="replace")
+                        except OSError:
+                            pass
+                    request.update(pipelineState="failed", stage="failed", error=message)
+                else:
+                    # Preserve an unreadable record for repair; never fabricate a
+                    # resumable request or stop processing the following job.
+                    traceback.print_exc()
             finally:
-                jobs._atomic_json(output / "request.json", request)
+                if isinstance(request, dict):
+                    try:
+                        jobs._atomic_json(output / "request.json", request)
+                    except (OSError, ValueError, TypeError):
+                        traceback.print_exc()
                 with self.lock:
                     self.active.discard(job_id)
                 self.pending.task_done()
 
 
 class Application:
-    def __init__(self, data_dir, *, port=8787, blender="blender", ffmpeg="ffmpeg", import_blender=None, access=None):
+    def __init__(self, data_dir, *, port=8787, blender="blender", ffmpeg="ffmpeg", import_blender=None, access=None, limits=None):
+        self.limits = limits or ServiceLimits.from_environment()
+        self.heavy_requests = threading.BoundedSemaphore(self.limits.heavy_requests)
         self.access = access if access is not None else HostedAccess.from_environment()
         self.store = ProjectStore(data_dir)
         self.store.seed_worlds()
@@ -259,7 +346,8 @@ class Application:
         self.atlas_worlds = AtlasWorlds(self.store.root)
         self.marketplace = Marketplace(self.store.root)
         self.polyhaven = PolyHavenLibrary(self.store.root, material_library=self.materials)
-        self.renders = RenderQueue(self.store, base_url=f"http://127.0.0.1:{port}", blender=blender, ffmpeg=ffmpeg)
+        self.renders = RenderQueue(self.store, base_url=f"http://127.0.0.1:{port}", blender=blender, ffmpeg=ffmpeg,
+                                   limit=self.limits.render_jobs, limits=self.limits)
         self.comparison_renders = ComparisonJobs(self.renders)
         self._proofs = None
         self._proofs_lock = threading.Lock()
@@ -335,28 +423,58 @@ def make_handler(app):
             if mutate and self.headers.get("X-Product-Suite") != "1":
                 raise PermissionError("Missing local editor request header")
 
-        def _body(self, *, binary=False, limit=None):
-            limit = limit if limit is not None else (MAX_ASSET_BYTES if binary else 4 * 1024 * 1024)
-            length = int(self.headers.get("Content-Length", "0"))
+        def _read_body(self, limit):
+            lengths = self.headers.get_all("Content-Length", [])
+            if len(lengths) != 1 or self.headers.get("Transfer-Encoding") is not None:
+                raise ValueError("Provide one Content-Length and no Transfer-Encoding")
+            if re.fullmatch(r"[0-9]{1,10}", lengths[0].strip()) is None:
+                raise ValueError("Content-Length must contain only decimal digits")
+            length = int(lengths[0])
             if length < 1 or length > limit:
                 raise ValueError(f"Request body must contain 1–{limit} bytes")
+            deadline = time.monotonic() + app.limits.socket_timeout
+            chunks, remaining = [], length
+            try:
+                while remaining:
+                    budget = deadline - time.monotonic()
+                    if budget <= 0:
+                        raise TimeoutError()
+                    self.connection.settimeout(budget)
+                    chunk = self.rfile.read1(min(remaining, 1024 * 1024))
+                    if not chunk:
+                        raise ValueError("Incomplete request body")
+                    chunks.append(chunk)
+                    remaining -= len(chunk)
+            finally:
+                self.connection.settimeout(app.limits.socket_timeout)
+            return b"".join(chunks)
+
+        def _body(self, *, binary=False, limit=None):
+            limit = limit if limit is not None else (MAX_ASSET_BYTES if binary else 4 * 1024 * 1024)
             expected = "application/octet-stream" if binary else "application/json"
             if self.headers.get("Content-Type", "").split(";")[0] != expected:
                 raise ValueError(f"Content-Type must be {expected}")
-            payload = self.rfile.read(length)
-            if len(payload) != length:
-                raise ValueError("Incomplete request body")
+            payload = self._read_body(limit)
             return payload if binary else json.loads(payload)
 
-        def _json(self, value, status=200):
+        def _json(self, value, status=200, *, retry_after=None):
             payload = json.dumps(value, allow_nan=False).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))
             self.send_header("Cache-Control", "private,no-store" if app.access.enabled else "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            if retry_after is not None:
+                self.send_header("Retry-After", str(retry_after))
             self.end_headers()
             self.wfile.write(payload)
+
+        def _heavy_admission(self):
+            if self._heavy_slot:
+                return
+            self._heavy_slot = app.heavy_requests.acquire(blocking=False)
+            if not self._heavy_slot:
+                raise ServiceBusyError("The workspace is preparing other assets. Try again shortly.")
 
         def _file(self, path, *, immutable=False, download_name=None):
             if not path.is_file():
@@ -383,10 +501,9 @@ def make_handler(app):
             if self.command == "POST":
                 if self.headers.get("Origin") not in app.access.origins:
                     raise PermissionError("Open the sign-in page from the configured editor")
-                length = int(self.headers.get("Content-Length", "0"))
-                if not 1 <= length <= 4096 or self.headers.get("Content-Type", "").split(";")[0] != "application/x-www-form-urlencoded":
+                if self.headers.get("Content-Type", "").split(";")[0] != "application/x-www-form-urlencoded":
                     raise ValueError("Expected a small sign-in form")
-                fields = parse_qs(self.rfile.read(length).decode("utf-8"))
+                fields = parse_qs(self._read_body(4096).decode("utf-8"))
                 target = return_path(fields.get("return", ["/"])[0])
                 if app.access.matches_key(fields.get("key", [""])[0]):
                     self.send_response(303)
@@ -578,10 +695,11 @@ def make_handler(app):
                                                  provenance=provenance,
                                                  blender=app.renders.blender if suffix == ".ply" else app.import_blender or app.renders.blender,
                                                  source_up=one("sourceUp", "z"), source_units=one("sourceUnits") or None)
-                    return self._json(app.store.create(one("name", "Imported product"), scene,
-                                                       source_dir=temporary / "prepared"), 201)
+                    imported = app.store.create(one("name", "Imported product"), scene,
+                                                source_dir=temporary / "prepared")
                 finally:
                     shutil.rmtree(temporary)
+                return self._json(imported, 201)
             if self.command == "POST" and path == "/api/worlds/import":
                 payload = self._body(binary=True)
                 query = parse_qs(parsed.query)
@@ -596,9 +714,9 @@ def make_handler(app):
                                   "reuseBasis": one("reuseBasis"), "allowedExternalDestinations": []}
                     entry = import_world(temp, app.store.root, name=one("name", "Imported world"), provenance=provenance,
                                          source_up=one("sourceUp", "Y"), scale_to_meters=float(one("scaleToMeters", "1")))
-                    return self._json(entry, 201)
                 finally:
                     temp.unlink(missing_ok=True)
+                return self._json(entry, 201)
             body = self._body()
             if self.command == "POST":
                 if path == "/api/marketplace/submissions":
@@ -623,6 +741,7 @@ def make_handler(app):
                 if len(parts) == 5 and parts[:3] == ["api", "atlas", "quickstart"] and parts[4] == "refresh":
                     return self._json(app.atlas.refresh(parts[3]))
                 if path == "/api/proofs":
+                    app.limits.check_sampling(validate_scene(body["scene"]))
                     return self._json(app.proofs.submit(body), 202)
                 if path == "/api/proofs/session/cancel":
                     return self._json(app.proofs.cancel_session(body.get("sessionId"), body.get("sequence")))
@@ -664,6 +783,8 @@ def make_handler(app):
                         return self._json({"scene": scene, "sample": evaluate(
                             scene, body["frame"], include_placement=body.get("includePlacement") is True),
                                            "digest": scene_digest(scene)})
+                    app.limits.check_sampling(scene)
+                    self._heavy_admission()
                     result = {**sample_scene(scene), "digest": scene_digest(scene), "objects": resolve_scene_objects(scene)}
                     payload = comparison_payload(scene) if "comparison" in scene else None
                     if payload:
@@ -700,8 +821,21 @@ def make_handler(app):
             return self._json({"error": "Unknown API route"}, 404)
 
         def _handle(self):
+            self._heavy_slot = False
             try:
+                # Hold the slot before reading large uploads or starting native
+                # conversion/snapshot work. It is always released on disconnect.
+                path = unquote(urlparse(self.path).path)
+                heavy = self.command == "POST" and (path.endswith("/import") or path in (
+                    "/api/renders", "/api/comparison-renders", "/api/world-cleanup/analyze", "/api/world-cleanup/preview"))
+                if heavy:
+                    self._security(mutate=True)
+                    if not app.access.authorized(self.headers.get("Cookie")):
+                        raise LoginRequired()
+                    self._heavy_admission()
                 self._dispatch()
+            except ServiceBusyError as error:
+                self._json({"error": str(error)}, 503, retry_after=2)
             except ConflictError as error:
                 self._json({"error": str(error)}, 409)
             except LoginRequired:
@@ -714,8 +848,21 @@ def make_handler(app):
                 self._json({"error": str(error)}, 400)
             except (BrokenPipeError, ConnectionResetError):
                 pass
+            except (TimeoutError, socket.timeout):
+                self.close_connection = True
+                try:
+                    self._json({"error": "Request timed out before it completed."}, 408)
+                except OSError:
+                    pass
             except Exception as error:
-                self._json({"error": f"Local server error: {type(error).__name__}: {error}"}, 500)
+                if app.access.enabled:
+                    traceback.print_exc()
+                    self._json({"error": "The workspace could not complete this request. Check the server logs."}, 500)
+                else:
+                    self._json({"error": f"Local server error: {type(error).__name__}: {error}"}, 500)
+            finally:
+                if self._heavy_slot:
+                    app.heavy_requests.release()
 
         do_GET = _handle
         do_POST = _handle
@@ -725,21 +872,25 @@ def make_handler(app):
 
 
 def serve(data_dir="workspace-data", *, host="127.0.0.1", port=8787, blender="blender", ffmpeg="ffmpeg", import_blender=None):
-    app = Application(data_dir, port=port, blender=blender, ffmpeg=ffmpeg, import_blender=import_blender)
-    if host not in ("127.0.0.1", "localhost") and not app.access.enabled:
+    access = HostedAccess.from_environment()
+    limits = ServiceLimits.from_environment()
+    if host not in ("127.0.0.1", "localhost") and not access.enabled:
         raise ValueError("Public binding requires GESSO_PUBLIC_URL and GESSO_ACCESS_KEY")
-    server = ThreadingHTTPServer((host, port), make_handler(app))
-    app.port = server.server_port
-    app.renders.base_url = f"http://127.0.0.1:{app.port}"
-    print(f"gesso editor: {app.access.public_url or f'http://127.0.0.1:{app.port}'}", flush=True)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("Stopping editor server. Interrupted jobs remain resumable.", flush=True)
-    finally:
-        if app._proofs is not None:
-            app._proofs.close()
-        server.server_close()
+    with workspace_server_lock(data_dir):
+        app = Application(data_dir, port=port, blender=blender, ffmpeg=ffmpeg, import_blender=import_blender,
+                          access=access, limits=limits)
+        server = BoundedHTTPServer((host, port), make_handler(app), limits=limits)
+        app.port = server.server_port
+        app.renders.base_url = f"http://127.0.0.1:{app.port}"
+        print(f"gesso editor: {app.access.public_url or f'http://127.0.0.1:{app.port}'}", flush=True)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            print("Stopping editor server. Interrupted jobs remain resumable.", flush=True)
+        finally:
+            if app._proofs is not None:
+                app._proofs.close()
+            server.server_close()
 
 
 if __name__ == "__main__":

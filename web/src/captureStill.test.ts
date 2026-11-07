@@ -129,7 +129,12 @@ describe('current viewport still capture', () => {
   });
   it('makes a 320px PNG cover through the same render path and restores the live buffer', async () => {
     const {view,canvas,events,png,product,renderer}=viewport(1200,800);
-    const visible:boolean[]=[];renderer.render.mockImplementation(()=>visible.push(product.visible));
+    const shadowMap={needsUpdate:false};Object.assign(renderer,{shadowMap});
+    const visible:boolean[]=[];renderer.render.mockImplementation(()=>{
+      // The hidden product and restored product need different shadow maps.
+      expect(shadowMap.needsUpdate).toBe(true);shadowMap.needsUpdate=false;
+      visible.push(product.visible);
+    });
     const cover=await view.capturePreview();
     expect(cover).toEqual({blob:png,width:320,height:213});
     expect(visible).toEqual([false,true]);

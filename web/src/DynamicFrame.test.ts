@@ -430,7 +430,7 @@ describe('Shared frame invalidation and write budgets',()=>{
   });
   it('measures dirty visible windows once, with no layout reads during pure morph ticks',()=>{
     const {driver,dispose}=setup('landing',true);
-    const measure=Object.fromEntries(routes.map(page=>[page,vi.fn()])) as Record<FrameRoute,ReturnType<typeof vi.fn>>;
+    const measure=Object.fromEntries(routes.map(page=>[page,vi.fn<()=>void>()])) as Record<FrameRoute,ReturnType<typeof vi.fn<()=>void>>>;
     const unwatch=routes.map(page=>driver.watchWindow(page,measure[page]));
     expect(measure.landing).toHaveBeenCalledTimes(1);
     for(const page of routes.filter(page=>page!=='landing'))expect(measure[page]).not.toHaveBeenCalled();

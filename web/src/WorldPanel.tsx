@@ -174,7 +174,9 @@ export default function WorldPanel({scene, layer, worlds, publishedWorldIds, onC
     ...stageWorldLibrary(worlds,currentWorld.id).map(world => ({...world, environment: {...world.environment, plinth: environment.plinth, props: environment.props}})),
     ...(currentWorld.id === 'current' ? [currentWorld] : []),
   ].map(item => item.id === currentWorld.id ? currentWorld : {...item, productDimensionsM: scene.product.dimensionsM});
-  const {covers, observe} = useWorldCovers(worldItems, currentWorld, {captureCurrentWorld, worldPreviewReady, worldPreviewRevision});
+  const {covers, observe} = useWorldCovers(worldItems, currentWorld, {
+    captureCurrentWorld, worldPreviewReady, worldPreviewRevision, worldPreviewEnabled:layer!=='Lights',
+  });
   const lighting: StudioLighting = scene.lighting ?? defaultLighting(scene);
   const light = lighting.lights.find(item => item.id === selectedLight) ?? lighting.lights[0];
   const canDeleteLight = lighting.lights.length > 1 || !!lighting.hdri;

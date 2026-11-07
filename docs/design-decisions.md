@@ -2234,3 +2234,17 @@ Scope includes gaussian_interior_cleanup.mjs, the capture helper, policy receipt
 **Implemented.** World changes wait for the current product and evaluation, then frame the actual product bounds at a consistent viewport occupancy. Room dimensions no longer resize the product during a world change. This is a live inspection view; saved Film cameras remain separate. Protected rooms clamp the camera position and compensate with focal length. A product outside the reviewed aim region retains the previous view and receives a placement message.
 
 Public room previews open at their Auden detail shot. Scope includes App and viewport, with regressions for room size, protected framing and stale scene ownership.
+
+### 2026-11-07 — D254 — Admit bounded work before preparing it
+
+**Implemented for the connected workspace.** HTTP connections, request-body time, heavy preparation, active/prepared exports and full-film sampling have explicit server limits. Excess work reports the constraint before copying snapshots or allocating a timeline. Defaults are 32 HTTP handlers, 30 seconds for a request body, two heavy requests, eight render jobs, 3600 sampled frames and 500,000 sampled part-frames. Resolution, samples and geometry stay explicit. Health and visible-frame evaluation remain available while heavy work is occupied.
+
+One API process owns the filesystem workspace through an OS lease. Corrupt job records no longer stop the following export. This is a private shared workspace; per-user ownership, billing and isolated native converters remain separate work. Scope includes service_limits, server and comparison_jobs. AWS capacity, secret wiring and acceptance requirements are recorded in docs/aws-deployment.md.
+
+### 2026-11-07 — D255 — Reuse light-space work during camera inspection
+
+**Implemented.** Camera-only inspection and resize reuse the current shadow maps. Geometry, light, material, visibility, sampled motion and capture changes still invalidate them. Stage Lighting does not allocate a renderer for a hidden world cover. The real Chrome orbit trial reduced draw calls by 59.8%; its source and comparison images differed at three pixels. Scope includes viewport, WorldCovers, WorldPanel and capture regressions. No preview resolution, source model or world was reduced.
+
+### 2026-11-07 — D256 — Cache measured product facts, keep validation live
+
+**Implemented.** Repeated product inspection reuses only measurements and source hierarchy derived from the exact GLB byte hash. Files are still read and hashed, and scene dimensions, hierarchy and material/artwork targets still validate. A bounded LRU retains no source buffers or scene documents and returns independent facts. The local warm-verification trial for the same Auden revision fell from a 476.6 ms median to 99.0 ms. Scope includes products and its integrity regressions; render snapshots and their source assets are unchanged.

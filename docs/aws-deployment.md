@@ -165,6 +165,23 @@ that draft. Commit and push the deployment files, then prepare a fresh packet
 before preflight. The published bootstrap must match the packet's exact commit
 and checksum; unrelated uncommitted frontend work is not a deployment input.
 
+### Configure generation keys
+
+Optional `--atlas-key-secret-arn` and `--fal-key-secret-arn` flags point to existing
+Secrets Manager secrets in the same account and region as the image. Each secret
+must contain the plain key as a one-line `SecretString`, using the default
+AWS-managed Secrets Manager encryption key. Pass ARNs to preparation, never key
+values. The packet records only those ARNs. Preflight reads secret metadata and
+rejects deleted secrets and customer-managed encryption keys that need an
+additional decrypt policy.
+
+The host reads exactly the configured secrets at service start, validates them,
+and atomically mounts owner-readable files into the container. Values do not go
+into the image, plan, application environment or logs. Restart `gesso.service`
+after rotating a provider key. Missing optional keys leave editing available;
+generation reports that its provider is unconfigured. The existing workspace
+access key remains required. [Secrets Manager metadata](https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_DescribeSecret.html)
+
 Run the separate preflight with the intended AWS profile:
 
 ```bash
@@ -284,6 +301,37 @@ before their background work completes, but a synchronous import may exceed
 that timeout. For a slow import, use the backend editor directly and check
 whether it completed before retrying. Do not replace the public demo with an
 unhealthy or unverified backend.
+
+## Service capacity
+
+The container reserves a quarter of host RAM and one CPU for TLS, SSM and
+recovery. It has no swap and uses `no-new-privileges`. Build and test dependencies
+are removed after compiling the editor; the pinned Playwright runtime remains.
+An oversized native job can still fail within the container. Resource limits
+preserve host access and do not certify a particular scene's GPU memory use.
+
+The API admits bounded work before allocating full uploads or film samples:
+
+| Environment variable | Default | Meaning |
+| --- | ---: | --- |
+| `GESSO_HTTP_MAX_CONNECTIONS` | 32 | Concurrent HTTP handlers |
+| `GESSO_HTTP_TIMEOUT_SECONDS` | 30 | Socket inactivity and absolute body-read budget in seconds |
+| `GESSO_HEAVY_REQUESTS` | 2 | Concurrent imports, snapshot preparation and full evaluation |
+| `GESSO_RENDER_QUEUE_LIMIT` | 8 | Active or prepared render jobs |
+| `GESSO_MAX_SAMPLED_FRAMES` | 3600 | Frames in a fully prepared film |
+| `GESSO_MAX_SAMPLED_PART_FRAMES` | 500000 | Frames × components, source parts and props |
+
+At 24 fps, 3600 frames means 150 seconds. Oversized work is rejected explicitly;
+resolution, samples, geometry and source assets are not reduced. Capacity
+rejections return 503 with `Retry-After: 2`. Health, asset reads and single-frame
+evaluation do not wait for a heavy-work slot. These are workspace limits, not
+per-user quotas or billing controls. Tune the validated environment settings
+when running the service; the supplied bootstrap uses their defaults.
+
+Only one API process can own a workspace. The OS lease rejects a second server
+before its services start. Corrupt queued records remain available for repair
+without stopping the following job. A process restart still requires explicit
+Resume for interrupted exports.
 
 ## Move and retain work
 
