@@ -1,4 +1,5 @@
 import LightingRigMap from './LightingRigMap';
+import PartOptionsMenu from './PartOptionsMenu';
 import PostProcessingPanel from './PostProcessingPanel';
 import type {PostProcessingAnalysis} from './postProcessing';
 import {EditorCabinetBody} from './editorMotion';
@@ -14,7 +15,7 @@ import {formatScalePercent} from './transforms';
 import {matchWorldRevision} from './comparison';
 import PolyHavenLibrary from './PolyHavenLibrary';
 import WorldCleanupPanel,{type WorldCleanupPreview,type WorldCleanupSelection} from './WorldCleanupPanel';
-import {addLight, addProp, addPropFromLibrary, applyDramaticSpot, applyDeskLamp, setHdriFromLibrary, colorFromHex, colorHex, defaultLighting, ensureLighting, lightType, removeLight, setLightType, setWorldYaw, worldYaw, SPOT_DEFAULTS, type StudioLightType} from './world';
+import {addLight, addProp, addPropFromLibrary, applyDramaticSpot, applyDeskLamp, setHdriFromLibrary, colorFromHex, colorHex, defaultLighting, duplicateLight, ensureLighting, lightType, removeLight, setLightType, setWorldYaw, worldYaw, SPOT_DEFAULTS, type StudioLighting, type StudioLightType} from './world';
 import {objectName, productSupportTargets, relationLabels, sceneFloorY, setProductSupport, type RelationType, type ResolvedObjects} from './sceneGraph';
 
 export type WorldLayer = 'Environment' | 'Props' | 'Lights';
@@ -144,7 +145,16 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
   const root = useRef<HTMLDivElement>(null);
   const [selectedLight, setSelectedLight] = useState('key');
   const [addLightOpen, setAddLightOpen] = useState(false);
+  const addLightTrigger = useRef<HTMLButtonElement>(null);
+  const [renamingLight, setRenamingLight] = useState<string | null>(null);
+  const lightNameInput = useRef<HTMLInputElement>(null);
   useEffect(() => {setSelectedLight('key'); setAddLightOpen(false);}, [scene.sceneId]);
+  useEffect(() => {setRenamingLight(null);}, [scene.sceneId, layer]);
+  useEffect(() => {
+    if (renamingLight === null) return;
+    lightNameInput.current?.focus();
+    lightNameInput.current?.select();
+  }, [renamingLight]);
   const environment = scene.environment;
   const fitNeedsGeometry=environment.kind==='splat'&&!environment.collider;
   const visualQuality=environment.provenance?.visualQuality;
@@ -162,9 +172,18 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
     ...(currentWorld.id === 'current' ? [currentWorld] : []),
   ].map(item => item.id === currentWorld.id ? currentWorld : {...item, productDimensionsM: scene.product.dimensionsM});
   const {covers, observe} = useWorldCovers(worldItems, currentWorld, {captureCurrentWorld, worldPreviewReady, worldPreviewRevision});
-  const lighting = scene.lighting ?? defaultLighting(scene);
-  const light = lighting.lights.find((item: any) => item.id === selectedLight) ?? lighting.lights[0];
+  const lighting: StudioLighting = scene.lighting ?? defaultLighting(scene);
+  const light = lighting.lights.find(item => item.id === selectedLight) ?? lighting.lights[0];
+  const canDeleteLight = lighting.lights.length > 1 || !!lighting.hdri;
   const editLight = (edit: (value: any) => void) => onChange(next => {const target = ensureLighting(next).lights.find(item => item.id === light.id); if (target) edit(target);});
+  const deleteLight = (id: string, index: number) => {
+    const remaining = lighting.lights[index + 1] ?? lighting.lights[index - 1];
+    if (onChange(next => removeLight(next, id)) === false) return;
+    if (light?.id === id) setSelectedLight(remaining?.id ?? 'key');
+    const buttons = root.current?.querySelectorAll<HTMLButtonElement>('[data-light-id]');
+    const nextButton = Array.from(buttons ?? []).find(button => button.dataset.lightId === remaining?.id);
+    (nextButton ?? addLightTrigger.current)?.focus();
+  };
   const objects = [environment.plinth, ...(environment.props ?? [])].map((object: any) => {
     const isPlinth = object.id === environment.plinth.id;
     const kind = isPlinth ? 'Contact surface' : object.shape === 'mesh' ? 'Imported mesh' : object.shape === 'cylinder' ? 'Cylinder' : 'Box';
@@ -254,12 +273,36 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
       </>}
       {layer==='Lights' && <>
       <section className="gesso-section"><div className="gesso-section-heading gesso-section-toolbar"><span className="gesso-section-label">Studio rig</span>
-          <button type="button" aria-haspopup="true" aria-expanded={addLightOpen} onClick={() => setAddLightOpen(open => !open)}>Add light ▾</button></div>
+          <button ref={addLightTrigger} type="button" aria-haspopup="true" aria-expanded={addLightOpen} onClick={() => setAddLightOpen(open => !open)}>Add light ▾</button></div>
         <LightingRigMap lights={lighting.lights} selected={light?.id} onSelect={setSelectedLight}/>
         {addLightOpen && <div className="gesso-button-row" role="group" aria-label="Add light">{(['area', 'spot'] as const).map(type => <button key={type} type="button" disabled={lighting.lights.length >= 8}
           onClick={() => {const id = addLight(structuredClone(scene), type); if (onChange(next => {addLight(next, type);}) === false) return; setSelectedLight(id); setAddLightOpen(false);}}>{type === 'spot' ? 'Spot' : 'Area'}</button>)}</div>}
-        <ul className="gesso-part-tree gesso-selection-surface" aria-label="Studio lights">{lighting.lights.map((item: any) => <li key={item.id} className={`gesso-part-row ${light?.id === item.id ? 'selected' : ''}`}>
-          <button type="button" className="gesso-part-select" aria-pressed={light?.id === item.id} onClick={() => setSelectedLight(item.id)}><span className="gesso-part-name">{item.name}</span><span className="gesso-status">{lightType(item) === 'spot' ? 'Spot' : 'Area'} · {item.enabled ? 'On' : 'Off'}</span></button>
+        <ul className="gesso-part-tree gesso-selection-surface" aria-label="Studio lights">{lighting.lights.map((item, index) => <li key={item.id} className={`gesso-part-row ${light?.id === item.id ? 'selected' : ''}`}>
+          {renamingLight === item.id
+            ? <input ref={lightNameInput} className="gesso-light-name-input" aria-label="Light name" defaultValue={item.name} autoComplete="off" spellCheck={false}
+                onBlur={event => {
+                  const name = event.currentTarget.value.trim();
+                  setRenamingLight(null);
+                  if (name && name !== item.name) onChange(next => {
+                    const target = ensureLighting(next).lights.find(light => light.id === item.id);
+                    if (target) target.name = name;
+                  });
+                }}
+                onKeyDown={event => {
+                  if (event.nativeEvent.isComposing || (event.key !== 'Enter' && event.key !== 'Escape')) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (event.key === 'Escape') event.currentTarget.value = item.name;
+                  event.currentTarget.parentElement?.querySelector<HTMLButtonElement>('.gesso-part-menu-trigger')?.focus();
+                }}/>
+            : <button type="button" className="gesso-part-select" data-light-id={item.id} aria-pressed={light?.id === item.id} onClick={() => setSelectedLight(item.id)}><span className="gesso-part-name">{item.name}</span><span className="gesso-status">{lightType(item) === 'spot' ? 'Spot' : 'Area'} · {item.enabled ? 'On' : 'Off'}</span></button>}
+          <PartOptionsMenu kind="Light" name={item.name} removalCount={() => canDeleteLight ? 1 : 0}
+            onRename={() => {setSelectedLight(item.id); setRenamingLight(item.id);}}
+            duplicateDisabled={lighting.lights.length >= 8} onDuplicate={() => {
+              const id = duplicateLight(structuredClone(scene), item.id);
+              if (onChange(next => {duplicateLight(next, item.id);}) !== false) setSelectedLight(id);
+            }}
+            onRemove={() => deleteLight(item.id, index)}/>
         </li>)}</ul>
       </section>
       {light && <>
@@ -279,7 +322,6 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
           </>}
           <VectorField label="Position · m" values={light.positionM} onChange={(axis, value) => editLight(target => {target.positionM[axis] = value; if (target.positionM.every((item: number, index: number) => Math.abs(item - target.targetM[index]) < .00001)) target.positionM[axis] += .001;})}/>
           <VectorField label="Aim at · m" values={light.targetM} onChange={(axis, value) => editLight(target => {target.targetM[axis] = value; if (target.positionM.every((item: number, index: number) => Math.abs(item - target.targetM[index]) < .00001)) target.targetM[axis] += .001;})}/>
-          <button type="button" disabled={lighting.lights.length <= 1 && !lighting.hdri} onClick={() => {const id = light.id; const remaining = lighting.lights.find((item: any) => item.id !== id)?.id ?? 'key'; if (onChange(next => {removeLight(next, id);}) === false) return; setSelectedLight(remaining);}}>Remove light</button>
           </details>
           {lightType(light)==='spot'&&<details className="gesso-disclosure" open={light.waterRipple?true:undefined}><summary>Light effects</summary>
             <label className="gesso-check"><input type="checkbox" checked={!!light.waterRipple} onChange={event => {const enabled=event.target.checked;editLight(target=>{if(enabled)target.waterRipple={strength:.85,scale:8,speed:.7};else delete target.waterRipple;});}}/><span>Water ripple projection</span></label>

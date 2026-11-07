@@ -1736,3 +1736,9 @@ Scope includes `WorldPanel.tsx`, `LightingRigMap.tsx`, and the authored light pr
 **Implemented.** Product → Model leads with the assembly tree and the selected part’s name and dimensions. Part details, mechanics and wireframe open on demand. Rename still opens and focuses the name field from the object row. Stage → Objects keeps selection, viewport transforms, contact and color accessible. Exact size and placement, object relationships and surface finish are named groups for the selected object. Product support remains available from the unselected stage, with exact offsets in a disclosure.
 
 Film keeps shot selection, aspect ratio and focal length visible. Camera motion, position and target, focus, exact output size, and selected motion details each have their own route. These are visibility changes to the existing scene model and render path. Scope includes ProductPanel, WorldPanel, WorldObjectEditor, FilmWorkspace, and CameraPanel.
+
+### 2026-11-06 — Put light actions on the rig list
+
+**Implemented in Stage → Lighting.** A three-dot menu beside each light opens Rename, Duplicate, and Delete light. Rename edits the row. Duplicate selects a separate copy of the light's settings and effects. Film motions stay with the original. Delete removes the light and its shot and film motions as one undoable edit. The eight-light limit and the requirement to keep a light or HDRI still apply.
+
+This moves deletion out of Shape and placement so the actions that manage a light live beside its name. Scope includes `WorldPanel.tsx`, the shared `PartOptionsMenu.tsx`, and `world.ts`.

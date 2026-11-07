@@ -1,7 +1,8 @@
 import {describe, expect, it} from 'vitest';
 import {Euler, Quaternion} from 'three';
 import fixture from '../../examples/bottle.scene.json';
-import {addLight, addProp, addPropFromLibrary, applyDramaticSpot, setHdriFromLibrary, colorFromHex, colorHex, defaultLighting, ensureLighting, isLightTarget, lightIdFromTarget, lightTarget, removeLight, resizeProp, setLightType, setPropShape, setWorldYaw, worldYaw} from './world';
+import {addMotion, changeMotionScope, listMotions, validateFilmMotions} from './filmMotion';
+import {addLight, addProp, addPropFromLibrary, applyDramaticSpot, setHdriFromLibrary, colorFromHex, colorHex, defaultLighting, duplicateLight, ensureLighting, isLightTarget, lightIdFromTarget, lightTarget, removeLight, resizeProp, setLightType, setPropShape, setWorldYaw, worldYaw} from './world';
 
 describe('World editing', () => {
   it('uses the fixed stage reference for default and newly added lights', () => {
@@ -51,6 +52,43 @@ describe('World editing', () => {
     scene.lighting.hdri = {name: 'x'}; removeLight(scene, 'key'); expect(scene.lighting.lights).toEqual([]);
     expect(() => {for (let count = 0; count < 9; count++) addLight(scene, 'spot');}).toThrow('eight');
     expect(scene.lighting.lights).toHaveLength(8);
+  });
+  it('duplicates a ripple light independently and keeps motion with its source', () => {
+    const scene = structuredClone(fixture);
+    const id = addLight(scene, 'spot');
+    const lighting = ensureLighting(scene);
+    const source = lighting.lights.find(light => light.id === id)!;
+    source.waterRipple = {strength: .8, scale: 8, speed: .7};
+    const shotId = scene.shots[0].id;
+    const motionId = addMotion(scene, shotId, lightTarget(id), 'aim');
+    const copyId = duplicateLight(scene, id);
+    const copy = lighting.lights.find(light => light.id === copyId)!;
+    expect(copyId).not.toBe(id);
+    expect(copy).toEqual({...source, id: copyId, name: 'Spot copy'});
+    copy.waterRipple!.speed = 1;
+    copy.positionM[0] = 0;
+    expect(source.waterRipple.speed).toBe(.7);
+    expect(source.positionM[0]).not.toBe(0);
+    const secondId = duplicateLight(scene, id);
+    expect(lighting.lights.find(light => light.id === secondId)?.name).toBe('Spot copy 2');
+    expect(listMotions(scene, shotId).map(({motion}) => ({id: motion.id, target: motion.target})))
+      .toEqual([{id: motionId, target: lightTarget(id)}]);
+    addLight(scene, 'area');
+    addLight(scene, 'area');
+    expect(() => duplicateLight(scene, id)).toThrow('at most eight lights');
+    expect(lighting.lights).toHaveLength(8);
+  });
+  it('removes the light and its Film and shot motions without disturbing other tracks', () => {
+    const scene = structuredClone(fixture);
+    const shotId = scene.shots[0].id;
+    const filmMotion = addMotion(scene, shotId, lightTarget('key'), 'aim');
+    changeMotionScope(scene, shotId, filmMotion, 'film');
+    addMotion(scene, shotId, lightTarget('key'), 'move');
+    const keptMotion = addMotion(scene, shotId, lightTarget('fill'), 'move');
+    removeLight(scene, 'key');
+    expect(ensureLighting(scene).lights.map(light => light.id)).toEqual(['fill', 'rim']);
+    expect(listMotions(scene, shotId).map(({motion}) => motion.id)).toEqual([keptMotion]);
+    expect(() => validateFilmMotions(scene)).not.toThrow();
   });
   it('the dramatic preset keeps the HDRI and places one hard warm spot above the product', () => {
     const scene: any = structuredClone(fixture); const scale = .137 / .12;

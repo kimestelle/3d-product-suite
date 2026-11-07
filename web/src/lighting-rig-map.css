@@ -5,3 +5,4 @@
 .gesso-light-rig-map button[data-off=true]{opacity:.5}
 .gesso-light-rig-map button:focus-visible{z-index:2;outline:2px solid white}
 .gesso-light-rig-map>span{position:absolute;right:6px;bottom:4px;color:#bbb;font-size:10px;pointer-events:none}
+.gesso-part-row .gesso-light-name-input{flex:1;min-width:0;width:100%;font-size:12px}

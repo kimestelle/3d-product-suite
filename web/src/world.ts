@@ -65,12 +65,16 @@ export function dramaticSpot(scene: any, id = 'spot'): StudioLight {
     powerW: Number((14 * scale * scale).toPrecision(6)), diameterM: .05 * scale, color: [1, .86, .70]};
 }
 
-export function addLight(scene: any, type: StudioLightType): string {
-  const lighting = ensureLighting(scene);
+function nextLightId(lighting: StudioLighting, type: StudioLightType): string {
   if (lighting.lights.length >= 8) throw new Error('A rig holds at most eight lights.');
   const ids = new Set(lighting.lights.map(light => light.id));
   let number = 1; while (ids.has(`${type}-${number}`)) number++;
-  const id = `${type}-${number}`;
+  return `${type}-${number}`;
+}
+
+export function addLight(scene: any, type: StudioLightType): string {
+  const lighting = ensureLighting(scene);
+  const id = nextLightId(lighting, type);
   const names = new Set(lighting.lights.map(light => light.name));
   let name = type === 'spot' ? 'Spot' : 'Area'; let suffix = 2;
   while (names.has(name)) name = `${type === 'spot' ? 'Spot' : 'Area'} ${suffix++}`;
@@ -85,10 +89,31 @@ export function addLight(scene: any, type: StudioLightType): string {
   return id;
 }
 
+export function duplicateLight(scene: any, sourceId: string): string {
+  const lighting = ensureLighting(scene);
+  const index = lighting.lights.findIndex(light => light.id === sourceId);
+  if (index === -1) throw new Error('This light is no longer in the studio.');
+  const copy = structuredClone(lighting.lights[index]);
+  copy.id = nextLightId(lighting, lightType(copy));
+  const baseName = `${copy.name} copy`;
+  const names = new Set(lighting.lights.map(light => light.name));
+  copy.name = baseName;
+  let suffix = 2;
+  while (names.has(copy.name)) copy.name = `${baseName} ${suffix++}`;
+  lighting.lights.splice(index + 1, 0, copy);
+  return copy.id;
+}
+
 export function removeLight(scene: any, id: string): void {
   const lighting = ensureLighting(scene);
   if (lighting.lights.length <= 1 && !lighting.hdri) throw new Error('Keep at least one light or an HDRI.');
   lighting.lights = lighting.lights.filter(light => light.id !== id);
+  const target = lightTarget(id);
+  for (const source of [scene, ...(scene.shots ?? [])]) {
+    if (source.motions?.some((motion: {target: string}) => motion.target === target)) {
+      source.motions = source.motions.filter((motion: {target: string}) => motion.target !== target);
+    }
+  }
 }
 
 export function setLightType(light: StudioLight, type: StudioLightType): void {

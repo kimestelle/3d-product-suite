@@ -8,16 +8,20 @@ export interface PartOptionsMenuProps {
   onRemove:()=>void;
   removalCount:()=>number;
   disabled?:boolean;
+  kind?:'Part'|'Light';
+  onDuplicate?:()=>void;
+  duplicateDisabled?:boolean;
 }
 
-/** Kept beside the part's select button. The portal clears the tree's scroll clipping. */
-export default function PartOptionsMenu({name,onRename,onRemove,removalCount,disabled=false}:PartOptionsMenuProps) {
+/** Row actions use a portal to clear the list's scroll clipping. */
+export default function PartOptionsMenu({name,onRename,onRemove,removalCount,disabled=false,kind='Part',onDuplicate,duplicateDisabled}:PartOptionsMenuProps) {
   const [open,setOpen]=useState(false), [confirm,setConfirm]=useState(false);
   const [position,setPosition]=useState({left:0,top:0});
   const trigger=useRef<HTMLButtonElement>(null), panel=useRef<HTMLDivElement>(null);
   const firstFocus=useRef<'first'|'last'>('first'), id=useId();
   const [count,setCount]=useState(0);
-  const removeLabel=count>1?`Remove ${count} parts`:'Remove part';
+  const label=`${kind} options`;
+  const removeLabel=kind==='Light'?'Delete light':count>1?`Remove ${count} parts`:'Remove part';
   const close=(restore=false)=>{setOpen(false);setConfirm(false);if(restore)trigger.current?.focus({preventScroll:true});};
   const show=(last=false)=>{if(disabled)return;firstFocus.current=last?'last':'first';setCount(Math.max(0,Math.floor(removalCount())));setConfirm(false);setOpen(true);};
   useEffect(()=>{if(disabled){setOpen(false);setConfirm(false);}},[disabled]);
@@ -40,7 +44,7 @@ export default function PartOptionsMenu({name,onRename,onRemove,removalCount,dis
   },[open]);
   const action=(callback:()=>void)=>{close(true);callback();};
   return <>
-    <button type="button" ref={trigger} className="gesso-part-menu-trigger" aria-label={`Part options: ${name}`} title="Part options"
+    <button type="button" ref={trigger} className="gesso-part-menu-trigger" aria-label={`${label}: ${name}`} title={label}
       disabled={disabled} aria-haspopup="menu" aria-expanded={open} aria-controls={open?id:undefined}
       onClick={()=>open?close(true):show()} onKeyDown={event=>{
         // Space/letters belong to this button, not Film playback or viewport transforms.
@@ -54,7 +58,7 @@ export default function PartOptionsMenu({name,onRename,onRemove,removalCount,dis
     </button>
     {open&&createPortal(<div ref={panel} id={id} className="gesso-material-menu gesso-part-menu" style={position}
       role={confirm?'alertdialog':'menu'} aria-modal={confirm||undefined}
-      aria-label={confirm?`Remove ${count} parts?`:`Part options: ${name}`} aria-describedby={`${id}-description`}
+      aria-label={confirm?`Remove ${count} parts?`:`${label}: ${name}`} aria-describedby={`${id}-description`}
       onBlur={event=>{if(event.relatedTarget&&!event.currentTarget.contains(event.relatedTarget as Node)&&!trigger.current?.contains(event.relatedTarget as Node))close();}}
       onKeyDown={event=>{
         event.stopPropagation();
@@ -83,8 +87,10 @@ export default function PartOptionsMenu({name,onRename,onRemove,removalCount,dis
         </div>
       </>:<>
         <button type="button" role="menuitem" onClick={()=>action(onRename)}>Rename</button>
+        {onDuplicate&&<button type="button" role="menuitem" disabled={duplicateDisabled} title={duplicateDisabled?'A rig holds at most eight lights.':undefined} onClick={()=>action(onDuplicate)}>Duplicate</button>}
         <button type="button" role="menuitem" className="is-destructive" disabled={count===0} onClick={()=>count>1?setConfirm(true):action(onRemove)}>{removeLabel}</button>
-        <p id={`${id}-description`}>Removes from preview and export. Undo restores it.</p>
+        <p id={`${id}-description`}>{kind==='Part'?'Removes from preview and export. Undo restores it.'
+          :count===0?'Keep at least one light or an HDRI.':'Deletes the light and its Film motions. Undo restores them.'}</p>
       </>}
     </div>,document.body)}
   </>;

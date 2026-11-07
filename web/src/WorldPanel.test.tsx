@@ -136,18 +136,19 @@ describe('World panel', () => {
     expect(html.match(/loading="lazy" decoding="async"/g)).toHaveLength(2);
     expect(html).not.toContain('rel="preload"');
   });
-  it('adds and removes lights, selects a type and exposes spot, ambient and preset controls', () => {
+  it('gives every light its own menu and exposes spot, ambient and preset controls', () => {
     const scene: any = structuredClone(fixture);
     expect(addLight(scene, 'spot')).toBe('spot-1');
     const html = render('Lights', scene);
-    for (const value of ['Add light', 'aria-label="Light type"', 'Area disk', 'Spot', 'Ambient color', 'Dramatic spot', 'Reset studio rig', 'Remove light', 'Spot · On', 'Area · On']) expect(html).toContain(value);
+    for (const value of ['Add light', 'aria-label="Light type"', 'Area disk', 'Spot', 'Ambient color', 'Dramatic spot', 'Reset studio rig', 'Spot · On', 'Area · On']) expect(html).toContain(value);
+    for (const name of ['Key', 'Fill', 'Rim', 'Spot']) expect(html).toContain(`aria-label="Light options: ${name}"`);
     expect(html).toContain('<option value="area" selected="">Area disk</option>');
     expect(html).not.toContain('Cone');
-    expect(html).not.toContain('disabled="">Remove light');
+    expect(html).not.toContain('Remove light');
     const dramatic: any = structuredClone(fixture); applyDramaticSpot(dramatic);
     const spot = render('Lights', dramatic);
     for (const value of ['Cone', 'Blend', '<option value="spot" selected="">Spot</option>', 'Use world color']) expect(spot).toContain(value);
-    expect(spot).toContain('disabled="">Remove light</button>');
+    expect(spot).toContain('aria-label="Light options: Spot"');
     expect(spot).toContain('>Ambient</span>');
   });
   it('renders only the selected controls without leftover section selectors', () => {
