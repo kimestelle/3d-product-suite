@@ -1,0 +1,7 @@
+.gesso-light-rig-map{position:relative;height:132px;background:var(--gesso-surface-selected,#282828);border-radius:4px;isolation:isolate}
+.gesso-light-rig-lines{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.gesso-light-rig-map button{position:absolute;transform:translate(-50%,-50%);width:26px;height:26px;padding:0;display:grid;place-items:center;background:#222;border:1px solid #777;border-radius:4px}
+.gesso-light-rig-map button[aria-pressed=true]{z-index:1;outline:1px solid currentColor}
+.gesso-light-rig-map button[data-off=true]{opacity:.5}
+.gesso-light-rig-map button:focus-visible{z-index:2;outline:2px solid white}
+.gesso-light-rig-map>span{position:absolute;right:6px;bottom:4px;color:#bbb;font-size:10px;pointer-events:none}

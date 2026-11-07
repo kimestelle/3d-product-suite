@@ -1724,3 +1724,9 @@ The viewport shows a shot camera reset only in Film during inspection. Its label
 **Implemented for the connected editor.** Stage → Lighting adds a water ripple projection to spotlights with strength, scale, and speed. The same projected pattern advances from sampled film time in the browser and native Cycles. The projector illuminates scene geometry. Lighting baked into a Gaussian stays in its plate.
 
 The local catalog offers Authored studio and the two selected refined rooms. Choosing a protected room copies its position and aim bounds into the scene. Existing endpoints outside them move to the reviewed camera in the same undoable edit. Evaluation checks every visible scene frame after film motion, the visible room disables free orbit and asset alignment, and uncovered plate pixels use a black or white matte. The render pipeline keeps its per-camera, pixel-verified Gaussian copy and retains the original source. Archive and protection records live in the workspace. Scope includes Stage lighting, viewport rendering, scene validation, and the workspace world catalog.
+
+### 2026-11-06 — Select a light before exposing its technical controls
+
+**Implemented in Stage → Lighting.** Replace the room cover in this tab with a plan of the current light positions and aim points. Area, spot, and ripple icons select the same light as the list immediately below. On/off, power, and color stay visible for the selected light. Shape and placement, per-spot effects, rig looks, and image finish have their own disclosure. Amber desk lamp is an undoable rig preset with a warm spot and cool area fill. Environment and Objects retain their room covers.
+
+Scope includes `WorldPanel.tsx`, `LightingRigMap.tsx`, and the authored light presets in `world.ts`. This changes the default control hierarchy. Actual usage has yet to be measured.

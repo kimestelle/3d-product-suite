@@ -11,13 +11,19 @@ function representationWorld(id: string, representation: string, providerWorldId
     revisionId: id, provenance: {representation, providerWorldId, ...(representation === 'hq-visual-glb' ? {meshVariant: 'textured'} : {})}, ...overrides}};
 }
 describe('World panel', () => {
-  it('keeps the selected stage visual above every section and shows worlds as image choices', () => {
-    for (const layer of ['Environment', 'Props', 'Lights'] as const) {
+  it('shows a stage cover for Environment and Props and leads Lighting with the rig', () => {
+    for (const layer of ['Environment', 'Props'] as const) {
       const html = render(layer);
       expect(html).toContain('aria-label="Current stage preview"');
       expect(html.indexOf('gesso-selected-world-cover')).toBeLessThan(html.indexOf('gesso-stage-controls'));
       expect(html).toContain('Scene preview');
     }
+    const lights = render('Lights');
+    expect(lights).not.toContain('aria-label="Current stage preview"');
+    expect(lights).toContain('aria-label="Select Key · Area"');
+    expect(lights.indexOf('aria-label="Lighting rig · top view"')).toBeLessThan(lights.indexOf('aria-label="Studio lights"'));
+    expect(lights).toContain('<summary>Shape and placement</summary>');
+    expect(lights).toContain('Amber desk lamp');
     const html = renderToStaticMarkup(<WorldPanel scene={fixture} layer="Environment" worlds={[{id: 'gallery', name: 'Gallery', environment: {...fixture.environment, kind: 'mesh'}}]} onChange={() => {}} onWorld={() => {}} onImport={() => {}}/>);
     expect(html).toContain('aria-label="World library"');
     expect(html).toContain('aria-label="Use Gallery"');

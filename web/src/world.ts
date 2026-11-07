@@ -162,3 +162,17 @@ export function setHdriFromLibrary(scene: any, entry: any): void {
   ensureLighting(scene).hdri = { asset: structuredClone(entry.asset), name: entry.name,
     sourceUrl: entry.sourceUrl, intensity: 1, rotationDeg: 0 };
 }
+
+/** Warm practical light with a broad, cooler fill from the opposite side. */
+export function applyDeskLamp(scene:any):void {
+  const rig=defaultLighting(scene);
+  const lamp=dramaticSpot(scene,'desk-lamp');
+  lamp.name='Amber desk lamp';
+  lamp.color=[1,.39,.10];
+  lamp.coneDeg=57;
+  lamp.blend=.72;
+  lamp.powerW*=.42;
+  const window={...rig.lights[1],name:'Cool window fill',powerW:rig.lights[1].powerW*1.4};
+  const hdri=scene.lighting?.hdri;
+  scene.lighting={ambientStrength:.24,lights:[lamp,window],...(hdri?{hdri}:{})};
+}
