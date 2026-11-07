@@ -97,16 +97,17 @@ export default function CameraPanel({scene, frame, samples = [], mode = 'video',
     else if (focusDistanceM !== undefined) settings.focusDistanceM = focusDistanceM;
     next.depthOfField = settings;
   }, false);
+  const endpoints = !still && <div className="gesso-button-row" aria-label="Camera endpoint">
+    <button type="button" aria-pressed={end === 'from'} onClick={() => go('from')}>Start</button>
+    <button type="button" aria-pressed={end === 'to'} disabled={trimmedEnd || heldCamera} onClick={() => go('to')}>{trimmedEnd ? 'Source end · trimmed' : heldCamera ? 'Held camera' : 'End'}</button>
+  </div>;
 
   return <div className={`gesso-panel gesso-compact-panel gesso-camera-panel${embedded ? ' gesso-camera-embedded' : ''}`}>
-    {(!embedded || !still) && <section className="gesso-section gesso-camera-scope" aria-label="Camera scope">
-      {!embedded && <StepField label="Scene"><select aria-label="Camera shot" value={shot.id} onChange={event => {const next = scene.shots.find((item: any) => item.id === event.target.value); onFrame(end === 'from' ? next.startFrame : Math.min(next.endFrame, cameraSourceEndFrame(next))); onResetView?.();}}>
+    {!embedded && <section className="gesso-section gesso-camera-scope" aria-label="Camera scope">
+      <StepField label="Scene"><select aria-label="Camera shot" value={shot.id} onChange={event => {const next = scene.shots.find((item: any) => item.id === event.target.value); onFrame(end === 'from' ? next.startFrame : Math.min(next.endFrame, cameraSourceEndFrame(next))); onResetView?.();}}>
         {scene.shots.map((item: any, index: number) => <option key={item.id} value={item.id}>{String(index + 1).padStart(2, '0')} / {item.name || 'Untitled shot'}</option>)}
-      </select></StepField>}
-      {!still && <div className="gesso-button-row" aria-label="Camera endpoint">
-        <button type="button" aria-pressed={end === 'from'} onClick={() => go('from')}>Start</button>
-        <button type="button" aria-pressed={end === 'to'} disabled={trimmedEnd || heldCamera} onClick={() => go('to')}>{trimmedEnd ? 'Source end · trimmed' : heldCamera ? 'Held camera' : 'End'}</button>
-      </div>}
+      </select></StepField>
+      {endpoints}
     </section>}
     <section className="gesso-section gesso-camera-essentials" aria-label="Camera framing">
       <StepField label="Frame"><select aria-label="Camera aspect ratio" value={aspect?.label ?? 'custom'} onChange={event => {const next = formats.find(format => format.label === event.target.value); setCustomSize(!next); if (next) resize(next.width, next.height);}}>{formats.map(format => <option key={format.label} value={format.label}>{format.label}</option>)}<option value="custom">Custom</option></select></StepField>
@@ -114,20 +115,31 @@ export default function CameraPanel({scene, frame, samples = [], mode = 'video',
         <summary><UiIcon name="chevron"/><span>Output size</span><small>{scene.render.width} × {scene.render.height}</small></summary>
         <div className="film-rail-detail-body"><StepNumber label="Width" ariaLabel="Camera frame width" value={scene.render.width} min={2} max={8192} step={2} unit="px" onChange={value => resize(value, scene.render.height)}/><StepNumber label="Height" ariaLabel="Camera frame height" value={scene.render.height} min={2} max={8192} step={2} unit="px" onChange={value => resize(scene.render.width, value)}/></div>
       </details>
-      <StepNumber label="Lens" ariaLabel="Focal length" value={pose.focalLengthMm} unit="mm" min={1} max={1000} onChange={value => updatePose(next => {next.focalLengthMm = value;}, true)}/>
+      <StepNumber label={embedded && !still ? `Lens · ${scope.toLowerCase()}` : 'Lens'} ariaLabel="Focal length" value={pose.focalLengthMm} unit="mm" min={1} max={1000} onChange={value => updatePose(next => {next.focalLengthMm = value;}, true)}/>
+    </section>
+    <details className="film-rail-disclosure gesso-camera-position">
+      <summary><UiIcon name="chevron"/><span>Position and target</span></summary>
+      <div className="film-rail-detail-body">
+      {embedded && endpoints}
       <div className="gesso-camera-aimrow"><StepField label="Target"><select aria-label="Target" disabled={spatialDisabled} value={target} onChange={event => setTarget(event.target.value)}><option value="">Whole product</option>{partTargetIds(scene).map(id => <option key={id} value={id}>{displayPartName(scene, id)}</option>)}</select></StepField>
         <button type="button" aria-label={still ? 'Aim at frame' : `Aim at ${end === 'from' ? 'start' : 'end'}`} disabled={spatialDisabled || !sampleAt(endpointFrame)} onClick={() => aim(false)}>Aim</button></div>
+      <fieldset className="film-camera-fields" disabled={spatialDisabled}>
+        <StepVector factor={1000} unit="mm" label={`${scope} target`} values={pose.targetM} onChange={(index, value) => updatePose(next => {next.targetM[index] = value;})}/>
+        <StepVector factor={1000} unit="mm" label={`${scope} position`} values={pose.positionM} onChange={(index, value) => updatePose(next => {next.positionM[index] = value;})}/>
+      </fieldset>
+      </div>
+    </details>
+    <details className="film-rail-disclosure gesso-camera-focus">
+      <summary><UiIcon name="chevron"/><span>Focus</span><small>{focusEnabled ? followTarget ? 'Follow target' : `${Number((focusDistance * 1000).toFixed(1))} mm` : 'Off'}</small></summary>
+      <div className="film-rail-detail-body">
       <label className="gesso-check gesso-camera-focus-toggle"><input type="checkbox" aria-label="Depth of field" checked={focusEnabled} onChange={event => focus({enabled: event.target.checked})}/><span>Depth of field</span></label>
       {focusEnabled && <div className="gesso-camera-focus-settings">
         <StepNumber label="f-stop" ariaLabel="Camera aperture" value={optics?.fStop ?? 2.8} min={.7} max={32} step={.1} onChange={value => focus({fStop: value})}/>
         <StepField label="Focus"><select aria-label="Focus mode" value={followTarget ? 'target' : 'distance'} onChange={event => focus({focusDistanceM: event.target.value === 'target' ? null : targetDistance})}><option value="target">Follow target</option><option value="distance">Set distance</option></select></StepField>
         {!followTarget && <StepNumber label="Distance" ariaLabel="Camera focus distance" value={focusDistance * 1000} min={1} max={1000000} step={1} unit="mm" onChange={value => focus({focusDistanceM: value / 1000})}/>}
       </div>}
-    </section>
-    <details className="film-rail-disclosure gesso-camera-position"><summary><UiIcon name="chevron"/><span>Position and target</span></summary><div className="film-rail-detail-body"><fieldset className="film-camera-fields" disabled={spatialDisabled}>
-      <StepVector factor={1000} unit="mm" label={`${scope} target`} values={pose.targetM} onChange={(index, value) => updatePose(next => {next.targetM[index] = value;})}/>
-      <StepVector factor={1000} unit="mm" label={`${scope} position`} values={pose.positionM} onChange={(index, value) => updatePose(next => {next.positionM[index] = value;})}/>
-    </fieldset></div></details>
+      </div>
+    </details>
     {!still && trimmedEnd && <p className="gesso-meta gesso-note">Camera source end (frame {sourceEnd}) is outside this shot. Extend the shot to edit it.</p>}
     <details className="film-rail-disclosure gesso-camera-advanced"><summary><UiIcon name="chevron"/><span>Advanced</span></summary><div className="film-rail-detail-body">
       <div className="gesso-button-row gesso-lens-presets">{[24, 35, 50, 85].map(value => <button type="button" key={value} aria-pressed={Math.abs(pose.focalLengthMm - value) < .0001} onClick={() => updatePose(next => {next.focalLengthMm = value;}, true)}>{value} mm</button>)}</div>

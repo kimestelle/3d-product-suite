@@ -37,7 +37,12 @@ async function commitNumber(input,value){await input.fill(String(value));await i
 try{
   await page.goto(origin+'/?step=product&layer=model');
   const name=page.getByRole('textbox',{name:'Object name',exact:true});
+  const selectedPart=page.locator('[aria-label="Objects"] .gesso-part-select[aria-pressed="true"]');
+  await selectedPart.waitFor();
+  assert.equal(await name.count(),0,'exact name field is closed before editing');
+  await selectedPart.press('F2');
   await name.waitFor();
+  assert(await name.evaluate(input=>input===document.activeElement),'F2 focuses the selected name field');
   await page.waitForFunction(()=>!document.querySelector('.gesso-render-still')?.disabled&&document.querySelector('.gesso-save-status[data-state="saved"]'));
   assert.deepEqual(await page.getByRole('alert').allTextContents(),[]);
   const original=await name.inputValue();

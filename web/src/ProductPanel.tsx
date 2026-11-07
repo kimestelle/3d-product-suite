@@ -19,8 +19,10 @@ import {
   displayPartName, partName, renamePart, resolveHierarchy, sceneParts,
   type HierarchyPart,
 } from './hierarchy';
+import './product-panel.css';
 
 export type ProductLayer = 'Model' | 'Materials' | 'Decals' | 'Animation';
+type ModelInspector = 'details' | 'mechanics' | 'outline';
 export interface ProductPanelProps {
   scene: any;
   partId: string | null;
@@ -75,7 +77,7 @@ export default function ProductPanel(props: ProductPanelProps) {
   const [collapsed, setCollapsed] = useState<string[]>([]);
   const [hoveredPart,setHoveredPart]=useState<string|null>(null);
   const [decalVisualHost,setDecalVisualHost]=useState<HTMLDivElement|null>(null);
-  const [mechanicsOpen, setMechanicsOpen] = useState(false);
+  const [inspector, setInspector] = useState<ModelInspector | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const inspectorScroll = useRef<HTMLDivElement>(null);
   const panelRef=useRef<HTMLDivElement>(null);
@@ -88,20 +90,28 @@ export default function ProductPanel(props: ProductPanelProps) {
   const [renameRequest, setRenameRequest] = useState<string | null>(null);
   useEffect(() => {setFeedback(null);}, [scene?.sceneId, layer, workspace]);
   useEffect(() => {inspectorScroll.current?.scrollTo({top:0});}, [part?.id]);
-  useEffect(() => {setFeedback(null); setMechanicsOpen(false);}, [partId, workspace]);
   useEffect(() => {
-    if (renameRequest !== part?.id || workspace !== 'product' || mechanicsOpen) return;
-    nameRef.current?.focus();
-    nameRef.current?.select();
+    setFeedback(null);
+    setInspector(current => current === 'mechanics' ? null : current);
+  }, [partId, workspace]);
+  useEffect(() => {
+    const input = nameRef.current;
+    if (renameRequest !== part?.id || workspace !== 'product' || inspector !== 'details' || !input) return;
+    input.focus();
+    input.select();
     setRenameRequest(null);
-  }, [renameRequest, part?.id, workspace, mechanicsOpen]);
+  }, [renameRequest, part?.id, workspace, inspector]);
   if(scene&&!sourceParts.length&&removed.size)return <div ref={panelRef} className="gesso-panel gesso-product-panel"><p className="gesso-note">All parts removed. Undo to restore them.</p>{workspace==='product'&&<button type="button" data-part-import onClick={props.onImport}>Import product…</button>}</div>;
   if (!scene || !part || !component) return <div className="gesso-panel gesso-product-panel"><p className="gesso-note">Loading product parts…</p></div>;
 
   const parent = hierarchy.parents[part.id];
+  const dimensions = (part.dimensionsM ?? component.sizeM)
+    .map((value: number) => Number((value * 1000).toFixed(1))).join(' × ');
   const beginRename = (id: string) => {
     if (workspace !== 'product') return;
-    onSelect(id); setMechanicsOpen(false); setRenameRequest(id);
+    onSelect(id);
+    setInspector('details');
+    setRenameRequest(id);
   };
   const focusControls = <div className="gesso-button-row">
     {(workspace !== 'material' || layer !== 'Materials') && <button type="button" onClick={onToggleFocus}>{focused ? 'Show assembly' : 'Focus part'}</button>}
@@ -119,7 +129,9 @@ export default function ProductPanel(props: ProductPanelProps) {
     return false;
   };
   const highlighted=hoveredPart ?? part.id;
-  const highlightIds=parts.filter(item=>{let id:string|null=item.id;const seen=new Set<string>();while(id&&!seen.has(id)){if(id===highlighted)return true;seen.add(id);id=hierarchy.parents[id];}return false;}).map(item=>item.id);
+  const highlightIds=inspector==='outline'&&hoveredPart
+    ? parts.filter(item=>{let id:string|null=item.id;const seen=new Set<string>();while(id&&!seen.has(id)){if(id===highlighted)return true;seen.add(id);id=hierarchy.parents[id];}return false;}).map(item=>item.id)
+    : [];
   const tree = <ul className="gesso-part-tree" aria-label="Objects">
     {orderedParts(parts, treeParents).filter(({part: item}) => !hiddenByAncestor(item.id)).map(({part: item, depth}) => {
       const hasChildren = parts.some(child => treeParents[child.id] === item.id);
@@ -159,10 +171,9 @@ export default function ProductPanel(props: ProductPanelProps) {
   });
 
 
-  const modelContent = <>
-    <section className="gesso-section gesso-model-selection" aria-label="Selected object">
+  const modelContent = inspector === 'details' && <>
+    <section className="gesso-section gesso-model-selection">
       <PartNameField key={part.id} name={part.name} inputRef={nameRef} onCommit={name => onChange(next => renamePart(next, sourceParts, part.id, name))}/>
-      <p className="gesso-meta">{(part.dimensionsM ?? component.sizeM).map((value: number) => Number((value * 1000).toFixed(1))).join(' × ')} mm</p>
       <Field label="Parent"><select aria-label="Parent" value={parent ?? ''} title="Groups this object in the list. Motion stays unchanged." onChange={event => {
         const parentId = event.target.value || null;
         if (parentId === parent) return;
@@ -192,8 +203,13 @@ export default function ProductPanel(props: ProductPanelProps) {
         onSelect={props.onSelectDecal ?? (() => {})} onAdd={props.onAddDecal ?? (() => {})} onChange={onChange}/>
     </>
 ;
-  const mechanicsContent = action && !sourceChild && <details className="gesso-disclosure gesso-product-mechanics" open={mechanicsOpen} onToggle={event=>setMechanicsOpen(event.currentTarget.open)}><summary>Mechanics <span>{action.type==='lift'?'Lift':'Screw'} · {displayPartName(scene, action.relativeTo)}</span></summary>
-      <div className="gesso-mechanics-body">
+  const mechanicsContent = action && !sourceChild && <details className="gesso-disclosure gesso-product-mechanics"
+    open={inspector==='mechanics'}>
+    <summary onClick={event=>{
+      event.preventDefault();
+      setInspector(current => current === 'mechanics' ? null : 'mechanics');
+    }}>Mechanics <span>{action.type==='lift'?'Lift':'Screw'} · {displayPartName(scene, action.relativeTo)}</span></summary>
+    <div className="gesso-mechanics-body">
       <VectorField label="Pivot" unit="mm" values={action.pivotM} factor={1000} step={.1} onChange={(index,value)=>editAction(target=>{target.pivotM[index]=value;})}/>
       <div className="gesso-button-row gesso-choice" aria-label="Movement axis">{['X','Y','Z'].map((axis,index)=><button key={axis} type="button" aria-pressed={action.axis.every((value:number,i:number)=>value===(i===index?1:0))} onClick={()=>editAction(target=>{target.axis=[0,0,0];target.axis[index]=1;})}>{axis}</button>)}</div>
       {action.type==='lift'?<NumberField label="Full travel" unit="mm" value={action.distanceM*1000} min={0} step={1} onChange={value=>editAction(target=>{target.distanceM=value/1000;})}/>:<>
@@ -202,8 +218,15 @@ export default function ProductPanel(props: ProductPanelProps) {
         <Field label="Direction"><select value={action.directionSign} onChange={event=>{const value=Number(event.target.value);editAction(target=>{target.directionSign=value;});}}><option value={1}>Positive</option><option value={-1}>Negative</option></select></Field>
       </>}
       <details><summary>Movement source</summary>{(action.evidenceIds??[]).map((id:string)=><p className="gesso-meta" key={id}>{scene.evidence?.find((item:any)=>item.id===id)?.description??id}</p>)}</details>
-      </div>
-    </details>;
+    </div>
+  </details>;
+  const modelSections: {id:ModelInspector;label:string;summary?:string;content:ReactNode}[] = [
+    {id:'details', label:'Part details', summary:'Name and parent', content:modelContent},
+    {id:'outline', label:'Model wireframe', content:inspector==='outline'&&<ModelOutlinePreview
+      capture={props.captureOutline} revision={props.outlineRevision??scene.sceneId}
+      ready={props.outlineReady??false} highlightIds={highlightIds}
+      name={parts.find(item=>item.id===highlighted)?.name??'Model'}/>},
+  ];
   const presetCount = campaignMaterialPresets(scene).length;
   const sections: {id:ProductLayer;name:string;summary:string;content:ReactNode}[] = [
     {id:'Materials',name:'Library',summary:`${presetCount} ${presetCount === 1 ? 'preset' : 'presets'}`,content:materialContent},
@@ -211,19 +234,34 @@ export default function ProductPanel(props: ProductPanelProps) {
   ];
   const activeMaterialLayer = layer === 'Decals' ? 'Decals' : 'Materials';
   const activeMaterialSection = sections.find(section=>section.id===activeMaterialLayer)!;
-  const showMechanics = mechanicsOpen && !!action && !sourceChild;
   const materialLibrary = workspace === 'material' && activeMaterialLayer === 'Materials';
   return <div ref={panelRef} className={`gesso-panel gesso-product-panel gesso-condensed-product gesso-workspace-${workspace}`}>
-    {workspace==='product'&&<ModelOutlinePreview capture={props.captureOutline} revision={props.outlineRevision??scene.sceneId} ready={props.outlineReady??false} highlightIds={hoveredPart?highlightIds:[]} name={parts.find(item=>item.id===highlighted)?.name??'Model'}/>}
     {workspace==='material'&&layer==='Decals'&&<div className="gesso-decal-visual-host" ref={setDecalVisualHost}/>}
-    {workspace!=='animation'&&<ProductImportNotes metadata={scene.product.metadata}/>}
-    {!materialLibrary&&<section className="gesso-fixed-parts"><div className="gesso-section-heading"><span>{scene.product.displayName||(fixtureGrouping?'MORA bottle':'Product')}</span>{workspace==='product'&&<button type="button" className="gesso-text-button" onClick={props.onImport}>Import</button>}</div><div className="gesso-section-heading"><span className="gesso-section-label">Objects</span></div>{tree}{workspace!=='product'&&focusControls}</section>}
+    {workspace==='material'&&<ProductImportNotes metadata={scene.product.metadata}/>}
+    {!materialLibrary&&<section className="gesso-fixed-parts">
+      <div className="gesso-section-heading"><span>{scene.product.displayName||(fixtureGrouping?'MORA bottle':'Product')}</span>{workspace==='product'&&<button type="button" className="gesso-text-button" onClick={props.onImport}>Import</button>}</div>
+      <div className="gesso-section-heading"><span className="gesso-section-label">Objects</span></div>
+      {tree}
+      {workspace==='product'?<div className="gesso-model-readout" role="group" aria-label="Selected object">
+        <span title={part.name}>{part.name}</span><span>{dimensions} mm</span>
+      </div>:focusControls}
+    </section>}
     {workspace==='product'&&<div className="gesso-control-sections">
-      <section className={`gesso-control-section gesso-product-structure${showMechanics?'':' is-open'}`}>
-        <button type="button" className="gesso-section-toggle gesso-section-selector" aria-current={!showMechanics ? "true" : undefined} aria-controls="product-section-Model" onClick={()=>setMechanicsOpen(false)}><span className="gesso-section-label">Part details</span></button>
-        <EditorCabinetBody open={!showMechanics} id="product-section-Model">{modelContent}</EditorCabinetBody>
-      </section>
+      {modelSections.map(section => {
+        const open = inspector === section.id;
+        const id = `product-inspector-${section.id}`;
+        return <section className={`gesso-control-section${section.id==='details'?' gesso-product-structure':''}${open?' is-open':''}`} key={section.id}>
+          <button type="button" className="gesso-section-toggle" aria-label={section.label}
+            aria-expanded={open} aria-controls={open?id:undefined} onClick={()=>setInspector(open?null:section.id)}>
+            <span className="gesso-section-label">{section.label}</span>
+            {section.summary&&<small aria-hidden="true">{section.summary}</small>}
+            <UiIcon name={open?'down':'chevron'} size={14}/>
+          </button>
+          <EditorCabinetBody open={open} id={id}>{section.content}</EditorCabinetBody>
+        </section>;
+      })}
       {mechanicsContent}
+      <ProductImportNotes metadata={scene.product.metadata}/>
     </div>}
     {workspace==='material'&&<div className="gesso-control-sections">
       <section className="gesso-control-section is-open" key={activeMaterialLayer} aria-labelledby={`product-section-${activeMaterialLayer}-heading`}>

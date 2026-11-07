@@ -5,12 +5,6 @@ import ProductPanel, {type ProductPanelProps} from './ProductPanel';
 import {sceneParts} from './hierarchy';
 import type {ProductDecal, UvLayout} from './decals';
 
-function parentSelect(html: string) {
-  const control = html.match(/<select[^>]*aria-label="Parent"[^>]*>[\s\S]*?<\/select>/)?.[0];
-  expect(control).toBeDefined();
-  return control!;
-}
-
 function render(patch: Partial<ProductPanelProps> = {}) {
   const scene = structuredClone(fixture);
   const noop = () => {};
@@ -54,16 +48,14 @@ describe('Product panel capability boundaries', () => {
     }
     expect(render()).not.toContain('Import notes');
   });
-  it('offers an editable name and uses saved aliases in the tree, parent and material assignments', () => {
+  it('shows saved aliases in the selection, tree and material assignments', () => {
     const scene = structuredClone(fixture) as any;
     scene.editorPartNames = {'bottle-body': 'Glass body', label: 'Front print', cap: 'Lid'};
     const html = render({scene});
-    expect(html).toContain('aria-label="Object name"');
-    expect(html).toContain('maxLength="120"');
-    expect(html).toContain('value="Front print"');
+    expect(html).toContain('title="Front print">Front print</span>');
     expect(html).toContain('class="gesso-part-name">Front print</span>');
     expect(html).toContain('aria-label="Hide Front print"');
-    expect(parentSelect(html)).toContain('<option value="bottle-body" selected="">Glass body</option>');
+    expect(html).toContain('class="gesso-part-name">Glass body</span>');
     expect(html).toContain('Double-click or press F2 to rename');
     expect(html).toContain('<span class="gesso-section-label">Part details</span>');
     expect(html).toContain('<span class="gesso-section-label">Objects</span>');
@@ -71,23 +63,20 @@ describe('Product panel capability boundaries', () => {
     expect(materials).toContain('aria-label="Lid material"');
   });
 
-  it('shows a reviewable fixture grouping and keyboard-operable part buttons immediately', () => {
+  it('shows the fixture tree before the closed detail controls', () => {
     const html = render();
-    expect(html).toContain('Keep grouping');
-    expect(parentSelect(html)).toContain('<option value="bottle-body" selected="">Body</option>');
+    expect(html).not.toContain('Keep grouping');
     expect(html).not.toContain('Organize…');
     expect(html).not.toContain('File details…');
-    expect(html).toContain('Label lies on the body’s front surface.');
+    expect(html).not.toContain('Label lies on the body’s front surface.');
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain('aria-label="Hide Label"');
     expect(html).toContain('MORA bottle');
     expect(html.match(/class="gesso-part-row /g)).toHaveLength(4);
-    // Model keeps structure separate from Product's surfaces and Film animation.
-    expect(html).toContain('aria-controls="product-section-Model"');
-    for (const section of ['Materials', 'Decals', 'Animation']) expect(html).not.toContain(`aria-controls="product-section-${section}"`);
     expect(html).toContain('>Import</button>');
-    expect(html.match(/class="gesso-section-toggle gesso-section-selector" aria-current="true"/g)).toHaveLength(1);
-    expect(html).toContain('id="product-section-Model"');
+    expect(html).toContain('aria-label="Part details" aria-expanded="false"');
+    expect(html.indexOf('aria-label="Objects"')).toBeLessThan(html.indexOf('aria-label="Part details"'));
+    expect(html).not.toContain('id="product-inspector-details"');
     expect(html).not.toContain('id="product-section-Materials"');
   });
 
@@ -107,10 +96,9 @@ describe('Product panel capability boundaries', () => {
 
   it('retains genuine tree and mechanism disclosures in Model', () => {
     const product = render({partId: 'cap'});
-    const detailsSelector = product.match(/<button[^>]*class="gesso-section-toggle gesso-section-selector"[\s\S]*?<\/button>/)![0];
-    expect(detailsSelector).toContain('aria-current="true"');
-    expect(detailsSelector).not.toContain('aria-expanded');
-    expect(detailsSelector).not.toContain('gesso-ui-icon');
+    expect(product).toContain('aria-label="Part details" aria-expanded="false"');
+    expect(product).toContain('aria-label="Model wireframe" aria-expanded="false"');
+    expect(product).not.toContain('aria-label="Model wireframe preview"');
     expect(product).toContain('class="gesso-tree-toggle"');
     expect(product).toMatch(/class="gesso-tree-toggle"[^>]*aria-expanded="true"[^>]*>[\s\S]*?gesso-ui-icon/);
     expect(product).toContain('<details class="gesso-disclosure gesso-product-mechanics"><summary>Mechanics');
@@ -127,37 +115,18 @@ describe('Product panel capability boundaries', () => {
     expect(parts.find(part => part.id === 'bottle-body')?.name).toBe('bottle-body');
   });
 
-  it('keeps identity and the parent dropdown together without alternate inspector views', () => {
+  it('keeps name and dimensions visible while deferring name and parent edits', () => {
     const html = render();
-    const identity = html.match(/<section class="gesso-section gesso-model-selection"[^>]*>[\s\S]*?<\/section>/)![0];
-    expect(identity).toContain('aria-label="Object name"');
-    expect(identity).toContain('aria-label="Parent"');
-    expect(identity).toContain(' mm</p>');
+    const identity = html.match(/<div class="gesso-model-readout"[^>]*>[\s\S]*?<\/div>/)![0];
+    expect(identity).toContain('>Label</span>');
+    expect(identity).toContain(' mm</span>');
+    expect(html).not.toContain('aria-label="Object name"');
+    expect(html).not.toContain('aria-label="Parent"');
     for (const removed of ['Organize…', 'File details…', 'product-organize', 'product-source-details', 'Apply parent']) {
       expect(html).not.toContain(removed);
     }
     expect(html).not.toContain('>Show assembly</button>');
     expect(html).not.toContain('>Frame</button>');
-  });
-
-  it('offers only valid parents and selects the current hierarchy parent', () => {
-    const scene = structuredClone(fixture) as any;
-    scene.editorHierarchy = {version: 1, overrides: {
-      neck: {parentId: 'bottle-body', status: 'edited'},
-      cap: {parentId: 'neck', status: 'edited'},
-      label: {parentId: 'bottle-body', status: 'edited'},
-    }};
-    const neck = parentSelect(render({scene, partId: 'neck'}));
-    expect(neck).toContain('<option value="">Top level</option>');
-    expect(neck).toContain('<option value="bottle-body" selected="">Body</option>');
-    expect(neck).toContain('<option value="label">Label</option>');
-    expect(neck).not.toContain('<option value="neck"');
-    expect(neck).not.toContain('<option value="cap"');
-    const body = parentSelect(render({scene, partId: 'bottle-body'}));
-    expect(body).toContain('<option value="" selected="">Top level</option>');
-    expect(body.match(/<option /g)).toHaveLength(1);
-    scene.product.removedPartIds = ['label'];
-    expect(parentSelect(render({scene, partId: 'neck'}))).not.toContain('<option value="label"');
   });
 
   it('keeps source metadata intact without adding a file-details view', () => {
@@ -170,9 +139,8 @@ describe('Product panel capability boundaries', () => {
     scene.editorPartNames = {'bottle::node:4':'Front label'};
     const before = JSON.stringify(scene);
     const html = render({scene, parts, partId:'bottle::node:4'});
-    expect(html).toContain('value="Front label"');
+    expect(html).toContain('title="Front label">Front label</span>');
     expect(html).toContain('40 × 60 × 1 mm');
-    expect(parentSelect(html)).toContain('<option value="bottle" selected="">Bottle</option>');
     expect(html).not.toContain('File details…');
     expect(html).not.toContain('product-source-details');
     expect(html).not.toContain('<dt>Source object</dt>');
@@ -213,7 +181,7 @@ describe('Product panel capability boundaries', () => {
     expect(html).toContain('aria-label="Pivot X"');
     expect(html).toContain('aria-label="Movement axis"');
     expect(html).toContain('Synthetic lift-off fixture');
-    expect(parentSelect(html)).toContain('<option value="" selected="">Top level</option>');
+    expect(html).not.toContain('aria-label="Parent"');
     expect(html).not.toContain('<dt>Structure</dt>');
     expect(html).not.toContain('aria-label="Start time"');
     expect(html).not.toContain('aria-label="Duration"');
@@ -274,8 +242,8 @@ describe('Product panel capability boundaries', () => {
     expect(placement).not.toContain('aria-label="Full travel"');
     scene.editorPartNames = {'imported::node:0': 'Upper shell'};
     const structure = render({scene, parts, workspace: 'product', partId: 'imported::node:0', layer: 'Model'});
-    expect(structure).toContain('aria-label="Object name"');
-    expect(structure).toContain('value="Upper shell"');
+    expect(structure).toContain('aria-label="Selected object"');
+    expect(structure).toContain('title="Upper shell">Upper shell</span>');
     expect(parts[1].sourceName).toBe('mesh_0');
   });
 });

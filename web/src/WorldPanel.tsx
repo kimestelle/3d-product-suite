@@ -70,10 +70,12 @@ function ProductPlacement({scene, onChange, pickingSurface = false, onPickSurfac
     {scene.environment.kind === 'mesh' && <button type="button" aria-pressed={pickingSurface} disabled={!ready && !pickingSurface} onClick={pickingSurface ? onCancelPick : onPickSurface}>{pickingSurface ? 'Cancel surface pick' : 'Pick a surface in the world'}</button>}
     {placement.restsOn === 'world-surface' && <p className="gesso-meta gesso-note">Re-pick the surface after replacing or realigning the world.</p>}
     {scene.environment.kind === 'splat' && <p className="gesso-meta gesso-note">Surface picking needs a mesh world. Rest the product on the floor or an object.</p>}
+    <details className="gesso-disclosure"><summary>Exact product placement</summary>
     <VectorField label="Offset · mm" values={placement.translationM} factor={1000} onChange={(axis, value) => onChange(next => {next.placement.translationM[axis] = value;})}/>
     <NumberField label="Turn" unit="°" ariaLabel="Product rotation" value={placement.rotationYDegrees ?? 0} min={-360} max={360} step={1} onChange={value => onChange(next => {if (value) next.placement.rotationYDegrees = value; else delete next.placement.rotationYDegrees;})}/>
     <NumberField label="Floor" unit="mm" ariaLabel="Floor height" value={sceneFloorY(scene) * 1000} step={1} onChange={value => onChange(next => {next.environment.floorY = value / 1000;})}/>
     <p className="gesso-meta gesso-note">{plinthSupport && scene.environment.plinth.visible === false ? 'The hidden plinth is the floor at the product’s contact.' : 'Objects on the floor follow its height.'}</p>
+    </details>
     {onFrameObjects && <button type="button" disabled={!ready} onClick={onFrameObjects}>Frame product and objects</button>}
   </section>;
 }
@@ -248,7 +250,7 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
         <details className="gesso-disclosure"><summary>Prop library</summary><PolyHavenLibrary kind="models" scopeKey={scene.sceneId} onImport={result => {const id = addPropFromLibrary(structuredClone(scene), result.entry); if (onChange(next => {addPropFromLibrary(next, result.entry);}) === false) return; onSelectObject?.(id);}}/></details>
       </div>
       <WorldObjectPreviews items={objects} selectedId={selectedObjectId ?? undefined} onSelect={id => onSelectObject?.(id)}/>
-      <ProductPlacement scene={scene} onChange={onChange} pickingSurface={pickingSurface} onPickSurface={onPickSurface} onCancelPick={onCancelPick} onFrameObjects={onFrameObjects} ready={ready}/>
+      {!editor&&<ProductPlacement scene={scene} onChange={onChange} pickingSurface={pickingSurface} onPickSurface={onPickSurface} onCancelPick={onCancelPick} onFrameObjects={onFrameObjects} ready={ready}/>}
       </>}
       {layer==='Lights' && <>
       <section className="gesso-section"><div className="gesso-section-heading gesso-section-toolbar"><span className="gesso-section-label">Studio rig</span>

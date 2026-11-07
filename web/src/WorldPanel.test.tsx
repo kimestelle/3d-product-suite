@@ -192,6 +192,10 @@ describe('World object inspector', () => {
     expect(library).not.toContain('Size X');
     const open = render('Props', scene, id);
     for (const label of ['Object settings', 'Object name', 'Size X', 'Position Y', 'Rotation Z', 'Edge radius', 'Roughness', 'Metalness', 'Remove object']) expect(open).toContain(label);
+    expect(open).toContain('<summary>Exact size and placement</summary>');
+    expect(open).toContain('<summary>Object relationship</summary>');
+    expect(open).toContain('<summary>Surface finish</summary>');
+    expect(open).not.toContain('aria-label="Product placement"');
     expect(open).not.toContain('Show plinth');
     expect(render('Environment', scene, id)).not.toContain('Object settings');
     expect(render('Props', scene, 'removed-object')).not.toContain('Object settings');

@@ -65,8 +65,11 @@ export default function WorldObjectEditor({scene, objectId, onChange, onClose, o
     </header>
     <div className="gesso-world-object-body">
       {!isPlinth && <Field label="Name"><input aria-label="Object name" value={prop.displayName ?? prop.id} maxLength={80} onChange={event => {const name = event.target.value; editProp(target => {target.displayName = name;});}}/></Field>}
-      <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">{isPlinth ? 'Plinth' : 'Geometry'}</span></div>
-        {isPlinth && <label className="gesso-check"><input type="checkbox" checked={prop.visible !== false} onChange={event => {const visible = event.target.checked; onChange(next => setPlinthShown(next, visible, resolved));}}/><span>Show plinth</span></label>}
+      {isPlinth && <label className="gesso-check"><input type="checkbox" checked={prop.visible !== false} onChange={event => {const visible = event.target.checked; onChange(next => setPlinthShown(next, visible, resolved));}}/><span>Show plinth</span></label>}
+      {!isPlinth&&<button type="button" disabled={restsOnThis || !canPropSupportProduct(prop)} title={!canPropSupportProduct(prop) ? 'A support needs a visible, level top surface.' : undefined}
+        onClick={() => onChange(next => {usePropAsSupport(next, objectId, resolved);})}>{restsOnThis ? 'Product rests on this object' : 'Rest product on this object'}</button>}
+      <details className="gesso-disclosure" key={`transform-${objectId}`}><summary>Exact size and placement</summary>
+        <section className="gesso-section">
         {!isPlinth && <>
           {prop.shape === 'mesh' ? <p className="gesso-meta">Imported mesh · {prop.materialOverride ? 'material override' : 'original UVs and materials'}</p> : <Field label="Shape"><select value={prop.shape} onChange={event => {const shape = event.target.value as 'box' | 'cylinder'; editProp(target => setPropShape(target, shape));}}><option value="box">Box</option><option value="cylinder">Cylinder</option></select></Field>}</>}
         <VectorField label="Size · mm" values={prop.sizeM} min={1} factor={1000} onChange={(axis, value) => editProp(target => resizeProp(target, axis, value))}/>
@@ -82,8 +85,9 @@ export default function WorldObjectEditor({scene, objectId, onChange, onClose, o
           {prop.shape !== 'mesh' && <NumberField label="Edge radius" unit="mm" value={(prop.bevelM ?? 0) * 1000} min={0} max={Math.min(...prop.sizeM) * 500} step={.1} onChange={value => editProp(target => {target.bevelM = value / 1000;})}/>}
           {prop.shape === 'cylinder' && <p className="gesso-meta">X and Z share the same diameter.</p>}
         </>}
-      </section>
-      {!isPlinth && <section className="gesso-section" aria-label="Object relationship"><div className="gesso-section-heading"><span className="gesso-section-label">Relationship</span></div>
+        </section>
+      </details>
+      {!isPlinth && <details className="gesso-disclosure" key={`relationship-${objectId}`}><summary>Object relationship{relationship ? ` · ${relationLabels[relationship.type as RelationType]}` : ''}</summary><section className="gesso-section" aria-label="Object relationship">
         <Field label="Placement"><select aria-label="Interaction" value={relationship?.type ?? 'free'} onChange={event => changeRelationship(event.target.value as RelationType | 'free', relationship?.targetId ?? 'product')}>
           <option value="free">Free placement</option>
           {Object.entries(relationLabels).map(([type, label]) => <option key={type} value={type} disabled={!relationshipTargets(scene, objectId, type as RelationType).length}>{label}</option>)}
@@ -95,15 +99,14 @@ export default function WorldObjectEditor({scene, objectId, onChange, onClose, o
           <NumberField label="Gap" unit="mm" value={(relationship.gapM ?? 0) * 1000} min={0} step={1} onChange={value => editProp(target => {target.relationship.gapM = value / 1000;})}/>
           <VectorField label="Offset · mm" values={relationship.offsetM ?? [0, 0, 0]} factor={1000} onChange={(axis, value) => editProp(target => {(target.relationship.offsetM ??= [0, 0, 0])[axis] = value;})}/>
         </>}
-        <button type="button" disabled={restsOnThis || !canPropSupportProduct(prop)} title={!canPropSupportProduct(prop) ? 'A support needs a visible, level top surface.' : undefined}
-          onClick={() => onChange(next => {usePropAsSupport(next, objectId, resolved);})}>{restsOnThis ? 'Product rests on this object' : 'Rest product on this object'}</button>
-      </section>}
+      </section></details>}
       <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">Surface</span></div>
         {prop.shape === 'mesh' && <label className="gesso-check"><input type="checkbox" checked={prop.materialOverride === true} onChange={event => {const enabled = event.target.checked; editProp(target => {target.materialOverride = enabled;});}}/><span>Override source materials</span></label>}
         {(prop.shape !== 'mesh' || prop.materialOverride === true) && <>
         <ColorField label="Color" value={surface.baseColor} onChange={color => editMaterial(target => {target.baseColor = [...color, target.baseColor[3]];})}/>
+        <details className="gesso-disclosure" key={`surface-${objectId}`}><summary>Surface finish</summary>
         <NumberField label="Roughness" unit="%" step={1} value={surface.roughness * 100} min={0} max={100} onChange={value => editMaterial(target => {target.roughness = value / 100;})}/>
-        <NumberField label="Metalness" unit="%" step={1} value={surface.metallic * 100} min={0} max={100} onChange={value => editMaterial(target => {target.metallic = value / 100;})}/></>}
+        <NumberField label="Metalness" unit="%" step={1} value={surface.metallic * 100} min={0} max={100} onChange={value => editMaterial(target => {target.metallic = value / 100;})}/></details></>}
         {prop.source?.url && <p className="gesso-meta"><a href={prop.source.url} target="_blank" rel="noreferrer">{prop.displayName} · Poly Haven ↗</a> · CC0</p>}
       </section>
     </div>

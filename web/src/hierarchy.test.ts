@@ -126,6 +126,19 @@ describe('editor hierarchy', () => {
     expect(parentCandidates(scene, parts, 'label').map(part => part.id)).toContain('bottle-body');
   });
 
+  it('offers the current parent and live siblings without offering self or descendants', () => {
+    const scene = source();
+    const parts = sceneParts(scene);
+    changeParent(scene, parts, 'neck', 'bottle-body');
+    changeParent(scene, parts, 'cap', 'neck');
+    const resolved = resolveHierarchy(scene, parts);
+    expect(resolved.parents.neck).toBe('bottle-body');
+    expect(parentCandidates(scene, parts, 'neck').map(part => part.id).sort()).toEqual(['bottle-body', 'label']);
+    expect(parentCandidates(scene, parts, 'bottle-body')).toEqual([]);
+    const liveParts = parts.filter(part => part.id !== 'label');
+    expect(parentCandidates(scene, liveParts, 'neck').map(part => part.id)).toEqual(['bottle-body']);
+  });
+
   it('recovers stale IDs and malformed or cyclic stored overrides while retaining valid edits', () => {
     const scene = source();
     scene.editorHierarchy = {version: 1, overrides: {

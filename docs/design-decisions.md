@@ -1730,3 +1730,9 @@ The local catalog offers Authored studio and the two selected refined rooms. Cho
 **Implemented in Stage → Lighting.** Replace the room cover in this tab with a plan of the current light positions and aim points. Area, spot, and ripple icons select the same light as the list immediately below. On/off, power, and color stay visible for the selected light. Shape and placement, per-spot effects, rig looks, and image finish have their own disclosure. Amber desk lamp is an undoable rig preset with a warm spot and cool area fill. Environment and Objects retain their room covers.
 
 Scope includes `WorldPanel.tsx`, `LightingRigMap.tsx`, and the authored light presets in `world.ts`. This changes the default control hierarchy. Actual usage has yet to be measured.
+
+### 2026-11-06 — Put precision behind the selected part, prop, or shot
+
+**Implemented.** Product → Model leads with the assembly tree and the selected part’s name and dimensions. Part details, mechanics and wireframe open on demand. Rename still opens and focuses the name field from the object row. Stage → Objects keeps selection, viewport transforms, contact and color accessible. Exact size and placement, object relationships and surface finish are named groups for the selected object. Product support remains available from the unselected stage, with exact offsets in a disclosure.
+
+Film keeps shot selection, aspect ratio and focal length visible. Camera motion, position and target, focus, exact output size, and selected motion details each have their own route. These are visibility changes to the existing scene model and render path. Scope includes ProductPanel, WorldPanel, WorldObjectEditor, FilmWorkspace, and CameraPanel.

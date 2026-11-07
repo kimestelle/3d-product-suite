@@ -102,10 +102,9 @@ export function FilmInspector(props: FilmWorkspaceProps & {children?: ReactNode;
   const entry = entries.find(item => item.motion.id === selectedMotionId) ?? (cameraSelected ? cameraOwner : undefined);
   const motion = entry && !isCameraHoldMotion(entry.motion) ? entry.motion : undefined;
   const {edit, error} = useFilmEdits(props), fps = scene.render.fps;
-  const [poseOpen, setPoseOpen] = useState(!motion);
+  const [poseOpen, setPoseOpen] = useState(false);
   const [addingMotion, setAddingMotion] = useState(false);
-  useEffect(() => setAddingMotion(false), [selectedTarget, shot.id]);
-  useEffect(() => setPoseOpen(!motion), [selectedTarget, shot.id, motion?.id]);
+  useEffect(() => {setAddingMotion(false);setPoseOpen(false);}, [selectedTarget, shot.id]);
   const patch = (value: Partial<FilmMotion>) => {if (motion) edit(draft => updateMotion(draft, shot.id, motion.id, value));};
   const measure = motion ? motionMeasure(motion) : null;
   const kinds = availableMotionKinds(scene, selectedTarget);
@@ -127,14 +126,14 @@ export function FilmInspector(props: FilmWorkspaceProps & {children?: ReactNode;
   const existing = legacyCount(scene, selectedTarget);
   return <div className="gesso-panel film-inspector film-rail-panel">
     <div className="film-inspector-heading"><h2>{filmTargetName(scene, selectedTarget)}</h2></div>
-    {cameraSelected && props.mode !== 'still' && <div className="film-camera-presets">
+    {cameraSelected && props.mode !== 'still' && <details key={shot.id} className="film-rail-disclosure film-camera-presets">
+      <summary><UiIcon name="chevron"/><span>Camera motion</span><small>{cameraChoice === 'orbit' || cameraChoice === 'dolly' ? actionName(scene, '$camera', cameraChoice) : cameraChoice === 'still' ? 'Still' : 'Custom camera path'}</small></summary>
       <div className="film-action-buttons film-camera-motion-choices" role="group" aria-label="Camera motion">
         {(['still', 'orbit', 'dolly'] as const).map(preset => <FilmMotionChoice key={preset} spec={motionDiagramSpec(scene, '$camera', preset === 'still' ? 'pose' : preset)} label={preset === 'still' ? 'Still' : actionName(scene, '$camera', preset)} selected={cameraChoice === preset} disabled={disabled}
           title={preset === 'still' ? 'Hold the current camera view for this scene. Product motion continues.' : undefined} onClick={() => chooseCameraMotion(preset)}/>)}
       </div>
-      {cameraChoice === 'custom' && <p className="film-hint gesso-note">Custom camera path</p>}
-    </div>}
-    {!cameraSelected && <FilmMotionPreview spec={motionDiagramSpec(scene, selectedTarget, motion?.kind ?? 'pose', motion)} label={motion ? labelFor(scene, motion) : selectedTarget === '$camera' ? 'Framing' : 'Position'} disabled={disabled || motion?.enabled === false}/>}
+    </details>}
+    {!cameraSelected && motion && <FilmMotionPreview spec={motionDiagramSpec(scene, selectedTarget, motion.kind, motion)} label={labelFor(scene, motion)} disabled={disabled || !motion.enabled}/>}
     <div className="film-rail-scroll">
     {props.mode !== 'still' && <section className="film-rail-motion" aria-label={`Motion for ${filmTargetName(scene, selectedTarget)}`}>
       {!cameraSelected && <details className="film-rail-disclosure film-add-motion" open={addingMotion} onToggle={event => setAddingMotion(event.currentTarget.open)}>
@@ -147,15 +146,15 @@ export function FilmInspector(props: FilmWorkspaceProps & {children?: ReactNode;
         <div className="film-motion-heading"><span>{labelFor(scene, motion)}</span><label className="film-enable"><input type="checkbox" checked={motion.enabled} disabled={disabled} onChange={event => patch({enabled: event.target.checked})}/>Enabled</label></div>
         <div className="film-motion-properties" aria-label="Motion parameters">
           <NumberControl label={measure!.label} ariaLabel="Motion amount" value={motion.amount * measure!.factor} unit={measure!.unit} step={measure!.step} min={motion.kind === 'scale' ? 1 : motion.kind === 'mechanical' ? 0 : undefined} max={motion.kind === 'mechanical' ? 100 : undefined} disabled={disabled} onChange={value => patch({amount: value / measure!.factor})}/>
-          {(motion.kind === 'move' || motion.kind === 'rotate') && <label className="gesso-field film-select"><span>Axis</span><select aria-label="Motion axis" value={motion.axis} disabled={disabled} onChange={event => patch({axis: event.target.value as FilmMotion['axis']})}>{['x', 'y', 'z'].map(axis => <option key={axis} value={axis}>{axis.toUpperCase()}</option>)}</select></label>}
-          <label className="gesso-field film-select"><span>Timing</span><select aria-label="Motion easing" value={motion.keys ? 'custom' : motion.easing} disabled={disabled || !!motion.keys} onChange={event => patch({easing: event.target.value as FilmMotion['easing']})}>{motion.keys && <option value="custom">Custom curve</option>}<option value="ease">Ease in / out</option><option value="linear">Constant speed</option><option value="hold">Hold, then change</option></select></label>
         </div>
         {motion.kind === 'mechanical' && <p className="film-hint gesso-note">Uses the part’s existing {scene.actions?.find((action: any) => action.componentId === motion.target)?.type === 'screw' ? 'screw axis and pitch' : 'lift axis and travel'}.</p>}
         {motion.enabled && (motion.kind === 'move' || motion.kind === 'rotate') && scene.actions?.some((action: any) => action.componentId === motion.target) && <p className="film-hint gesso-note">Controls this part directly; its existing mechanism is held at rest {entry!.scope === 'shot' ? 'in this shot' : 'across the film'}.</p>}
         {motion.kind === 'mechanical' && props.onEditMechanism && <button type="button" className="film-mechanism-link" onClick={props.onEditMechanism}>Edit mechanism<UiIcon name="chevron"/></button>}
         <details className="film-rail-disclosure film-motion-details" key={motion.id}>
-          <summary><UiIcon name="chevron"/><span>Timing and scope</span></summary>
+          <summary><UiIcon name="chevron"/><span>Motion details</span></summary>
           <div className="film-rail-detail-body">
+            {(motion.kind === 'move' || motion.kind === 'rotate') && <label className="gesso-field film-select"><span>Axis</span><select aria-label="Motion axis" value={motion.axis} disabled={disabled} onChange={event => patch({axis: event.target.value as FilmMotion['axis']})}>{['x', 'y', 'z'].map(axis => <option key={axis} value={axis}>{axis.toUpperCase()}</option>)}</select></label>}
+            <label className="gesso-field film-select"><span>Timing</span><select aria-label="Motion easing" value={motion.keys ? 'custom' : motion.easing} disabled={disabled || !!motion.keys} onChange={event => patch({easing: event.target.value as FilmMotion['easing']})}>{motion.keys && <option value="custom">Custom curve</option>}<option value="ease">Ease in / out</option><option value="linear">Constant speed</option><option value="hold">Hold, then change</option></select></label>
             <NumberControl label="Start" ariaLabel="Motion start" value={(motion.startFrame - 1) / fps} min={0} unit="s" step={1 / fps} disabled={disabled} onChange={value => patch({startFrame: Math.round(value * fps) + 1})}/>
             <NumberControl label="Duration" ariaLabel="Motion duration" value={(motion.durationFrames - 1) / fps} min={1 / fps} unit="s" step={1 / fps} disabled={disabled} onChange={value => patch({durationFrames: Math.round(value * fps) + 1})}/>
             <label className="gesso-field film-select"><span>Scope</span><select aria-label="Motion scope" value={entry!.scope} disabled={disabled} onChange={event => {const result = edit(draft => changeMotionScope(draft, shot.id, motion.id, event.target.value as 'shot' | 'film')); if (result?.value) onMotionSelect(result.value);}}><option value="shot">This scene</option><option value="film">Across cuts</option></select></label>
