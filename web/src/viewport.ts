@@ -2932,7 +2932,7 @@ export class StudioViewport {
   }
 
   frameSelection(): void {
-    if (!this.options.studioMode || this.options.capture || this.disposed || this.activeGaussianProtection() || !this.focusedRoots().length) return;
+    if (!this.options.studioMode || this.options.capture || this.disposed || !this.focusedRoots().length) return;
     if (!this.sampledCamera) this.sampledCamera = {
       position: this.camera.position.clone(), quaternion: this.camera.quaternion.clone(), fov: this.camera.fov,
       target: this.controls?.target.clone() || this.camera.position.clone().add(this.camera.getWorldDirection(new THREE.Vector3())),
@@ -3107,8 +3107,8 @@ export class StudioViewport {
   }
 
   /** Frame the real prop instance while keeping the sampled shot available to reset. */
-  frameWorldObject(id: string): void {
-    if (!this.options.studioMode || this.options.capture || this.disposed || this.activeGaussianProtection()) return;
+  frameWorldObject(id: string): boolean {
+    if (!this.options.studioMode || this.options.capture || this.disposed) return false;
     if (!this.sampledCamera) this.sampledCamera = {
       position: this.camera.position.clone(), quaternion: this.camera.quaternion.clone(), fov: this.camera.fov,
       target: this.controls?.target.clone() || this.camera.position.clone().add(this.camera.getWorldDirection(new THREE.Vector3())),
@@ -3117,12 +3117,12 @@ export class StudioViewport {
     this.framedSelection = true;
     // Keep the identifier through an in-flight import; load()/frame() refit once ready.
     this.framedWorldObjectId = id;
-    this.fitSelection();
+    const fitted = this.fitSelection();
     this.invalidate();
+    return fitted;
   }
 
-  private fitSelection(): void {
-    if (this.activeGaussianProtection()) return;
+  private fitSelection(): boolean {
     const bounds = new THREE.Box3();
     const id = this.framedWorldObjectId;
     const roots = id === '$product' ? [...this.components.values()]
@@ -3137,20 +3137,37 @@ export class StudioViewport {
         if (object.geometry.boundingBox) bounds.union(object.geometry.boundingBox.clone().applyMatrix4(object.matrixWorld));
       });
     }
-    if (bounds.isEmpty()) return;
+    if (bounds.isEmpty()) return false;
     const sphere = bounds.getBoundingSphere(new THREE.Sphere());
-    if (!(sphere.radius > 0) || !Number.isFinite(sphere.radius)) return;
+    if (!(sphere.radius > 0) || !Number.isFinite(sphere.radius)) return false;
     const vertical = THREE.MathUtils.degToRad(this.camera.fov);
     const horizontal = 2 * Math.atan(Math.tan(vertical / 2) * this.camera.aspect);
     const distance = sphere.radius / Math.sin(Math.min(vertical, horizontal) / 2) * 1.18;
     const direction = this.camera.getWorldDirection(new THREE.Vector3());
-    this.camera.position.copy(sphere.center).addScaledVector(direction, -distance);
+    const position = sphere.center.clone().addScaledVector(direction, -distance);
+    const protection = this.activeGaussianProtection();
+    if (protection) {
+      const pose = clampGaussianPose(protection, {positionM: position.toArray(), targetM: sphere.center.toArray()});
+      // A clamped aim outside the product would frame an unrelated room area.
+      if (!pose || pose.targetM.some((value, axis) => value !== sphere.center.getComponent(axis))) return false;
+      position.fromArray(pose.positionM);
+      const ratio = sphere.radius * 1.18 / position.distanceTo(sphere.center);
+      if (!(ratio > 0 && ratio < 1)) return false;
+      const field = 2 * Math.asin(ratio);
+      const vertical = this.camera.aspect < 1 ? 2 * Math.atan(Math.tan(field / 2) / this.camera.aspect) : field;
+      const fov = THREE.MathUtils.radToDeg(vertical);
+      if (!Number.isFinite(fov) || fov > 150 || fov < 2 * THREE.MathUtils.radToDeg(Math.atan(18 / 1000))) return false;
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
+    this.camera.position.copy(position);
     this.camera.lookAt(sphere.center);
     if (this.controls) {
       this.controls.target.copy(sphere.center);
       this.controls.update();
     }
     this.camera.updateMatrixWorld(true);
+    return true;
   }
 
   private plinthObject(id: string): THREE.Object3D | undefined {
@@ -3398,7 +3415,7 @@ export function createViewport(host: HTMLElement, options: Omit<ViewportOptions,
     createTransformGesture(target: TransformTarget, pointer: TransformPointer, posedScene?: any) { return viewport.createTransformGesture(target, pointer, posedScene); },
     setPropTransform(id: string | null, mode: PropTransformMode, onCommit?: PropTransformCommit) { viewport.setPropTransform(id, mode, onCommit); },
     setStagePropPicking(onSelect?: (id: string) => void) { viewport.setStagePropPicking(onSelect); },
-    frameWorldObject(id: string) { viewport.frameWorldObject(id); },
+    frameWorldObject(id: string) { return viewport.frameWorldObject(id); },
     resetFraming() { viewport.resetFraming(); },
     setWorldPickEnabled(enabled: boolean) { viewport.setWorldPickEnabled(enabled); },
     setInspectionEnabled(enabled: boolean) { viewport.setInspectionEnabled(enabled); },

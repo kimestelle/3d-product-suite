@@ -99,6 +99,76 @@ class EditorApiTests(unittest.TestCase):
         provider.operation.assert_called_once_with("op_test")
         provider.read_asset.assert_called_once()
 
+    def test_atlas_reference_revision_is_guarded_and_returns_a_new_view_job(self):
+        from unittest.mock import Mock
+        from tests.test_atlas_worlds import completed, pending
+        from film.atlas_worlds import GUIDE_ID
+
+        provider = Mock()
+        provider.submit_task.return_value = pending("op_views")
+        self.app.atlas_worlds.client_factory = lambda _: provider
+        path = "/api/atlas/worlds"
+        with patch.dict("os.environ", {"WLT_API_KEY": "fixture-private-key"}):
+            status, parent, _ = self.request("POST", path, {"guideId": GUIDE_ID})
+            self.assertEqual(status, 202)
+            cameras = provider.submit_task.call_args.args[1]["targetCameras"]
+            provider.operation.return_value = completed("op_views", {"frames": [
+                {"camera": camera, "imageAsset": {"assetId": f"asset_image_{index}"},
+                 "depth": {"depthAsset": {"assetId": f"asset_depth_{index}"}}}
+                for index, camera in enumerate(cameras)]})
+            self.assertEqual(self.request("POST", f"{path}/{parent['id']}/refresh", {})[0], 200)
+            sharing_endpoint = f"{path}/{parent['id']}/sharing"
+            self.assertEqual(self.request("POST", sharing_endpoint, {"communityOptIn": False}, mutate=False)[0], 403)
+            self.assertEqual(self.request("POST", sharing_endpoint, {"communityOptIn": "false"})[0], 400)
+            status, shared, _ = self.request("POST", sharing_endpoint, {"communityOptIn": False})
+            self.assertEqual(status, 200)
+            self.assertFalse(shared["communityOptIn"])
+            self.assertEqual(provider.submit_task.call_count, 1)
+            endpoint = f"{path}/{parent['id']}/revise"
+            body = {"instruction": "Make the glass warmer."}
+            self.assertEqual(self.request("POST", endpoint, body, mutate=False)[0], 403)
+            self.assertEqual(self.request("POST", endpoint, {"instruction": " "})[0], 400)
+            provider.submit_task.return_value = pending("op_revision")
+            status, child, _ = self.request("POST", endpoint, body)
+            self.assertEqual(status, 202)
+            self.assertEqual(child["parentId"], parent["id"])
+            self.assertEqual(child["revision"], 2)
+            self.assertEqual(child["stage"], "views")
+            self.assertEqual(self.request("POST", endpoint, body)[1], child)
+            self.assertEqual(provider.submit_task.call_count, 2)
+
+    def test_marketplace_catalog_is_public_but_downloads_need_workspace_and_membership(self):
+        from datetime import datetime, timedelta, timezone
+        from film.hosting import HostedAccess
+        from tests.test_marketplace import world_fixture
+
+        world = world_fixture(self.app.store.root)
+        pending = self.app.marketplace.submit(world)
+        self.app.access = HostedAccess(public_url="https://gesso.example", access_key="fixture-key-" + "x" * 32)
+        self.assertEqual(self.request("GET", "/api/marketplace")[1]["listings"], [])
+        self.assertEqual(self.request("GET", f"/api/marketplace/{pending['id']}")[0], 404)
+        self.app.marketplace.review(pending["id"], "approved", reviewer="Fixture reviewer")
+        status, catalog, _ = self.request("GET", "/api/marketplace")
+        self.assertEqual(status, 200)
+        self.assertEqual(catalog["membership"], {"active": False, "configured": False})
+        listing = catalog["listings"][0]
+        self.assertEqual(self.request("GET", listing["previewUrl"])[0], 200)
+        self.assertEqual(self.request("GET", f"/api/marketplace/{listing['id']}")[0], 200)
+        self.assertEqual(self.request("GET", "/api/marketplace/submissions")[0], 401)
+        self.assertEqual(self.request("GET", listing["downloadUrl"])[0], 401)
+        cookie = {"Cookie": "gesso_session=" + self.app.access.session(), "X-Subscription": "active"}
+        self.assertEqual(self.request("GET", listing["downloadUrl"], headers=cookie)[0], 403)
+        membership = self.app.marketplace.directory / "membership.json"
+        membership.write_text(json.dumps({"schemaVersion": 1, "subscriptionStatus": "active",
+            "expiresAt": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()}))
+        status, payload, headers = self.request("GET", listing["downloadUrl"], headers=cookie)
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.startswith(b"\x1f\x8b"))
+        self.assertEqual(headers["Content-Type"], "application/octet-stream")
+        self.assertEqual(self.request("GET", "/api/" + world["environment"]["asset"]["path"])[0], 401)
+        self.assertEqual(self.request("POST", f"/api/marketplace/submissions/{listing['id']}/withdraw", {}, headers=cookie)[0], 200)
+        self.assertEqual(self.request("GET", listing["previewUrl"])[0], 404)
+
     def test_world_cleanup_is_source_bound_and_does_not_save_campaign(self):
         from tests.test_world_cleanup import grid_glb
         bootstrap = self.bootstrap()

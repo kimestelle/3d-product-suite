@@ -41,10 +41,10 @@ def _provider_id(value):
     return value
 
 
-def _key(root):
-    value = os.environ.get("WLT_API_KEY")
+def _key(root, *, env_name="WLT_API_KEY", file_env="WLT_API_KEY_FILE", filename="atlas-api-key"):
+    value = os.environ.get(env_name)
     if not value:
-        path = Path(os.environ.get("WLT_API_KEY_FILE") or root / "secrets" / "atlas-api-key")
+        path = Path(os.environ.get(file_env) or root / "secrets" / filename)
         try:
             descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
             with os.fdopen(descriptor, "rb") as handle:

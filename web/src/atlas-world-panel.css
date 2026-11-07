@@ -1,0 +1,40 @@
+.gesso-reference-dialog{width:min(1200px,calc(100vw - 48px));max-width:none;max-height:calc(100dvh - 48px);padding:0;overflow:auto;overscroll-behavior:contain;color:var(--gesso-text-primary,#eee);background:var(--gesso-surface-chrome,#151515);border:1px solid var(--gesso-border-control,#555);border-radius:8px;box-shadow:0 16px 64px #0008;font:400 13px/1.5 var(--gesso-font-text,system-ui)}
+.gesso-reference-dialog::backdrop{background:#0009}
+.gesso-reference-dialog button,.gesso-reference-dialog select,.gesso-reference-dialog textarea{color:inherit;font:inherit;border:1px solid var(--gesso-border-control,#555);border-radius:4px;background:var(--gesso-surface-field,#222);box-sizing:border-box}
+.gesso-reference-dialog button{padding:7px 10px;cursor:pointer;min-height:32px}
+.gesso-reference-dialog button:disabled,.gesso-reference-dialog select:disabled,.gesso-reference-dialog textarea:disabled{opacity:.45;cursor:default}
+.gesso-reference-dialog :focus-visible{outline:2px solid var(--gesso-border-focus,#eee);outline-offset:3px}
+.gesso-reference-header{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;padding:20px 24px;border-bottom:1px solid var(--gesso-border-subtle,#333)}
+.gesso-reference-header h2{font-size:20px;line-height:28px;font-weight:500;margin:0}.gesso-reference-header h2:focus{outline:none}
+.gesso-reference-dialog p{margin:0;color:var(--gesso-text-secondary,#bbb);font-size:12px;line-height:18px}
+.gesso-reference-header p{margin-top:4px}
+.gesso-reference-dialog .gesso-reference-close{border:0;background:transparent;padding:0 5px;font-size:22px;line-height:28px;min-width:32px}
+.gesso-reference-body{display:grid;grid-template-columns:minmax(0,1fr) 300px;min-height:440px}
+.gesso-reference-board{min-width:0;padding:24px;display:flex;flex-direction:column;justify-content:center;background:var(--gesso-surface-inset,#101010)}
+.gesso-atlas-view{margin:0;min-width:0}
+.gesso-atlas-view a{display:block;line-height:0;border-radius:4px;overflow:hidden}
+.gesso-atlas-view img{display:block;width:100%;height:auto;max-height:calc(100dvh - 310px);min-height:100px;object-fit:contain;background:#090909}
+.gesso-atlas-view figcaption{display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;font-size:11px;line-height:16px;color:var(--gesso-text-secondary,#bbb);margin-top:8px}
+.gesso-atlas-view figcaption span{color:var(--gesso-text-muted,#888)}
+.gesso-reference-placeholder{display:grid;place-items:center;min-height:280px;color:var(--gesso-text-secondary,#bbb)}
+.gesso-atlas-angles{display:flex;gap:6px;margin:16px 0 12px;overflow-x:auto;padding:3px;scrollbar-width:thin}
+.gesso-reference-dialog .gesso-atlas-angles button{position:relative;padding:0;overflow:hidden;border:1px solid transparent;border-radius:4px;flex:0 0 92px;min-width:0;min-height:0;background:transparent}
+.gesso-reference-dialog .gesso-atlas-angles button[aria-pressed=true]{border-color:var(--gesso-text-primary,#eee)}
+.gesso-atlas-angles img{display:block;width:100%;height:auto}
+.gesso-atlas-angles span{position:absolute;bottom:0;right:0;padding:0 4px;background:#141414df;color:#fff;font-size:10px;line-height:16px}
+.gesso-reference-controls{min-width:0;border-left:1px solid var(--gesso-border-subtle,#333);padding:24px;display:flex;flex-direction:column;gap:14px}
+.gesso-reference-controls label{display:flex;flex-direction:column;gap:6px;font-size:12px}
+.gesso-reference-controls select{min-height:32px;padding:6px 8px;min-width:0;width:100%;font-size:12px}
+.gesso-reference-controls textarea{min-height:120px;resize:vertical;padding:8px 10px;width:100%}
+.gesso-reference-controls .gesso-reference-community{display:flex;flex-direction:row;gap:8px;align-items:flex-start}.gesso-reference-community input{width:14px;height:14px;flex:0 0 14px;margin:3px 0 0;accent-color:var(--gesso-text-primary,#eee)}.gesso-reference-community span{flex:1;min-width:0}
+.gesso-reference-controls a{color:inherit;text-underline-offset:3px}
+.gesso-reference-dialog .gesso-reference-error{color:var(--gesso-signal-error,#ffb4a8);white-space:pre-wrap;overflow-wrap:anywhere}
+.gesso-reference-footer{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:16px 24px;border-top:1px solid var(--gesso-border-subtle,#333)}
+.gesso-reference-footer>div{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px}
+.gesso-reference-dialog .gesso-reference-primary{background:var(--gesso-surface-action,#eee);color:var(--gesso-text-on-action,#111);border-color:var(--gesso-surface-action,#eee)}
+@media(max-width:760px){.gesso-reference-dialog{width:calc(100vw - 24px);max-height:calc(100dvh - 24px)}.gesso-reference-header,.gesso-reference-board,.gesso-reference-controls{padding:16px}.gesso-reference-body{grid-template-columns:minmax(0,1fr)}.gesso-reference-controls{border-left:0;border-top:1px solid var(--gesso-border-subtle,#333)}.gesso-reference-footer{padding:16px;flex-direction:column;align-items:stretch}.gesso-reference-footer>div{justify-content:stretch}.gesso-reference-footer button{flex:1}.gesso-atlas-view img{max-height:40dvh}}
+.gesso-reference-dialog[open]{display:flex;flex-direction:column;overflow:hidden}.gesso-reference-header,.gesso-reference-footer{flex-shrink:0}.gesso-reference-body{flex:1;min-height:0;overflow:auto}
+.gesso-reference-placeholder{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:12px;padding:32px;box-sizing:border-box;border:1px solid var(--gesso-border-subtle,#333);border-radius:4px}.gesso-reference-placeholder h3{font:400 28px/34px var(--gesso-font-display,system-ui);margin:0;max-width:420px}.gesso-reference-placeholder p{max-width:380px}
+.gesso-reference-concepts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:16px 0}.gesso-reference-dialog .gesso-reference-concepts button{min-width:0;padding:0;overflow:hidden;text-align:left;border:1px solid var(--gesso-border-control,#555);background:transparent}.gesso-reference-dialog .gesso-reference-concepts button[aria-pressed=true]{border-color:var(--gesso-text-primary,#eee)}.gesso-reference-concepts img{display:block;width:100%;height:auto}.gesso-reference-concepts span{display:block;padding:6px 8px;font-size:11px;line-height:16px}
+.gesso-reference-questions{display:flex;flex-direction:column;gap:12px}.gesso-reference-questions fieldset{min-width:0;margin:0;padding:0;border:0}.gesso-reference-questions legend{font-size:12px;margin-bottom:6px;padding:0}.gesso-reference-controls .gesso-reference-questions label{flex-direction:row;align-items:center;gap:7px;font-size:11px;min-height:26px}.gesso-reference-questions input{width:14px;height:14px;flex:0 0 14px;margin:0;accent-color:var(--gesso-text-primary,#eee)}.gesso-reference-brief{font-size:12px;color:var(--gesso-text-secondary,#bbb)}.gesso-reference-brief p{margin-top:8px;white-space:pre-line}
+@media(max-width:760px){.gesso-reference-concepts{gap:6px}.gesso-reference-concepts span{padding:5px;font-size:10px}.gesso-reference-placeholder{padding:20px}.gesso-reference-placeholder h3{font-size:23px;line-height:29px}}

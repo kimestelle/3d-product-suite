@@ -307,7 +307,7 @@ export async function acceptWorldCopy(copy, frameProofs) {
       ||frameProofs.some((proof,i)=>proof.frame!==copy.receipt.frameNumbers[i]||!digestPattern.test(proof.reference??'')||proof.reference!==proof.copy)) {
     throw new Error('Every requested frame must match exact full-source pixels before a camera copy is accepted.');
   }
-  const quality={schemaVersion:1,status:'verified',policy:WORLD_COPY_POLICY,key:copy.receipt.key,sourceSha256:copy.receipt.sourceSha256,
+  const quality={schemaVersion:1,status:'verified',policy:copy.receipt.policy,key:copy.receipt.key,sourceSha256:copy.receipt.sourceSha256,
     copySha256:copy.receipt.copySha256,frameProofs};
   const bytes=Buffer.from(`${JSON.stringify(quality,null,2)}\n`);await atomicWrite(copy.qualityPath,bytes);
   copy.quality=quality;copy.receipt={...copy.receipt,status:'verified',qualityDigest:hash(bytes)};
@@ -315,10 +315,10 @@ export async function acceptWorldCopy(copy, frameProofs) {
 }
 
 export async function rejectWorldCopy(copy, reason) {
-  const rejected={schemaVersion:1,status:'rejected',policy:WORLD_COPY_POLICY,key:copy.receipt.key,sourceSha256:copy.receipt.sourceSha256,
+  const rejected={schemaVersion:1,status:'rejected',policy:copy.receipt.policy,key:copy.receipt.key,sourceSha256:copy.receipt.sourceSha256,
     copySha256:copy.receipt.copySha256,reason};
   try{await atomicWrite(copy.qualityPath,`${JSON.stringify(rejected,null,2)}\n`);}catch(error){if(!spaceError(error))throw error;}
-  return {status:'full-source',policy:WORLD_COPY_POLICY,sourceSha256:copy.receipt.sourceSha256,reason};
+  return {status:'full-source',policy:copy.receipt.policy,sourceSha256:copy.receipt.sourceSha256,reason};
 }
 
 /** Resume may restore a missing input from the immutable cache, but a changed
@@ -369,13 +369,13 @@ export async function captureWithWorldCopy({copy, frameNumbers, loadAsset, rende
     return copy.receipt;
   }
   const stagingReason=gateStagingReason({width:copy.receipt.width,height:copy.receipt.height,frameCount:frameNumbers.length,availableBytes:await spaceProbe(temporaryRoot)});
-  if(stagingReason)return captureWithWorldCopy({copy:{receipt:{status:'full-source',policy:WORLD_COPY_POLICY,sourceSha256:copy.receipt.sourceSha256,reason:stagingReason}},
+  if(stagingReason)return captureWithWorldCopy({copy:{receipt:{status:'full-source',policy:copy.receipt.policy,sourceSha256:copy.receipt.sourceSha256,reason:stagingReason}},
     frameNumbers,loadAsset,renderFrameBytes,publishFrame,temporaryRoot,onDecision,isCancelled,spaceProbe});
   let staging;
   try{await fs.mkdir(temporaryRoot,{recursive:true});staging=await fs.mkdtemp(path.join(temporaryRoot,'world-copy-gate-'));}
   catch(error){
     if(!spaceError(error))throw error;
-    return captureWithWorldCopy({copy:{receipt:{status:'full-source',policy:WORLD_COPY_POLICY,sourceSha256:copy.receipt.sourceSha256,
+    return captureWithWorldCopy({copy:{receipt:{status:'full-source',policy:copy.receipt.policy,sourceSha256:copy.receipt.sourceSha256,
       reason:'Insufficient free disk to start the camera-copy quality gate; rendering the unchanged full source without staging.'}},
       frameNumbers,loadAsset,renderFrameBytes,publishFrame,temporaryRoot,onDecision,isCancelled,spaceProbe});
   }

@@ -2210,3 +2210,27 @@ Scope includes the static demo loader, Stage → Environment, and `scripts/add_d
 Room inspection permits orbit, pan and zoom inside the saved camera and aim bounds. The earlier blanket orbit restriction is superseded. Inspection changes the presented camera, while authored shots retain their existing validation. These rectangular bounds limit the reviewed room volume and do not provide collision geometry for furniture or reconstructed walls.
 
 Scope includes WorldObjectTree, WorldProductEditor, WorldPanel, WorldObjectEditor, App, gaussianProtection and viewport.
+
+### 2026-11-06 — D250 — Approve reference images before building a world
+
+**Implemented for the connected editor.** A modal accepts an environment brief, offers three fal image directions, then expands the chosen direction into four reference angles. Missing surface and lighting details have short choices. Prompt revisions retain earlier sets. Build 3D starts Atlas camera/depth estimation and draft reconstruction from the selected images. Refinement remains explicit. Image requests preserve queue receipts and cache validated outputs.
+
+Use Nano Banana Pro at 2K through a private server key, with the Edit endpoint for supplied references. Images supply visual direction, while measured camera estimates come from the subsequent Atlas task. Saved sharing preferences update independently of generation; opt-out withdraws listings and a later opt-in restarts review. Scope includes AtlasWorldPanel, fal_images, atlas_worlds and their server routes.
+
+### 2026-11-06 — D251 — Review community worlds before publishing them
+
+**Implemented with billing deferred.** Marketplace is a separate public page. New worlds opt into private review by default and can opt out. Backend asset and preview checks precede a human visual decision. Pending work stays private, with a 2–3 business day review target. Approved entries expose previews and representation facts. Download access requires a backend subscription entitlement.
+
+The initial catalog contains two previously published and reviewed Gesso studies. New generated scenes require their own review. Scope includes MarketplacePage, public routing, film/marketplace.py and the submission hook. Purchased credits that roll over, credits for approved contributions, and capped popularity rewards are a direction for later billing work. No issuance or payment behavior is active.
+
+### 2026-11-06 — D252 — Retain ambiguous Gaussian shell data
+
+**Implemented as an assessment and guarded offline proposal.** Inside-camera sweeps retain shell, sparse, translucent, large and ambiguous splats. A proposal must match source-rendered pixels at every declared sweep camera before verification for those frames. A finite sweep does not authorize unrestricted installation. The two refined rooms retained all source points in a 54-pose volume survey.
+
+Scope includes gaussian_interior_cleanup.mjs, the capture helper, policy receipts and Atlas import assessment. This adds no opaque replacement mesh or collision certificate.
+
+### 2026-11-06 — D253 — Frame the product when switching worlds
+
+**Implemented.** World changes wait for the current product and evaluation, then frame the actual product bounds at a consistent viewport occupancy. Room dimensions no longer resize the product during a world change. This is a live inspection view; saved Film cameras remain separate. Protected rooms clamp the camera position and compensate with focal length. A product outside the reviewed aim region retains the previous view and receives a placement message.
+
+Public room previews open at their Auden detail shot. Scope includes App and viewport, with regressions for room size, protected framing and stale scene ownership.

@@ -311,7 +311,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   const [imageUrl,setImageUrl]=useState('');const [preset,setPreset]=useState('botanical-studio');const [creditLimit,setCreditLimit]=useState(6000);const [remoteRuns,setRemoteRuns]=useState<any[]>([]);const [forceNew,setForceNew]=useState(false);
   const host=useRef<HTMLDivElement>(null);const hostB=useRef<HTMLDivElement>(null);const stageHost=useRef<HTMLDivElement>(null); const viewport=useRef<ReturnType<typeof createViewport>|null>(null);const viewportB=useRef<ReturnType<typeof createViewport>|null>(null); const newest=useRef(0); const sceneRef=useRef(scene);sceneRef.current=scene;
   const evaluatedScene=useRef<Scene|null>(null);const fullViewportInstalls=useRef(0);const frameRef=useRef(frame);frameRef.current=frame;const pickingRef=useRef(picking);pickingRef.current=picking;
-  const pendingWorldFit=useRef<Scene|null>(null);
+  const pendingWorldFrame=useRef<{scene:Scene;projectId:string;frame:number}|null>(null);
   const [productFitGuide,setProductFitGuide]=useState<{scene:Scene;frame:number;a:ProductFitRect;b?:ProductFitRect}|null>(null);
   // A material draft belongs to this editor view, never to the scene or undo history.
   const materialPreviewScope=materialEditorVisible?`${project?.id ?? ''}:${scene.sceneId}`:null;
@@ -515,7 +515,12 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     if(!isStaticDemo)try{recovered=readRecoveryDrafts(localStorage,p);}catch{setDraftStorageError('Local recovery could not be read. Save a revision before closing.');}
     setRecoveryCandidates(recovered);setRecoveryOpen(recovered.length>0);recoveryOpenRef.current=recovered.length>0;
     projectRef.current=p;setNativeProofInteracting(false);
-    cancelSceneCreation();clearMaterialPreview();viewport.current?.resetFraming();viewportB.current?.resetFraming();try{localStorage.setItem('gesso.project',p.id)}catch{}setProject(p);const opened=clone(p.scene);let compacted=false,compactionError='';try{if(!isStaticDemo)compacted=closeSequenceGaps(opened)}catch(reason){compactionError=reason instanceof Error?reason.message:'Could not close film gaps.'}installHistory(compacted?commitHistory(createHistory(p.scene),opened):createHistory(p.scene));setFilmTarget('$camera');setFilmMotionId(null);setFilmCurves(false);setFilmLegacy(false);setFrameSetup(null);frameSetupBaseline.current=null;setFrameSetupError('');filmReturn.current=null;setFrame(1);setPlaying(false);setPicking(null);setPickingSurface(false);setObjects(undefined);setError('');setValidationError('');setParts([]);setUvLayout(null);setSelectedDecalId(null);setSelected(p.scene.product.label?.componentId??p.scene.product.components[0]?.id??null);setFocused(true);setInspecting(false);setHiddenParts([]);setNotice(compacted?'Film gaps closed · Undo to restore':compactionError||'Project opened',compactionError&&!compacted?'error':'success')};
+    const worldPreview=isStaticDemo&&new URLSearchParams(location.search).has('world')
+      ? p.scene.shots.find((shot:any)=>shot.id==='auden-detail'&&shot.kind!=='image'):undefined;
+    cancelSceneCreation();clearMaterialPreview();viewport.current?.resetFraming();viewportB.current?.resetFraming();try{localStorage.setItem('gesso.project',p.id)}catch{}setProject(p);const opened=clone(p.scene);let compacted=false,compactionError='';try{if(!isStaticDemo)compacted=closeSequenceGaps(opened)}catch(reason){compactionError=reason instanceof Error?reason.message:'Could not close film gaps.'}installHistory(compacted?commitHistory(createHistory(p.scene),opened):createHistory(p.scene));setFilmTarget('$camera');setFilmMotionId(null);setFilmCurves(false);setFilmLegacy(false);setFrameSetup(null);frameSetupBaseline.current=null;setFrameSetupError('');filmReturn.current=null;setFrame(worldPreview?.startFrame??1);setPlaying(false);setPicking(null);setPickingSurface(false);setObjects(undefined);setError('');setValidationError('');setParts([]);setUvLayout(null);setSelectedDecalId(null);setSelected(p.scene.product.label?.componentId??p.scene.product.components[0]?.id??null);setFocused(true);setInspecting(false);setHiddenParts([]);setNotice(compacted?'Film gaps closed · Undo to restore':compactionError||'Project opened',compactionError&&!compacted?'error':'success');
+    pendingWorldFrame.current=isStaticDemo&&(worldPreview||new URLSearchParams(location.search).get('focus')==='product')
+      ? {scene:historyRef.current.present!,projectId:p.id,frame:worldPreview?.startFrame??1}:null;
+  };
   const openRecoveryChoices=()=>{
     const current=projectRef.current;if(!current||isStaticDemo)return;
     if(transformModeRef.current||materialPreviewRef.current){setError('Apply or discard the current transform or material preview before opening recovery drafts.');return;}
@@ -842,16 +847,15 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     if(isStaticDemo&&caps.staticWorldPreviewIds?.length&&(id==='authored'||caps.staticWorldPreviewIds.includes(id))){
       const url=new URL(window.location.href);
       if(id==='authored')url.searchParams.delete('world');else url.searchParams.set('world',id);
+      url.searchParams.set('focus','product');
       window.location.assign(editorDestinationUrl(url,{group:'world',layer:'Environment'}));
       return;
     }
     if(!allowSceneEdit())return;
-    pendingWorldFit.current=null;
-    const selectedWorld=library.find(world=>world.id===id);
-    const providerId=scene?.environment.provenance?.providerWorldId;
-    const sameProviderWorld=typeof providerId==='string'&&!!providerId.trim()&&selectedWorld?.environment.provenance?.providerWorldId===providerId;
+    pendingWorldFrame.current=null;
+    if(id!=='authored'&&!library.some(world=>world.id===id))return;
     let movedCamera=false;
-    change(s=>{
+    if(change(s=>{
       // A picked world contact belongs to its mesh; elsewhere the product returns to the floor.
       const leaveSurface=()=>{if(s.placement.restsOn!=='world-surface')return;s.placement.restsOn='floor';delete s.placement.contactPointM;s.placement.translationM=[0,0,0]};
       if(id==='authored'){const e=clone(s.environment);delete e.asset;delete e.previewAsset;delete e.fixture;delete e.collider;delete e.gaussianProtection;leaveSurface();e.kind='authored';e.revisionId='neutral-studio-v1';e.displayName='Authored studio';e.provenance={source:'Original authored studio',owner:'3d-product-suite',reuseBasis:'Original project geometry',allowedExternalDestinations:[]};s.environment=e;return}
@@ -874,24 +878,27 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
         }
       }
       if(s.environment.studioSizeM!==undefined)e.studioSizeM=s.environment.studioSizeM;e.plinth=clone(s.environment.plinth);if(s.environment.floorY!==undefined)e.floorY=s.environment.floorY;else delete e.floorY;if(s.environment.props)e.props=clone(s.environment.props);if(e.kind!=='mesh')leaveSurface();s.environment=e;
-    });
-    // Published samples already contain the product/camera poses; fitting here
-    // would invalidate the film after an otherwise supported world selection.
-    // A representation comparison keeps the product fixed. Native sources
-    // without collider geometry cannot support the automatic world fit.
+    })===false)return;
     if(movedCamera)setNotice("Out-of-bounds shot framing moved to the reviewed camera · Undo to restore");
-    const selectedEnvironment=selectedWorld?.environment;
-    const canFit=selectedEnvironment?.kind==='mesh'||selectedEnvironment?.kind==='splat'&&!!selectedEnvironment.collider;
-    if(!isStaticDemo&&id!=='authored'&&!sameProviderWorld&&canFit)pendingWorldFit.current=historyRef.current.present;
+    if(historyRef.current.present&&project){
+      viewport.current?.resetFraming();viewportB.current?.resetFraming();
+      setInspecting(false);
+      pendingWorldFrame.current={scene:historyRef.current.present,projectId:project.id,frame};
+    }
   };
   useEffect(()=>{
-    const pending=pendingWorldFit.current;
+    const pending=pendingWorldFrame.current;
     if(!pending)return;
-    if(pending!==scene||tab!=='world'){pendingWorldFit.current=null;return;}
-    if(!valid||visibleViewportLoading||busy)return;
-    pendingWorldFit.current=null;
-    void fitProduct();
-  },[scene,tab,valid,visibleViewportLoading,busy]);
+    if(pending.scene!==scene||pending.projectId!==project?.id||pending.frame!==frame||tab!=='world'||playing){pendingWorldFrame.current=null;return;}
+    if(!active||!valid||visibleViewportLoading||busy||showExport||!viewport.current)return;
+    pendingWorldFrame.current=null;
+    const fitted=viewport.current.frameWorldObject('$product');
+    if(fitted){
+      viewportB.current?.frameWorldObject('$product');setInspecting(true);setStillViewVersion(value=>value+1);
+    }else if(scene.environment.gaussianProtection){
+      setNotice('The product is outside this world’s available framing. Adjust its placement.','error');
+    }
+  },[scene,project?.id,frame,tab,playing,active,valid,visibleViewportLoading,busy,showExport]);
   const useAtlasWorld=async(id:string)=>{const library:World[]=await api('/api/worlds');if(!library.some(world=>world.id===id))throw new Error('The Atlas world is not available in this workspace');setWorlds(library);replaceWorld(id,library);};
   const importFile=async()=>{if(!allowSceneEdit())return;const chosen=file.current?.files?.[0];if(!chosen)return;setImporting(true);setError('');try{const q=new URLSearchParams({name:worldName,owner,reuseBasis:reuse,sourceUp});const result=await fetch(`/api/worlds/import?${q}`,{method:'POST',headers:{'X-Product-Suite':'1','Content-Type':'application/octet-stream','X-Asset-Filename':chosen.name},body:chosen});const data=await result.json();if(!result.ok)throw new Error(data.error);setWorlds(await api('/api/worlds'));setShowImport(false);setNotice(`${data.name} imported; review its alignment before rendering`)}catch(e:any){setError(e.message)}finally{setImporting(false)}};
   const runProductImport=async(choice:ProductImportChoice,discardPrevious:boolean)=>{

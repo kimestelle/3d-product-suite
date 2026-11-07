@@ -35,7 +35,7 @@ function entryFailed(error:unknown) {
   window.dispatchEvent(new Event('gesso:boot-error'));
 }
 
-const publicPage = /^\/(landing|about|aperture)\/?$/.test(location.pathname);
+const publicPage = /^\/(landing|about|aperture|marketplace)\/?$/.test(location.pathname);
 const entry = /^\/curves\/?$/.test(location.pathname)
   ? new URLSearchParams(location.search).get('study')==='logo' ? import('./LogoStudy')
     : new URLSearchParams(location.search).get('compare')==='1' ? import('./CurveComparisonDemo') : import('./CurveDemo')

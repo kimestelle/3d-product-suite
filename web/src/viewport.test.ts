@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { StudioViewport } from './viewport';
+import {protectedGaussianPose} from './gaussianProtection';
 
 function glb(extra: Record<string, unknown> = {}) {
   const coordinates = new Float32Array([-.01, -.02, -.003, .01, -.02, .003, 0, .02, 0]);
@@ -1037,6 +1038,46 @@ describe('studio camera inspection', () => {
 
 
 describe('Poly Haven world assets', () => {
+  it('frames the whole product at the same size across room scales and protected camera limits', () => {
+    const {view, body, cap} = studioViewport();
+    view.camera.aspect = 1.4;
+    view.camera.position.set(0, .02, 1);
+    view.camera.lookAt(0, .015, 0);
+    view.camera.updateProjectionMatrix();
+    expect(view.frameWorldObject('$product')).toBe(true);
+    const firstPosition = view.camera.position.clone(), firstFov = view.camera.fov;
+    const room = new THREE.Mesh(new THREE.BoxGeometry(100, 100, 100));
+    view.addEnvironmentObject(room);
+    expect(view.frameWorldObject('$product')).toBe(true);
+    expect(view.camera.position.distanceTo(firstPosition)).toBeLessThan(1e-12);
+    view.gaussianProtection = {positionMinM: [-2, -2, .7], positionMaxM: [2, 2, 2],
+      targetMinM: [-1, -1, -1], targetMaxM: [1, 1, 1], outside: 'white'};
+    expect(view.frameWorldObject('$product')).toBe(true);
+    expect(view.camera.position.z).toBe(.7);
+    expect(view.camera.fov).toBeLessThan(firstFov);
+    const bounds = new THREE.Box3().setFromObject(body).union(new THREE.Box3().setFromObject(cap));
+    const center = bounds.getCenter(new THREE.Vector3());
+    expect(protectedGaussianPose(view.gaussianProtection, {positionM: view.camera.position.toArray(), targetM: center.toArray()})).toBe(true);
+    for (const x of [bounds.min.x, bounds.max.x]) for (const y of [bounds.min.y, bounds.max.y]) for (const z of [bounds.min.z, bounds.max.z]) {
+      const projected = new THREE.Vector3(x, y, z).project(view.camera);
+      expect(Math.abs(projected.x)).toBeLessThan(1);
+      expect(Math.abs(projected.y)).toBeLessThan(1);
+    }
+    view.resetFraming();
+    expect(view.camera.position.toArray()).toEqual([0, .02, 1]);
+  });
+
+  it('retains the current good view when the product cannot be aimed at inside the reviewed room', () => {
+    const {view} = studioViewport();
+    const position = view.camera.position.clone(), quaternion = view.camera.quaternion.clone(), fov = view.camera.fov;
+    view.gaussianProtection = {positionMinM: [-2, -2, -2], positionMaxM: [2, 2, 2],
+      targetMinM: [5, 5, 5], targetMaxM: [6, 6, 6], outside: 'white'};
+    expect(view.frameWorldObject('$product')).toBe(false);
+    expect(view.camera.position.equals(position)).toBe(true);
+    expect(view.camera.quaternion.equals(quaternion)).toBe(true);
+    expect(view.camera.fov).toBe(fov);
+  });
+
   it('frames a large prop after loading and restores the latest authored shot exactly', async () => {
     const view = viewport(); view.options.studioMode = true; view.camera.aspect = 1.4;
     vi.stubGlobal('document', { hidden: true });

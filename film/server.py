@@ -37,6 +37,7 @@ from .presets import PresetLibrary
 from .world_cleanup import WorldCleanup
 from .atlas import AtlasQuickstart
 from .atlas_worlds import AtlasWorlds
+from .marketplace import Marketplace
 from .proofs import NativeProofService
 from .capture_schedule import run_scheduled_capture
 
@@ -256,6 +257,7 @@ class Application:
         self.world_cleanup = WorldCleanup(self.store.root)
         self.atlas = AtlasQuickstart(self.store.root)
         self.atlas_worlds = AtlasWorlds(self.store.root)
+        self.marketplace = Marketplace(self.store.root)
         self.polyhaven = PolyHavenLibrary(self.store.root, material_library=self.materials)
         self.renders = RenderQueue(self.store, base_url=f"http://127.0.0.1:{port}", blender=blender, ffmpeg=ffmpeg)
         self.comparison_renders = ComparisonJobs(self.renders)
@@ -429,9 +431,24 @@ def make_handler(app):
             self._security(mutate and not login)
             if login:
                 return self._login(parsed)
+            # Approved catalog metadata and covers are public. Submission,
+            # moderation and downloads retain the workspace access boundary.
+            if self.command == "GET":
+                if path == "/api/marketplace":
+                    return self._json(app.marketplace.list())
+                if len(parts) in (3, 4) and parts[:2] == ["api", "marketplace"] and parts[2].startswith("listing-"):
+                    if len(parts) == 3:
+                        return self._json(app.marketplace.detail(parts[2]))
+                    if parts[3] == "preview":
+                        return self._file(app.marketplace.preview(parts[2]))
             if path.startswith("/api/") and not app.access.authorized(self.headers.get("Cookie")):
                 raise LoginRequired()
             if self.command == "GET":
+                if path == "/api/marketplace/submissions":
+                    return self._json(app.marketplace.submissions())
+                if len(parts) == 4 and parts[:2] == ["api", "marketplace"] and parts[3] == "download":
+                    asset = app.marketplace.download(parts[2])
+                    return self._file(asset, download_name=f"{identifier(parts[2])}{asset.suffix}")
                 if path == "/api/bootstrap":
                     return self._json({"project": app.store.bootstrap(), "projects": app.store.list(),
                                        "worlds": list_worlds(app.store.root, include_archived=False), "capabilities": app.capabilities(), "jobs": app.renders.list()})
@@ -463,6 +480,8 @@ def make_handler(app):
                         return self._file(app.atlas_worlds.guide_reference(parts[4]))
                     if parts[4] == "views":
                         return self._file(app.atlas_worlds.view(parts[3], parts[5]))
+                    if parts[4] == "concepts":
+                        return self._file(app.atlas_worlds.concept(parts[3], parts[5]))
                 if len(parts) == 6 and parts[:3] == ["api", "atlas", "quickstart"] and parts[4] == "assets":
                     asset = app.atlas.asset(parts[3], parts[5])
                     return self._file(asset, download_name="atlas-depth.exr" if parts[5] == "depth" else None)
@@ -582,13 +601,23 @@ def make_handler(app):
                     temp.unlink(missing_ok=True)
             body = self._body()
             if self.command == "POST":
+                if path == "/api/marketplace/submissions":
+                    return self._json(app.marketplace.submit_saved(body), 202)
+                if len(parts) == 5 and parts[:3] == ["api", "marketplace", "submissions"] and parts[4] == "withdraw":
+                    return self._json(app.marketplace.withdraw(parts[3]))
                 if path == "/api/atlas/quickstart":
                     return self._json(app.atlas.submit(body["imageUrl"]), 202)
                 if path == "/api/atlas/worlds":
                     return self._json(app.atlas_worlds.submit(body), 202)
                 if len(parts) == 5 and parts[:3] == ["api", "atlas", "worlds"]:
+                    if parts[4] == "sharing":
+                        return self._json(app.atlas_worlds.set_sharing(parts[3], body))
+                    if parts[4] == "references":
+                        return self._json(app.atlas_worlds.select_concept(parts[3], body), 202)
                     if parts[4] == "refresh":
                         return self._json(app.atlas_worlds.refresh(parts[3]))
+                    if parts[4] == "revise":
+                        return self._json(app.atlas_worlds.revise(parts[3], body), 202)
                     if parts[4] in ("draft", "refine"):
                         return self._json(app.atlas_worlds.reconstruct(parts[3], parts[4]), 202)
                 if len(parts) == 5 and parts[:3] == ["api", "atlas", "quickstart"] and parts[4] == "refresh":

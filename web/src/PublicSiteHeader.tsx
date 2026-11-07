@@ -11,11 +11,12 @@ export function SiteWordmark() {
 }
 
 export default function PublicSiteHeader({current,className=''}:{
-  current:'landing'|'about'|'philosophy'; className?:string;
+  current:'landing'|'about'|'philosophy'|'marketplace'; className?:string;
 }) {
   return <header className={`public-site-header ${className}`}>
     <a className="public-home" href={current==='landing'?'#landing-top':'/landing'} aria-label="Gesso home" aria-current={current==='landing'?'page':undefined}><SiteWordmark/></a>
     <nav aria-label="Main navigation">
+      <a href="/marketplace" aria-current={current==='marketplace'?'page':undefined}>Marketplace</a>
       <a href="/about" aria-current={current==='about'?'page':undefined}>About</a>
       <a href="/aperture" aria-current={current==='philosophy'?'page':undefined}>Form + light</a>
       <a className="public-enter" href="/?step=product&amp;layer=model" data-studio-resume>Enter studio</a>

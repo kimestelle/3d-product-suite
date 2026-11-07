@@ -2,6 +2,7 @@ import {Component, useCallback, useEffect, useId, useLayoutEffect, useRef, useSt
 import LandingPage from './LandingPage';
 import AboutPage from './AboutPage';
 import ShapeLightPage from './ShapeLightPage';
+import MarketplacePage from './MarketplacePage';
 import {FrameDriver, FrameProvider, FrameRenderer, frameContrastColor, type FrameRoute} from './DynamicFrame';
 import {ensureFrameHistory,frameHistoryIndex,pushFrameHistory,restoreFrameHistory,type FrameHistoryPosition} from './frameHistory';
 import {resetPageScroll} from './pageScroll';
@@ -12,9 +13,10 @@ export function frameRoute(path:string):FrameRoute|null {
   if(/^\/landing\/?$/.test(path))return 'landing';
   if(/^\/about\/?$/.test(path))return 'about';
   if(/^\/aperture\/?$/.test(path))return 'philosophy';
+  if(/^\/marketplace\/?$/.test(path))return 'marketplace';
   return path==='/'?'studio':null;
 }
-const titles:Record<FrameRoute,string>={landing:'Gesso — Set up the product once. Keep making with it.',about:'About — gesso',philosophy:'Form + light — gesso',studio:'gesso studio'};
+const titles:Record<FrameRoute,string>={landing:'Gesso — Set up the product once. Keep making with it.',about:'About — gesso',philosophy:'Form + light — gesso',marketplace:'Community environments — gesso',studio:'gesso studio'};
 const currentUrl=()=>location.pathname+location.search+location.hash;
 
 class SceneLoadBoundary extends Component<{onError:(message:string)=>void;children:ReactNode},{failed:boolean}> {
@@ -120,7 +122,7 @@ export default function StudioEntry({renderEditor}:{renderEditor:(props:StudioEd
   useLayoutEffect(()=>{
     document.title=titles[view.route];
     const theme=document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-    if(theme) theme.content=view.route==='studio'?'#131313':view.route==='landing'?'#080808':'#fafaf7';
+    if(theme) theme.content=view.route==='studio'?'#131313':view.route==='landing'||view.route==='marketplace'?'#080808':'#fafaf7';
     if(view.waiting){status.current?.focus({preventScroll:true});return;}
     if(view.busy||!pendingFocus.current)return;
     pendingFocus.current=false;
@@ -128,7 +130,7 @@ export default function StudioEntry({renderEditor}:{renderEditor:(props:StudioEd
     // A remembered footer link would leave keyboard focus below the fresh page.
     // The editor keeps its focused control and working state.
     const restored=view.route==='studio'?returnFocus.current.get(view.route):undefined;
-    const entrySelector=view.route==='landing'?'#landing-title':view.route==='about'?'#about-title':view.route==='philosophy'?'#shape-light-title':'.viewport';
+    const entrySelector=view.route==='landing'?'#landing-title':view.route==='about'?'#about-title':view.route==='philosophy'?'#shape-light-title':view.route==='marketplace'?'#marketplace-title':'.viewport';
     const entry=Array.from(host?.querySelectorAll<HTMLElement>(entrySelector)??[]).find(element=>element.getClientRects().length>0);
     const preferred=restored?.isConnected?restored:entry;
     preferred?.focus({preventScroll:true});
@@ -153,6 +155,7 @@ export default function StudioEntry({renderEditor}:{renderEditor:(props:StudioEd
     {page('landing',<LandingPage active={active('landing')}/>)}
     {page('about',<AboutPage active={active('about')}/>)}
     {page('philosophy',<ShapeLightPage active={active('philosophy')}/>)}
+    {page('marketplace',<MarketplacePage active={active('marketplace')}/>)}
     {page('studio',<SceneLoadBoundary key={attempt} onError={failed}>{renderEditor({active:active('studio'),onReady:ready,onLoadError:failed})}</SceneLoadBoundary>)}
     {view.waiting&&view.route==='studio'&&<div ref={status} className="dynamic-frame-loading" tabIndex={-1} role="dialog" aria-label="Opening studio" aria-busy={!error} style={{color:frameContrastColor(driver.current?.ground??'#131313')}}>
       <div className="dynamic-frame-loading-message">

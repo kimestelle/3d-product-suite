@@ -385,7 +385,8 @@ export async function capture(options) {
     const { page, browserErrors, execution } = runtime;
     identity.profile.execution = execution;
     const selected = sampled.frames.filter(frame => frames.includes(frame.frame)).sort((a,b)=>a.frame-b.frame);
-    let copy = await prepareWorldCopy({
+    const prepareCopy = options.prepareWorldCopy ?? prepareWorldCopy;
+    let copy = await prepareCopy({
       assetPath:path.resolve(path.dirname(options.samples),sampled.scene.environment.asset.path),asset:sampled.scene.environment.asset,
       frames:selected,width:options.width,height:options.height,runtimeDigest:identity.profile.runtimeDigest,execution,
       cacheRoot:path.join(projectRoot,'.cache/gaussian-world-copies'),

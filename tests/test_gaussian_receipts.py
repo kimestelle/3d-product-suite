@@ -85,3 +85,10 @@ class GaussianReceiptTests(unittest.TestCase):
         self.profile['frameNumbers'] = [1]
         with self.assertRaisesRegex(ValueError, 'different camera frames'):
             validate_world_copy(self.root, self.asset, self.profile)
+
+    def test_offline_interior_sweep_policy_cannot_enter_an_ordinary_export(self):
+        self.receipt['policy'] = 'spz2-sh0-dense-interior-proposal-finite-sweep-exact-v1'
+        self.proof['policy'] = self.receipt['policy']
+        self.write_proof()
+        with self.assertRaisesRegex(ValueError, 'does not match'):
+            validate_world_copy(self.root, self.asset, self.profile)

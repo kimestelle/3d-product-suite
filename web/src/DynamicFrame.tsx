@@ -8,11 +8,11 @@ import {frameGuidePaths} from './frameGuides';
 import {frameHaloRegion} from './frameHalo';
 import './dynamic-frame.css';
 
-export type FrameRoute = 'landing' | 'about' | 'philosophy' | 'studio';
+export type FrameRoute = 'landing' | 'about' | 'philosophy' | 'marketplace' | 'studio';
 export type FrameVisual = {nodes:FrameNodes; ground:string; fill:string; halo:{color:string; blur:number; spread:number; opacity:number}};
 type FrameElements = {root:HTMLElement; path:SVGPathElement; outside?:SVGPathElement; guides?:SVGPathElement; guideCrosses?:SVGPathElement; halo:SVGUseElement; fill:SVGUseElement; light:SVGFilterElement; blur:SVGFEGaussianBlurElement; loader?:HTMLElement};
 type Travel = {from:FrameVisual; weights:Record<FrameRoute,number>; destination:FrameRoute; start:number; duration:number; loading:boolean; opening:boolean; to:FrameVisual; morph:ReturnType<typeof createFrameMorph>};
-const routes:FrameRoute[] = ['landing','about','philosophy','studio'];
+const routes:FrameRoute[] = ['landing','about','philosophy','marketplace','studio'];
 const weights = (page?:FrameRoute):Record<FrameRoute,number> => Object.fromEntries(routes.map(route=>[route,route===page?1:0])) as Record<FrameRoute,number>;
 const lerp = (a:number,b:number,t:number) => a+(b-a)*t;
 const sameContour=(a:FrameNodes,b:FrameNodes)=>a===b||(a.length===b.length&&a.every((node,i)=>
@@ -56,7 +56,7 @@ export class FrameDriver {
   private guideData='';
   private guideCrossData='';
   private guideViewport='';
-  readonly ready=new Set<FrameRoute>(['landing','about','philosophy']);
+  readonly ready=new Set<FrameRoute>(['landing','about','philosophy','marketplace']);
   elements:FrameElements|null=null;
   current:FrameVisual|null=null;
   target:FrameRoute;

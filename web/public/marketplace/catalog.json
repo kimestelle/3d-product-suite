@@ -1,0 +1,57 @@
+{
+  "listings": [
+    {
+      "assetBytes": 31085303,
+      "audit": {
+        "summary": "Asset integrity and two protected views reviewed. This Gaussian capture retains baked lighting and reconstruction artifacts."
+      },
+      "createdAt": "2026-11-07T03:29:23.614724+00:00",
+      "creator": "Gesso",
+      "description": "A daylight limestone room with a recessed niche and broad stone surfaces. Full two-million-splat capture, with saved camera bounds. Generated with World Labs Atlas.",
+      "downloadUrl": "/api/marketplace/listing-d480521fb143c851ed06d7c9/download",
+      "format": "spz",
+      "id": "listing-d480521fb143c851ed06d7c9",
+      "kind": "splat",
+      "name": "Limestone Light Court",
+      "previewUrl": "/marketplace/previews/94b1fece051363fd7e61ef90ad5976ed02b08a043774eb2ea7d588d400a8e2f3.jpg",
+      "previewUrls": [
+        "/marketplace/previews/94b1fece051363fd7e61ef90ad5976ed02b08a043774eb2ea7d588d400a8e2f3.jpg"
+      ],
+      "reviewedAt": "2026-11-07T03:29:25.861741+00:00",
+      "splatCount": 2000000,
+      "tags": [
+        "Daylight",
+        "Limestone"
+      ]
+    },
+    {
+      "assetBytes": 30714020,
+      "audit": {
+        "summary": "Asset integrity and two protected views reviewed. This Gaussian capture retains baked lighting and reconstruction artifacts."
+      },
+      "createdAt": "2026-11-07T03:29:28.055748+00:00",
+      "creator": "Gesso",
+      "description": "Ribbed glass, dry display surfaces and water reflections in one continuous pavilion. Full two-million-splat capture, with saved camera bounds. Generated with World Labs Atlas.",
+      "downloadUrl": "/api/marketplace/listing-c011263f1bb750801cd0d0bf/download",
+      "format": "spz",
+      "id": "listing-c011263f1bb750801cd0d0bf",
+      "kind": "splat",
+      "name": "Water-light Pavilion",
+      "previewUrl": "/marketplace/previews/0a4d0d9690f8a59da057bef7895b042269640af919d483509c5ef06ed6afbea7.jpg",
+      "previewUrls": [
+        "/marketplace/previews/0a4d0d9690f8a59da057bef7895b042269640af919d483509c5ef06ed6afbea7.jpg"
+      ],
+      "reviewedAt": "2026-11-07T03:29:29.897331+00:00",
+      "splatCount": 2000000,
+      "tags": [
+        "Water light",
+        "Glass"
+      ]
+    }
+  ],
+  "membership": {
+    "active": false,
+    "configured": false
+  },
+  "reviewTurnaround": "2\u20133 business days"
+}
