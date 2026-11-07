@@ -194,16 +194,16 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
         <WorldRepresentationSelect worlds={worlds} current={currentWorld} onWorld={onWorld}/>
         <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">Surroundings</span></div>
           <div className="gesso-world-cover-library gesso-selection-surface" role="group" aria-label="World library">
-            {worldItems.map(world => <button key={world.id} ref={element => observe(world.id, element)} type="button"
+            {worldItems.filter(world=>world.id!=='current').map(world => <button key={world.id} ref={element => observe(world.id, element)} type="button"
               className="gesso-world-cover-card" data-world-id={world.id} aria-label={`Use ${world.name}`}
-              aria-pressed={currentWorld.id === world.id} onClick={() => {if (world.id !== currentWorld.id) onWorld(world.id);}}>
+              aria-pressed={currentWorld.id === world.id} onClick={() => {if (world.id !== currentWorld.id || Object.hasOwn(world,'cameraProtection')&&!environment.gaussianProtection) onWorld(world.id);}}>
               <WorldCoverImage name={world.name} cover={covers[worldCoverKey(world.environment, world.productDimensionsM)]}/><span>{world.name}</span>
             </button>)}
           </div>
           <p className="gesso-meta">{environment.kind === 'authored' ? environment.plinth.visible === false ? 'Curved sweep' : 'Curved sweep + contact plinth' : environment.kind === 'splat' ? 'Gaussian world · camera-matched plate' : 'Imported mesh · native geometry'}</p>
           <button type="button" onClick={onImport}>Import world ↗</button>
         </section>
-        {environment.asset && <details className="gesso-disclosure gesso-compact-details"><summary>Alignment <span>{Number(environment.asset.scaleToMeters.toPrecision(4))} m/u</span></summary><section className="gesso-section">
+        {environment.asset && !environment.gaussianProtection && <details className="gesso-disclosure gesso-compact-details"><summary>Alignment <span>{Number(environment.asset.scaleToMeters.toPrecision(4))} m/u</span></summary><section className="gesso-section">
           <NumberField label="Scale" unit="m/u" ariaLabel="Meters per source unit" value={environment.asset.scaleToMeters} min={.00001} step={.01} onChange={value => onChange(next => {next.environment.asset.scaleToMeters = value;})}/>
           <VectorField label="Position · m" values={environment.asset.translationM} onChange={(axis, value) => onChange(next => {next.environment.asset.translationM[axis] = value;})}/>
           <NumberField label="Yaw" unit="°" value={worldYaw(environment.asset)} step={1} onChange={value => onChange(next => setWorldYaw(next.environment.asset, value))}/>
@@ -233,6 +233,9 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
       {!scene.comparison&&environment.asset&&<WorldCleanupPanel scene={scene} worlds={worlds} scopeKey={cleanupScopeKey??JSON.stringify(scene)}
         available={cleanupAvailable} busy={cleanupBusy} preview={cleanupPreview} onPreview={onCleanupPreview} onApply={onCleanupApply}
         onSelection={onCleanupSelection} onFrame={onCleanupFrame}/>}
+      {environment.gaussianProtection&&<><p className="gesso-meta gesso-note">Camera and aim are limited to the reviewed room. Free inspection and world alignment are locked.</p><Field label="Outside fill"><select value={environment.gaussianProtection.outside} onChange={event=>{const outside=event.target.value;onChange(next=>{next.environment.gaussianProtection.outside=outside;});}}>
+        <option value="black">Black shadow</option><option value="white">Solid white</option>
+      </select></Field></>}
       <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">Background</span></div><ColorField label="World color" value={environment.worldColor} onChange={color => onChange(next => {next.environment.worldColor = color;})}/>
         <p className="gesso-meta gesso-note">Visible beyond the world geometry. Also colors ambient light in the final render.</p>
       </section>
@@ -280,6 +283,13 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
             <NumberField label="Cone" unit="°" value={light.coneDeg ?? SPOT_DEFAULTS.coneDeg} min={1} max={170} step={1} onChange={value => editLight(target => {target.coneDeg = value;})}/>
             <NumberField label="Blend" value={light.blend ?? SPOT_DEFAULTS.blend} min={0} max={1} step={.05} onChange={value => editLight(target => {target.blend = value;})}/>
             <p className="gesso-meta gesso-note">A small diameter keeps the shadow hard; blend softens the cone edge.</p>
+            <label className="gesso-check"><input type="checkbox" checked={!!light.waterRipple} onChange={event => {const enabled=event.target.checked;editLight(target=>{if(enabled)target.waterRipple={strength:.85,scale:8,speed:.7};else delete target.waterRipple;});}}/><span>Water ripple projection</span></label>
+            {light.waterRipple&&<>
+              <NumberField label="Ripple strength" unit="%" value={light.waterRipple.strength*100} min={0} max={100} step={1} onChange={value=>editLight(target=>{target.waterRipple.strength=value/100;})}/>
+              <NumberField label="Ripple scale" value={light.waterRipple.scale} min={1} max={30} step={.1} onChange={value=>editLight(target=>{target.waterRipple.scale=value;})}/>
+              <NumberField label="Ripple speed" value={light.waterRipple.speed} min={0} max={3} step={.05} onChange={value=>editLight(target=>{target.waterRipple.speed=value;})}/>
+              <p className="gesso-meta gesso-note">The projection moves with Film playback. Set speed to zero to hold the pattern.</p>
+            </>}
           </>}
         </section>
         <section className="gesso-section">

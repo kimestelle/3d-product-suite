@@ -480,6 +480,7 @@ def list_worlds(library_root, *, include_archived=True):
     if not (root / "worlds").exists():
         return []
     archived = set()
+    protection = {}
     if not include_archived:
         archive = safe_asset_path(root, "worlds/archive.json")
         if archive.is_file():
@@ -488,6 +489,10 @@ def list_worlds(library_root, *, include_archived=True):
             _require(isinstance(ids, list) and all(isinstance(id_, str) for id_ in ids),
                      "World archive must contain a list of world IDs")
             archived = set(ids)
+        guards = safe_asset_path(root, "worlds/protection.json")
+        if guards.is_file():
+            protection = json.loads(guards.read_text(encoding="utf-8"))
+            _require(isinstance(protection, dict), "World protection must be keyed by world ID")
     entries = []
     for path in sorted((root / "worlds").glob("world-*.json")):
         if path.stem in archived:
@@ -505,6 +510,8 @@ def list_worlds(library_root, *, include_archived=True):
             verify_scene_assets({"environment": env}, root)
         except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
             raise ValueError(f"World library entry {path.name} is invalid") from error
+        if env["kind"] == "splat" and path.stem in protection:
+            entry["cameraProtection"] = protection[path.stem]
         entries.append(entry)
     return entries
 

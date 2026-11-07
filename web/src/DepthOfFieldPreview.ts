@@ -25,7 +25,7 @@ export class DepthOfFieldPreview {
         resolution: {value: new THREE.Vector2(1, 1)}, nearClip: {value: .001}, farClip: {value: 100},
         focusDistance: {value: 1}, cocScale: {value: 0}, splatBackground: {value: false}, maxRadius: {value: 32},
         gradeA:{value:new THREE.Vector4(0,1,1,0)}, gradeB:{value:new THREE.Vector4()}, gradeC:{value:new THREE.Vector4()},
-        finishGate:{value:new THREE.Vector4(0,0,1,1)}},
+        finishGate:{value:new THREE.Vector4(0,0,1,1)}, solidSplatOutside:{value:-1}},
       vertexShader: `varying vec2 vUv;
         void main(){vUv=uv;gl_Position=vec4(position.xy,0.0,1.0);}`,
       fragmentShader: `
@@ -42,6 +42,7 @@ export class DepthOfFieldPreview {
         uniform vec4 gradeB;
         uniform vec4 gradeC;
         uniform vec4 finishGate;
+        uniform float solidSplatOutside;
         vec3 gradeColor(vec3 c){
           c*=exp2(gradeA.x)*vec3(1.0+.12*gradeB.x,1.0+.06*gradeB.y,1.0-.12*gradeB.x);
           float y=dot(clamp(c,0.0,1.0),vec3(.2126,.7152,.0722));
@@ -68,6 +69,12 @@ export class DepthOfFieldPreview {
           // They intentionally do not write a hard surface to the mesh depth texture.
           if(splatBackground && rawDepth>=0.999999) radius=0.0;
           vec4 color=texture2D(tColor,vUv);
+          // Uncovered splat pixels are a declared background, outside the
+          // grade, optics and film grain. Read coverage before post-processing.
+          if(solidSplatOutside>=0.0 && color.a<=0.000001){
+            gl_FragColor=vec4(vec3(solidSplatOutside),1.0);
+            return;
+          }
           float weight=1.0;
           if(radius>0.35){
             for(int i=0;i<40;i++){
@@ -85,6 +92,10 @@ export class DepthOfFieldPreview {
             }
           }
           gl_FragColor=color/weight;
+          if(solidSplatOutside>=0.0){
+            gl_FragColor.rgb+=vec3(solidSplatOutside)*(1.0-gl_FragColor.a);
+            gl_FragColor.a=1.0;
+          }
           // Flat clear color and native splat pixels bypassed tone mapping in the
           // direct path as well; keep their appearance when enabling mesh DOF.
           if(rawDepth<0.999999){
@@ -122,7 +133,8 @@ export class DepthOfFieldPreview {
 
   render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera,
     width: number, height: number, optics: DepthOfFieldSample | null, focalLengthMm: number, splatBackground: boolean,
-    finish?: Partial<PostProcessingSettings>, gate?:{x:number;y:number;width:number;height:number},antialias=true): void {
+    finish?: Partial<PostProcessingSettings>, gate?:{x:number;y:number;width:number;height:number},antialias=true,
+    solidSplatOutside?: 'black'|'white'): void {
     if(this.antialiasState!==antialias){
       const next=antialias?previewPostSamples(renderer):0;
       if(this.sampleCount>=0&&next!==this.sampleCount)this.target.dispose();
@@ -138,19 +150,22 @@ export class DepthOfFieldPreview {
     // At twice the focus distance, abs((z-S)/z)=1/2, so this gives the coefficient.
     u.cocScale.value = optics?.enabled?Math.abs(circleOfConfusionMm(optics.focusDistanceM * 2, focalLengthMm, optics.focusDistanceM, optics.fStop)) / 36 * h * camera.zoom:0;
     u.splatBackground.value = splatBackground;
+    u.solidSplatOutside.value = solidSplatOutside === 'white' ? 1 : solidSplatOutside === 'black' ? 0 : -1;
     const grade=resolvePostProcessing(finish);
     u.gradeA.value.set(grade.exposureEV,grade.contrast,grade.saturation,grade.enabled?1:0);
     u.gradeB.value.set(grade.temperature,grade.tint,grade.highlights,grade.shadows);
     u.gradeC.value.set(grade.vignette,grade.grain,grade.bloom,gate?gate.width/gate.height:w/h);
     u.finishGate.value.set(gate?gate.x/width:0,gate?1-(gate.y+gate.height)/height:0,gate?gate.width/width:1,gate?gate.height/height:1);
     const previous = renderer.getRenderTarget();
+    const previousBackground = scene.background;
     try {
       // Render targets are linear in Three; the final shader performs tone mapping and sRGB once.
+      if(solidSplatOutside)scene.background=null;
       renderer.setRenderTarget(this.target);
       renderer.render(scene, camera);
       renderer.setRenderTarget(previous);
       this.quad.render(renderer);
-    } finally {renderer.setRenderTarget(previous);}
+    } finally {scene.background=previousBackground;renderer.setRenderTarget(previous);}
   }
 
   dispose(): void {this.target.dispose(); this.material.dispose(); this.quad.dispose();}

@@ -4,7 +4,7 @@ import {productSupportOrigin} from './sceneGraph';
 /** An absent type is the original area disk; spot fields exist only on spots. */
 export type StudioLightType = 'area' | 'spot';
 export type StudioLight = {id: string; name: string; enabled: boolean; positionM: number[]; targetM: number[]; powerW: number; diameterM: number; color: number[];
-  type?: StudioLightType; coneDeg?: number; blend?: number};
+  type?: StudioLightType; coneDeg?: number; blend?: number; waterRipple?: {strength: number; scale: number; speed: number}};
 export type HdriLighting = {asset: {path: string; sha256: string; format: 'hdr'}; name: string; sourceUrl: string; intensity: number; rotationDeg: number};
 export type StudioLighting = {ambientStrength: number; lights: StudioLight[]; hdri?: HdriLighting; ambientColor?: number[]};
 export const PLINTH_MATERIAL = {baseColor: [.56, .54, .49, 1], roughness: .58, metallic: 0};
@@ -78,7 +78,7 @@ export function addLight(scene: any, type: StudioLightType): string {
   light.name = name;
   if (type === 'area') {
     const {scale} = rigFrame(scene);
-    delete light.type; delete light.coneDeg; delete light.blend;
+    delete light.type; delete light.coneDeg; delete light.blend; delete light.waterRipple;
     light.powerW = Number((2.6 * scale * scale).toPrecision(6)); light.diameterM = .23 * scale; light.color = [1, .93, .82];
   }
   lighting.lights.push(light);
@@ -96,7 +96,7 @@ export function setLightType(light: StudioLight, type: StudioLightType): void {
     light.type = 'spot';
     light.coneDeg ??= SPOT_DEFAULTS.coneDeg; light.blend ??= SPOT_DEFAULTS.blend;
   } else {
-    delete light.type; delete light.coneDeg; delete light.blend;
+    delete light.type; delete light.coneDeg; delete light.blend; delete light.waterRipple;
   }
 }
 

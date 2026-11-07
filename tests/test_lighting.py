@@ -119,4 +119,32 @@ class LightingTests(unittest.TestCase):
                 scene = copy.deepcopy(self.scene); change(scene['lighting'])
                 with self.assertRaises(ValueError): validate_scene(scene)
 
+    def test_water_ripple_validates_spot_controls_and_reaches_native_light(self):
+        light = {**self.rig['lights'][0], 'type': 'spot',
+                 'waterRipple': {'strength': .7, 'scale': 12, 'speed': .5}}
+        self.scene['lighting'] = {**self.rig, 'lights': [light]}
+        self.assertEqual(validate_scene(json.loads(json.dumps(self.scene))), self.scene)
+        _, namespace = self.environment_adapter()
+        native_data = object()
+        class NativeLight(dict):
+            data = native_data
+        projected = []
+        namespace['spot_light'] = lambda *args: NativeLight()
+        namespace['water_ripple_projection'] = lambda *args: projected.append(args)
+        namespace['studio_lights'](self.scene)
+        self.assertEqual(projected, [(native_data, light['waterRipple'], self.scene['render']['fps'])])
+
+        invalid = [
+            {'type': 'area'}, {'waterRipple': None}, {'waterRipple': {'scale': 8}},
+            {'waterRipple': {**light['waterRipple'], 'strength': True}},
+            {'waterRipple': {**light['waterRipple'], 'scale': 31}},
+            {'waterRipple': {**light['waterRipple'], 'speed': -.1}},
+        ]
+        for changes in invalid:
+            with self.subTest(changes=changes):
+                scene = copy.deepcopy(self.scene)
+                scene['lighting']['lights'][0].update(changes)
+                with self.assertRaisesRegex(ValueError, '[Ww]ater ripple'):
+                    validate_scene(scene)
+
 if __name__ == '__main__': unittest.main()

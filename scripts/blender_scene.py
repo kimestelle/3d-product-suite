@@ -583,6 +583,75 @@ def spot_light(name, position, target, power, cone_deg, blend, radius, color):
     return obj
 
 
+def water_ripple_projection(data, settings, fps):
+    """Modulate spot emission in the same cone UV space as the browser preview."""
+    strength, scale, speed = (settings[key] for key in ("strength", "scale", "speed"))
+    if strength == 0:
+        return
+    data.use_nodes = True
+    tree = data.node_tree
+    nodes, links = tree.nodes, tree.links
+    rows = {}
+
+    def math_node(operation, *values, label=""):
+        node = nodes.new("ShaderNodeMath")
+        node.operation, node.label = operation, label
+        # Lay out the inspectable shader left to right by its input dependencies.
+        column = max(value.node.location.x for value in values if not isinstance(value, (int, float))) + 210
+        row = rows.get(column, 0)
+        rows[column] = row + 1
+        node.location = (column, -175 * row)
+        for socket, value in zip(node.inputs, values):
+            if isinstance(value, (int, float)):
+                socket.default_value = value
+            else:
+                links.new(value, socket)
+        return node.outputs[0]
+
+    coordinates = nodes.new("ShaderNodeTexCoord")
+    coordinates.label = "Spot cone UV"
+    coordinates.location = (-650, 0)
+    split = nodes.new("ShaderNodeSeparateXYZ")
+    split.location = (-440, 0)
+    links.new(coordinates.outputs["UV"], split.inputs[0])
+    x = math_node("MULTIPLY_ADD", split.outputs["X"], 2 * scale, -scale, label="Scaled cone X")
+    y = math_node("MULTIPLY_ADD", split.outputs["Y"], 2 * scale, -scale, label="Scaled cone Y")
+    clock = nodes.new("ShaderNodeValue")
+    clock.label = "Ripple phase"
+    clock.location = (-440, -240)
+    phase = clock.outputs[0]
+    phase.default_value = 0
+    if speed > 0:
+        driver = phase.driver_add("default_value").driver
+        # Blender's simple-expression evaluator runs without script auto-run.
+        driver.expression = f"(frame - 1) * {speed / fps!r}"
+
+    def mul(value, coefficient):
+        return math_node("MULTIPLY", value, coefficient)
+
+    def add(a, b):
+        return math_node("ADD", a, b)
+
+    def ridge(wave, phase_offset, bend, amplitude, label):
+        warped = add(wave, mul(math_node("SINE", bend), amplitude))
+        value = math_node("SINE", add(warped, phase_offset))
+        return math_node("MULTIPLY_ADD", value, .5, .5, label=label)
+
+    # Match waterRipple.ts. Intersections remain bright as the three ridges drift.
+    a = ridge(add(x, mul(y, .58)), phase, add(mul(y, .70), phase), 1.40, "First ripple")
+    b = ridge(add(mul(x, -.78), mul(y, .94)), mul(phase, -.72),
+              add(mul(x, .64), mul(phase, -.79)), 1.25, "Second ripple")
+    c = ridge(add(mul(x, .39), mul(y, -1.11)), mul(phase, .46),
+              add(mul(add(x, y), .42), mul(phase, .61)), 1.50, "Third ripple")
+    ridges = math_node("MAXIMUM", math_node("MAXIMUM", a, b), c)
+    core = math_node("POWER", ridges, 5, label="Narrow light bands")
+    mask = math_node("MULTIPLY_ADD", core, strength * .84, 1 - strength * .84, label="Projection strength")
+    emission = next(node for node in nodes if node.type == "EMISSION")
+    emission.location = (mask.node.location.x + 200, 0)
+    links.new(mask, emission.inputs["Strength"])
+    next(node for node in nodes if node.type == "OUTPUT_LIGHT").location = (emission.location.x + 200, 0)
+
+
 def configure_scene(source, width, height, samples, output=None, frames=()):
     scene = bpy.context.scene
     settings = source["render"]
@@ -892,6 +961,8 @@ def studio_lights(source, first_sample=None):
                 position, target = blender_position(light["positionM"]), blender_position(light["targetM"])
                 if light.get("type", "area") == "spot":
                     obj = spot_light("Studio / " + light["name"], position, target, light["powerW"], light.get("coneDeg", 40), light.get("blend", 0.3), light["diameterM"] / 2, light["color"])
+                    if "waterRipple" in light:
+                        water_ripple_projection(obj.data, light["waterRipple"], source["render"]["fps"])
                 else:
                     obj = area_light("Studio / " + light["name"], position, target, light["powerW"], light["diameterM"], light["color"])
                 # The sampled light poses are matched back by scene ID, never by name.

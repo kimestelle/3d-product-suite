@@ -48,6 +48,23 @@ def _positive_size(value, name):
     _require(all(x > 0 for x in value), f"{name} must be positive")
 
 
+def _validate_gaussian_protection(environment):
+    if "gaussianProtection" not in environment:
+        return
+    _require(environment["kind"] == "splat", "Gaussian camera protection requires a splat environment")
+    protection = environment["gaussianProtection"]
+    fields = {"positionMinM", "positionMaxM", "targetMinM", "targetMaxM", "outside"}
+    _require(isinstance(protection, dict) and set(protection) == fields,
+             "Gaussian camera protection needs position and target bounds and an outside color")
+    _require(protection["outside"] in ("black", "white"), "Gaussian outside color must be black or white")
+    for point in ("position", "target"):
+        minimum, maximum = protection[f"{point}MinM"], protection[f"{point}MaxM"]
+        _vector(minimum, f"Gaussian camera {point} minimum")
+        _vector(maximum, f"Gaussian camera {point} maximum")
+        _require(all(lo <= hi for lo, hi in zip(minimum, maximum)),
+                 f"Gaussian camera {point} bounds must be ordered")
+
+
 def _provenance(value, name):
     _require(isinstance(value, dict), f"{name} provenance is required")
     for key in ("source", "reuseBasis", "owner"):
@@ -488,6 +505,7 @@ def validate_scene(scene):
         if "studioSizeM" in env:
             _number(env["studioSizeM"], "studio size", minimum=1e-6, maximum=1e6)
         _require(env["kind"] in ("authored", "mesh", "splat") and isinstance(env["revisionId"], str) and env["revisionId"].strip(), "Environment kind and revision are required")
+        _validate_gaussian_protection(env)
         validate_preview_asset(env)
         if env["kind"] != "authored":
             validate_asset_record(env.get("asset"), kind=env["kind"])
@@ -566,6 +584,14 @@ def validate_scene(scene):
                     _number(light["coneDeg"], "spot cone", minimum=1, maximum=170)
                 if "blend" in light:
                     _number(light["blend"], "spot blend", minimum=0, maximum=1)
+                if "waterRipple" in light:
+                    ripple = light["waterRipple"]
+                    _require(light.get("type") == "spot", "Water ripple requires a spot light")
+                    _require(isinstance(ripple, dict) and set(ripple) == {"strength", "scale", "speed"},
+                             "Water ripple must contain strength, scale and speed")
+                    _number(ripple["strength"], "water ripple strength", minimum=0, maximum=1)
+                    _number(ripple["scale"], "water ripple scale", minimum=1, maximum=30)
+                    _number(ripple["speed"], "water ripple speed", minimum=0, maximum=3)
         _vector(scene["placement"]["translationM"], "product placement")
         _number(scene["placement"].get("scale", 1), "product scale", minimum=PRODUCT_SCALE_MIN, maximum=PRODUCT_SCALE_MAX)
         # The product's support, any picked world contact and prop relationships
@@ -813,6 +839,13 @@ def _evaluate_frame(scene, frame, *, include_placement=False, resolved_objects=N
     camera = {key: [x+(y-x)*u for x,y in zip(before[key],after[key])] for key in ("positionM","targetM")}
     camera["focalLengthMm"] = before["focalLengthMm"] + (after["focalLengthMm"]-before["focalLengthMm"])*u
     _film_camera(scene, shot, frame, camera)
+    protection = scene["environment"].get("gaussianProtection")
+    # Black and image clips do not expose a Gaussian camera.
+    if protection is not None and selected is not None and selected.get("kind") != "image":
+        for point in ("position", "target"):
+            _require(all(lo <= value <= hi for lo, value, hi in zip(
+                protection[f"{point}MinM"], camera[f"{point}M"], protection[f"{point}MaxM"])),
+                f"Camera {point} is outside the protected Gaussian world at frame {frame}")
     optics = shot["camera"].get("depthOfField", {})
     camera["depthOfField"] = {
         "enabled": optics.get("enabled", False),

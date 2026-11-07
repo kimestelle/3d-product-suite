@@ -90,7 +90,11 @@ import { backendEditMessage, isStaticDemo } from './runtime';
 
 type Scene = any;
 type Project = {id:string;name:string;scene:Scene;revisionId:string;approvedRevisionId:string|null;headRevisionId?:string};
-type World = {id:string;name:string;environment:Scene};
+type WorldProtection = {
+  bounds:{positionMinM:number[];positionMaxM:number[];targetMinM:number[];targetMaxM:number[];outside:'black'|'white'};
+  referenceCamera:{positionM:number[];targetM:number[];focalLengthMm:number};
+};
+type World = {id:string;name:string;environment:Scene;cameraProtection?:WorldProtection};
 type Job = ExportJob;
 type ProductImportChoice={file:File;name:string;owner:string;reuseBasis:string;source:string;settings:ReturnType<typeof productImportSettings>;campaign:CampaignOwner};
 type PairJob = {id:string;kind:'still'|'reel';state:string;sourceDigest:string;sharedDigest:string;alignmentStatus:string;frame?:number;children:{a:Job;b:Job};artifacts:{name:string;url:string}[];createdAt:string;error?:string};
@@ -698,7 +702,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     if(showExport){if(e.key==='Escape'){e.preventDefault();closeExport()}else if(inView&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&e.code==='Space'&&!target?.closest('button,a')){e.preventDefault();if(valid&&mode==='video'&&!e.repeat)togglePlayback()}return}
     if(inView&&!e.altKey&&!e.ctrlKey&&!e.metaKey&&e.code==='KeyF'){
       if(e.shiftKey&&filmWorkspace&&inspecting){e.preventDefault();resetView();}
-      else if(!e.shiftKey&&tab==='world'&&layer==='Props'&&stageObjectId){e.preventDefault();frameProp(stageObjectId);}
+      else if(!e.shiftKey&&tab==='world'&&layer==='Props'&&stageObjectId&&!scene?.environment.gaussianProtection){e.preventDefault();frameProp(stageObjectId);}
       else if(!e.shiftKey&&productWorkspace&&selected){e.preventDefault();framePart();}
       return;
     }
@@ -838,17 +842,36 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     const selectedWorld=library.find(world=>world.id===id);
     const providerId=scene?.environment.provenance?.providerWorldId;
     const sameProviderWorld=typeof providerId==='string'&&!!providerId.trim()&&selectedWorld?.environment.provenance?.providerWorldId===providerId;
+    let movedCamera=false;
     change(s=>{
       // A picked world contact belongs to its mesh; elsewhere the product returns to the floor.
       const leaveSurface=()=>{if(s.placement.restsOn!=='world-surface')return;s.placement.restsOn='floor';delete s.placement.contactPointM;s.placement.translationM=[0,0,0]};
-      if(id==='authored'){const e=clone(s.environment);delete e.asset;delete e.previewAsset;delete e.fixture;delete e.collider;leaveSurface();e.kind='authored';e.revisionId='neutral-studio-v1';e.displayName='Authored studio';e.provenance={source:'Original authored studio',owner:'3d-product-suite',reuseBasis:'Original project geometry',allowedExternalDestinations:[]};s.environment=e;return}
+      if(id==='authored'){const e=clone(s.environment);delete e.asset;delete e.previewAsset;delete e.fixture;delete e.collider;delete e.gaussianProtection;leaveSurface();e.kind='authored';e.revisionId='neutral-studio-v1';e.displayName='Authored studio';e.provenance={source:'Original authored studio',owner:'3d-product-suite',reuseBasis:'Original project geometry',allowedExternalDestinations:[]};s.environment=e;return}
       const world=library.find(w=>w.id===id);if(!world)return;
-      const e=clone(world.environment);if(s.environment.studioSizeM!==undefined)e.studioSizeM=s.environment.studioSizeM;e.plinth=clone(s.environment.plinth);if(s.environment.floorY!==undefined)e.floorY=s.environment.floorY;else delete e.floorY;if(s.environment.props)e.props=clone(s.environment.props);if(e.kind!=='mesh')leaveSurface();s.environment=e;
+      const e=clone(world.environment);
+      const protection=world.cameraProtection;
+      if(protection){
+        const {bounds,referenceCamera}=protection;
+        e.gaussianProtection=clone(bounds);
+        const within=(point:number[],min:number[],max:number[])=>point.every((value,index)=>value>=min[index]&&value<=max[index]);
+        for(const shot of s.shots){
+          if(shot.kind==='image')continue;
+          for(const endpoint of ['from','to'] as const){
+            const pose=shot.camera[endpoint];
+            if(!within(pose.positionM,bounds.positionMinM,bounds.positionMaxM)||!within(pose.targetM,bounds.targetMinM,bounds.targetMaxM)){
+              shot.camera[endpoint]={...pose,...clone(referenceCamera)};
+              movedCamera=true;
+            }
+          }
+        }
+      }
+      if(s.environment.studioSizeM!==undefined)e.studioSizeM=s.environment.studioSizeM;e.plinth=clone(s.environment.plinth);if(s.environment.floorY!==undefined)e.floorY=s.environment.floorY;else delete e.floorY;if(s.environment.props)e.props=clone(s.environment.props);if(e.kind!=='mesh')leaveSurface();s.environment=e;
     });
     // Published samples already contain the product/camera poses; fitting here
     // would invalidate the film after an otherwise supported world selection.
     // A representation comparison keeps the product fixed. Native sources
     // without collider geometry cannot support the automatic world fit.
+    if(movedCamera)setNotice("Out-of-bounds shot framing moved to the reviewed camera · Undo to restore");
     const selectedEnvironment=selectedWorld?.environment;
     const canFit=selectedEnvironment?.kind==='mesh'||selectedEnvironment?.kind==='splat'&&!!selectedEnvironment.collider;
     if(!isStaticDemo&&id!=='authored'&&!sameProviderWorld&&canFit)pendingWorldFit.current=historyRef.current.present;
@@ -1293,9 +1316,9 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
             </div>
           </div>}
 
-          {scene&&tab==='world'&&<WorldPanel cleanupScopeKey={cleanupScopeKey} cleanupAvailable={!isStaticDemo&&caps.worldCleanupAvailable===true&&!scene.comparison} cleanupBusy={busy||saving||!!transformMode||!!materialPreview||!valid||visibleViewportLoading} cleanupPreview={cleanupPreview} onCleanupPreview={previewWorldCleanup} onCleanupApply={applyWorldCleanup} onCleanupSelection={setCleanupSelection} onCleanupFrame={()=>{if(viewport.current?.frameWorldCleanupSelection()){setPlaying(false);setInspecting(true);setStillViewVersion(value=>value+1);}}} analyzePostProcessing={analyzePostProcessing} postProcessingReady={postProcessingReady&&scene===renderScene} captureCurrentWorld={captureCurrentWorld} worldPreviewReady={!cleanupPreview&&tab==='world'&&!evaluating&&!visibleViewportLoading&&valid&&!playing&&!transformMode&&!showExport} worldPreviewRevision={digest} selectedObjectId={worldObjectId} onSelectObject={setWorldObjectId} editorHost={sideEditorHost} scene={scene} layer={layer as WorldLayer} worlds={worlds} onChange={change} onWorld={replaceWorld} onFitProduct={isStaticDemo?undefined:fitProduct} fitDisabled={!!cleanupPreview||!valid||visibleViewportLoading||busy||playing||!!transformMode} onImport={()=>setShowImport(value=>!value)} resolved={evaluatedScene.current===scene?objects:undefined} pickingSurface={pickingSurface} onPickSurface={startSurfacePick} onCancelPick={()=>setPickingSurface(false)} onFrameObjects={isStaticDemo?undefined:frameObjects} ready={valid&&!busy&&!cleanupPreview}>
+          {scene&&tab==='world'&&<WorldPanel cleanupScopeKey={cleanupScopeKey} cleanupAvailable={!isStaticDemo&&caps.worldCleanupAvailable===true&&!scene.comparison} cleanupBusy={busy||saving||!!transformMode||!!materialPreview||!valid||visibleViewportLoading} cleanupPreview={cleanupPreview} onCleanupPreview={previewWorldCleanup} onCleanupApply={applyWorldCleanup} onCleanupSelection={setCleanupSelection} onCleanupFrame={()=>{if(viewport.current?.frameWorldCleanupSelection()){setPlaying(false);setInspecting(true);setStillViewVersion(value=>value+1);}}} analyzePostProcessing={analyzePostProcessing} postProcessingReady={postProcessingReady&&scene===renderScene} captureCurrentWorld={captureCurrentWorld} worldPreviewReady={!cleanupPreview&&tab==='world'&&!evaluating&&!visibleViewportLoading&&valid&&!playing&&!transformMode&&!showExport} worldPreviewRevision={digest} selectedObjectId={worldObjectId} onSelectObject={setWorldObjectId} editorHost={sideEditorHost} scene={scene} layer={layer as WorldLayer} worlds={worlds} onChange={change} onWorld={replaceWorld} onFitProduct={isStaticDemo||scene.environment.gaussianProtection?undefined:fitProduct} fitDisabled={!!cleanupPreview||!valid||visibleViewportLoading||busy||playing||!!transformMode} onImport={()=>setShowImport(value=>!value)} resolved={evaluatedScene.current===scene?objects:undefined} pickingSurface={pickingSurface} onPickSurface={startSurfacePick} onCancelPick={()=>setPickingSurface(false)} onFrameObjects={isStaticDemo||scene.environment.gaussianProtection?undefined:frameObjects} ready={valid&&!busy&&!cleanupPreview}>
             {showImport&&<div className="import-form"><Field label="World name"><input value={worldName} onChange={e=>setWorldName(e.target.value)}/></Field><Field label="Asset owner"><input value={owner} onChange={e=>setOwner(e.target.value)} placeholder="Your company or creator"/></Field><Field label="Reuse basis"><input value={reuse} onChange={e=>setReuse(e.target.value)} placeholder="License or permission"/></Field><Field label="Source up axis"><select value={sourceUp} onChange={e=>setSourceUp(e.target.value)}><option>Y</option><option>Z</option></select></Field><input aria-label="World export file" type="file" accept=".glb,.spz,.ply" ref={file}/><button disabled={!owner||!reuse||importing} onClick={importFile}>{importing?'Importing…':'Import GLB / SPZ / PLY'}</button></div>}
-            <details className="gesso-disclosure" open={scene.comparison?true:undefined}><summary>Compare environments</summary><ComparisonPanel scene={scene} worlds={worlds} info={comparisonInfo} busy={busy} ready={valid} mode={comparisonMode} drafts={calibrationDrafts} picking={picking} onMode={changeComparisonMode} onEnable={startComparison} onDisable={()=>change(s=>{delete s.comparison})} onWorld={comparisonWorld} onTransform={comparisonTransform} onDraft={draftCalibration} onPick={startPick} onCancelPick={()=>setPicking(null)} onCalibrate={applyCalibration} onReview={reviewComparison}/></details>
+            {(scene.comparison||worlds.some(world=>world.environment.kind==='mesh'))&&<details className="gesso-disclosure" open={scene.comparison?true:undefined}><summary>Compare environments</summary><ComparisonPanel scene={scene} worlds={worlds} info={comparisonInfo} busy={busy} ready={valid} mode={comparisonMode} drafts={calibrationDrafts} picking={picking} onMode={changeComparisonMode} onEnable={startComparison} onDisable={()=>change(s=>{delete s.comparison})} onWorld={comparisonWorld} onTransform={comparisonTransform} onDraft={draftCalibration} onPick={startPick} onCancelPick={()=>setPicking(null)} onCalibrate={applyCalibration} onReview={reviewComparison}/></details>}
             {!isStaticDemo&&<AtlasWorldPanel request={api} onUse={useAtlasWorld} applyDisabled={busy||!valid||!!scene.comparison}/>}
             <details className="gesso-disclosure"><summary>Generate environment</summary><section className="control-section"><p className="small-copy">Choose a default above to start immediately. Or generate one world and compare World Labs’ mesh with a mesh reconstructed from its Gaussians.</p><Field label="Generation preset"><select value={preset} onChange={e=>setPreset(e.target.value)}><option value="botanical-studio">Botanical studio</option><option value="warm-gallery">Warm limestone gallery</option><option value="modern-loft">Modern loft</option></select></Field><Field label="Reference image URL (optional)"><input type="url" value={imageUrl} onChange={e=>setImageUrl(e.target.value)} placeholder="https://…/reference.jpg"/></Field><p className="small-copy">Use a public HTTPS image URL, or leave blank to generate from the preset. Private image files can use the local CLI. Your key stays encrypted in GitHub.</p><NumberControl label="API credit limit" value={creditLimit} min={5080} max={6000} step={100} onChange={setCreditLimit}/><p className="small-copy">Matching image and preset reuse saved results; product, camera and scene edits need no new generation. A new standard world + textured mesh costs about 5,080 API credits ($4.06). No automatic paid retries.</p><label className="gesso-check"><input type="checkbox" checked={forceNew} onChange={e=>setForceNew(e.target.checked)}/><span>Generate a new variation (uses credits)</span></label><button className="wide" disabled={busy||!caps.githubWorldsAvailable} onClick={generate}>{forceNew?'Generate new variation ↗':'Reuse or generate mesh comparison ↗'}</button><a className="text-link" style={{marginTop:12}} href={caps.githubWorkflowUrl??'https://github.com/kimestelle/3d-product-suite/actions/workflows/worldlabs-pair.yml'} target="_blank" rel="noreferrer">Open GitHub workflow ↗</a><button className="text-button" disabled={busy} onClick={refreshRuns}>Refresh generation runs</button>{remoteRuns.map(run=><article key={run.id} className="job"><div className="job-heading"><b>{run.name}</b><span className="job-state">{run.conclusion??run.status}</span></div><a className="text-link" href={run.url} target="_blank" rel="noreferrer">View generation ↗</a>{run.conclusion==='success'&&<button className="wide" style={{marginTop:12}} disabled={busy} onClick={()=>importRun(run.id)}>Import both meshes</button>}</article>)}</section></details>
           </WorldPanel>}
@@ -1330,7 +1353,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
             <button type="button" aria-pressed={activeStageMode==='rotate'} onClick={()=>setStageTransformMode('rotate')}>Rotate</button></>}
             <button type="button" aria-pressed={activeStageMode==='scale'} onClick={()=>setStageTransformMode('scale')}>Resize</button>
             </>}
-            <button type="button" disabled={!valid} onClick={()=>{if(stageObjectId)frameProp(stageObjectId)}}>{stageProduct?'Frame product':'Frame selected object'}</button>
+            {!scene?.environment.gaussianProtection&&<button type="button" disabled={!valid} onClick={()=>{if(stageObjectId)frameProp(stageObjectId)}}>{stageProduct?'Frame product':'Frame selected object'}</button>}
           </div>}
           {!showExport&&!stillShowing&&!nativeProofShowing&&filmWorkspace&&(inspecting&&filmSceneVisible||!playing&&frame!==filmEditFrame)&&<div className="gesso-view-toolbar" role="group" aria-label="Film view">
             {inspecting&&filmSceneVisible&&<button type="button" onClick={resetView} title="Leave inspection view and show the saved shot framing">Use shot camera</button>}

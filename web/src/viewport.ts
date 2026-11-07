@@ -26,6 +26,8 @@ import {createCameraTargetPointerGesture, filmGateRect, filmGuideZoom, projectFi
 import { labelGeometry, labelImageDimensions, labelTemplateSvg, type LabelMapping } from './labelMapping';
 import { assetUrl as runtimeAssetUrl } from './runtime';
 import { productSupportOrigin, sceneFloorY } from './sceneGraph';
+import {WaterRippleMap, type WaterRippleSettings} from './waterRipple';
+import {clampGaussianTarget, protectedGaussianPose, type GaussianProtection} from './gaussianProtection';
 import {PropTransform, type PropTransformCommit, type PropTransformMode} from './propTransform';
 
 export type {PropTransformEdit} from './propTransform';
@@ -105,6 +107,12 @@ type StillPresentation = {
   deferPreviewRestore?: boolean;
 };
 type PreviewDataConnection=EventTarget&{saveData?:boolean};
+type StudioLightEntry = {
+  light: THREE.RectAreaLight | THREE.SpotLight;
+  target: THREE.Object3D | null;
+  shadow: THREE.DirectionalLight | null;
+  ripple?: WaterRippleMap;
+};
 
 /** The browser only consumes poses sampled by film.scene; it evaluates no motion. */
 export class StudioViewport {
@@ -116,6 +124,7 @@ export class StudioViewport {
   private readonly components = new Map<string, THREE.Group>();
   private readonly environmentObjects = new Map<THREE.Object3D, boolean>();
   private environmentBackground: THREE.Color | null = null;
+  private gaussianProtection: GaussianProtection | null = null;
   private environmentMap: THREE.WebGLRenderTarget | null = null;
   private productPreview = false;
   private filmContent = false;
@@ -124,7 +133,7 @@ export class StudioViewport {
   private productGround: THREE.Mesh | null = null;
   /** Studio lights by scene ID, so sampled light poses can move them per frame.
    * Created on first use: test harnesses build viewports from the prototype. */
-  private studioLights: Map<string, {light: THREE.RectAreaLight | THREE.SpotLight; target: THREE.Object3D | null; shadow: THREE.DirectionalLight | null}> | null = null;
+  private studioLights: Map<string, StudioLightEntry> | null = null;
   private rigLights() { return this.studioLights ??= new Map(); }
   private readonly parts = new Map<string, THREE.Object3D>();
   private partRecordsDirty = false;
@@ -323,7 +332,7 @@ export class StudioViewport {
 
   private updateControlsEnabled(): void {
     this.syncPropTransform();
-    if (this.controls) this.controls.enabled = this.inspectionEnabled && !(this.filmContent && this.filmClip?.kind !== 'scene') && !this.disposed && !this.loading && !(this.deferredWorld?.loading && !this.productPreview) && !this.loadFailed && !this.awaitingSample && !this.worldPickEnabled && !this.surfacePickEnabled && !this.propTransform?.dragging && this.parts.size > 0;
+    if (this.controls) this.controls.enabled = this.inspectionEnabled && !this.activeGaussianProtection() && !(this.filmContent && this.filmClip?.kind !== 'scene') && !this.disposed && !this.loading && !(this.deferredWorld?.loading && !this.productPreview) && !this.loadFailed && !this.awaitingSample && !this.worldPickEnabled && !this.surfacePickEnabled && !this.propTransform?.dragging && this.parts.size > 0;
     if(this.controls&&!this.controls.enabled&&this.controlsInteracting)this.rebuildControls(this.interactionSurface);
     (this.controlSurface?.element ?? this.canvas).style.cursor = this.worldPickEnabled || this.surfacePickEnabled ? 'crosshair' : this.propTransform?.dragging ? 'grabbing' : this.controls?.enabled ? 'grab' : '';
   }
@@ -581,6 +590,7 @@ export class StudioViewport {
     if (this.productPreview === enabled) return;
     this.productPreview = enabled;
     this.presentationVersion = (this.presentationVersion ?? 0) + 1;
+    if (this.activeGaussianProtection()) this.resetFraming();
     this.applyProductPreview();
     if (!this.loading) this.options.onLoading?.(!enabled && !!this.deferredWorld?.loading);
     if (!enabled) {
@@ -602,6 +612,15 @@ export class StudioViewport {
     for (const [object, visible] of this.environmentObjects) object.visible = !this.productPreview && visible;
     if (this.productGround) this.productGround.visible = this.productPreview;
     if (this.spark) this.spark.visible = !this.productPreview;
+  }
+
+  private activeGaussianProtection(): GaussianProtection | null {
+    return this.productPreview ? null : this.gaussianProtection;
+  }
+
+  private sceneBackdrop(environment: {worldColor: number[]}): THREE.Color | null {
+    if (this.gaussianProtection) return new THREE.Color(this.gaussianProtection.outside === 'white' ? 0xffffff : 0);
+    return this.options.capture ? null : this.color(environment.worldColor);
   }
 
   private addEnvironmentObject(object: THREE.Object3D): void {
@@ -799,7 +818,13 @@ export class StudioViewport {
 
   createCameraTargetGesture(pointer: CameraTargetPointer): CameraTargetGesture | null {
     if (!this.filmGuides || !this.presentedFilm || this.disposed || this.loading || this.loadFailed || this.awaitingSample || this.options.capture) return null;
-    return createCameraTargetPointerGesture(this.presentedFilm.camera, this.canvas.getBoundingClientRect(), this.presentedFilm.target, pointer);
+    const gesture = createCameraTargetPointerGesture(this.presentedFilm.camera, this.canvas.getBoundingClientRect(), this.presentedFilm.target, pointer);
+    const protection = this.activeGaussianProtection();
+    if (!gesture || !protection) return gesture;
+    return {
+      move: next => clampGaussianTarget(protection, gesture.move(next)),
+      nudge: (dx, dy) => clampGaussianTarget(protection, gesture.nudge(dx, dy)),
+    };
   }
 
   resize(): void {
@@ -1731,7 +1756,9 @@ export class StudioViewport {
           light.shadow.camera.near = Math.max(.001, distance * .1);
           light.shadow.camera.far = distance * 3 + size * 10;
           this.content.add(light, light.target);
-          this.rigLights().set(specification.id, {light, target: light.target, shadow: null});
+          const entry: StudioLightEntry = {light, target: light.target, shadow: null};
+          this.configureWaterRipple(entry, specification.waterRipple);
+          this.rigLights().set(specification.id, entry);
           continue;
         }
         // WebGL uses a rectangular area emitter; Cycles exports the declared
@@ -2010,6 +2037,7 @@ export class StudioViewport {
     const topology=(value:any)=>JSON.stringify(value?.lights?.filter((light:any)=>light.enabled&&light.powerW!==0).map((light:any)=>[light.id,light.type??'area'])??null);
     const rigChanged=this.studioRigOrigin(source).distanceToSquared(this.lightingRigOrigin??this.studioRigOrigin(previous))>1e-20;
     if(topology(lighting)!==topology(previous.lighting)||(!lighting&&rigChanged)){
+      this.disposeWaterRippleMaps();
       for(const object of this.lightingObjects??[]){
         if(object instanceof THREE.Light)(object as THREE.DirectionalLight|THREE.SpotLight).shadow?.dispose();
         object.removeFromParent();
@@ -2029,6 +2057,7 @@ export class StudioViewport {
           entry.light.penumbra=specification.blend??.3;entry.light.target.position.copy(aim);
           entry.light.shadow.camera.near=Math.max(.001,distance*.1);entry.light.shadow.camera.far=distance*3+size*10;
           entry.light.shadow.camera.updateProjectionMatrix();
+          this.configureWaterRipple(entry, specification.waterRipple);
         }else{
           const side=specification.diameterM*Math.sqrt(Math.PI)/2;
           entry.light.width=side;entry.light.height=side;entry.light.intensity=specification.powerW/(Math.PI*side*side);entry.light.lookAt(aim);
@@ -2041,6 +2070,32 @@ export class StudioViewport {
       }
     }
     if(lighting?.hdri){this.scene.environmentIntensity=lighting.hdri.intensity;this.scene.environmentRotation.set(0,lighting.hdri.rotationDeg*Math.PI/180,0);}
+  }
+
+  private configureWaterRipple(entry: StudioLightEntry, settings?: WaterRippleSettings): void {
+    if (!(entry.light instanceof THREE.SpotLight)) return;
+    if (!settings?.strength) {
+      entry.ripple?.dispose();
+      entry.ripple = undefined;
+      entry.light.map = null;
+      return;
+    }
+    const time = this.latestSample?.timeSeconds ?? 0;
+    if (entry.ripple) entry.ripple.configure(settings, time);
+    else {
+      entry.ripple = new WaterRippleMap(settings, time);
+      entry.light.map = entry.ripple.texture;
+    }
+  }
+
+  private disposeWaterRippleMaps(): void {
+    for (const entry of this.studioLights?.values() ?? []) {
+      if (entry.ripple && entry.light instanceof THREE.SpotLight) {
+        entry.ripple.dispose();
+        entry.light.map = null;
+        entry.ripple = undefined;
+      }
+    }
   }
 
   private updatePersistentScene(source:any,initialSample?:any):void {
@@ -2077,7 +2132,7 @@ export class StudioViewport {
       if(contact){const origin=this.studioRigOrigin(source);contact.center.set(origin.x,origin.z);contact.radius.value=Math.max(source.product.dimensionsM[0],source.product.dimensionsM[2])*(source.environment.studioSizeM===undefined?1:source.placement.scale??1)*.9;}
     }
     this.updateLighting(source,previous);
-    this.environmentBackground=this.color(source.environment.worldColor);
+    this.environmentBackground=this.sceneBackdrop(source.environment);
     this.filmOutputAspect=source.render?.width/source.render?.height||this.filmOutputAspect;
     this.applyFilmProjection(this.camera,this.pendingSize);
     this.modelOutline?.dispose();this.modelOutline=null;
@@ -2289,7 +2344,11 @@ export class StudioViewport {
     this.latestSample = initialSample ?? null;
     const environment = source.environment;
     const capture = !!this.options.capture;
-    this.environmentBackground = capture ? null : this.color(environment.worldColor);
+    this.gaussianProtection = environment.kind === 'splat' ? environment.gaussianProtection ?? null : null;
+    if (this.activeGaussianProtection()) {
+      this.inspectingCamera = false; this.framedSelection = false; this.framedWorldObjectId = null;
+    }
+    this.environmentBackground = this.sceneBackdrop(environment);
     this.scene.background = this.environmentBackground;
     this.applyProductPreview();
     try {
@@ -2374,7 +2433,7 @@ export class StudioViewport {
     const focalLengthMm=18/Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*camera.zoom/(gate.height/size.height);
     const position=camera.position.clone(),direction=camera.getWorldDirection(new THREE.Vector3());
     const distance=Math.max(.001,position.distanceTo(target??position.clone().add(direction)));
-    const aim=position.clone().addScaledVector(direction,distance);
+    const aim=this.activeGaussianProtection()&&target ? target : position.clone().addScaledVector(direction,distance);
     if(![...position.toArray(),...aim.toArray(),aspect,focalLengthMm].every(Number.isFinite)||aspect<=0||focalLengthMm<1||focalLengthMm>1000)return null;
     return {positionM:position.toArray(),targetM:aim.toArray(),focalLengthMm,
       depthOfField:{...(optics??{enabled:false,fStop:2.8,focusDistanceM:distance})},aspect,inspection};
@@ -2382,6 +2441,10 @@ export class StudioViewport {
 
   async frame(sample: any): Promise<void> {
     if (this.disposed) throw new Error('Viewport has been disposed.');
+    const protection = this.activeGaussianProtection();
+    if (protection && (sample.clip?.kind ?? 'scene') === 'scene' && !protectedGaussianPose(protection, sample.camera)) {
+      throw new Error('The camera or aim point is outside the protected Gaussian viewing area.');
+    }
     this.previewQuality?.activity();
     if (this.stageProductRoot && this.propTransform?.draggedObject === this.stageProductRoot
         && this.latestSample?.frame !== sample.frame) this.propTransform.cancel();
@@ -2410,6 +2473,7 @@ export class StudioViewport {
       }
       this.applyPropPoses(sample.props);
       this.applyLightPoses(sample.lights ?? []);
+      for (const entry of this.studioLights?.values() ?? []) entry.ripple?.update(sample.timeSeconds ?? 0);
       // These matrices come from the same sampler as export. Keep the imported
       // hierarchy and exact affine matrices instead of decomposing source shear.
       for (const [id, pose] of Object.entries(sample.parts || {}) as [string, any][]) {
@@ -2429,7 +2493,7 @@ export class StudioViewport {
       }
       const values = sample.camera;
       this.sampledOptics = sampledDepthOfField(values);
-      const inspection = this.inspectingCamera ? {
+      const inspection = this.inspectingCamera && !this.activeGaussianProtection() ? {
         position: this.camera.position.clone(), quaternion: this.camera.quaternion.clone(), fov: this.camera.fov,
       } : null;
       this.camera.position.fromArray(values.positionM);
@@ -2441,7 +2505,7 @@ export class StudioViewport {
         this.camera.position.copy(inspection.position); this.camera.quaternion.copy(inspection.quaternion); this.camera.fov = inspection.fov;
       } else if (this.controls) {
         this.controls.target.copy(this.sampledCamera.target);
-        this.controls.update();
+        if (!this.activeGaussianProtection()) this.controls.update();
       }
       this.camera.updateProjectionMatrix();
       this.updateUvProbeScale();
@@ -2549,6 +2613,10 @@ export class StudioViewport {
       if (settle) this.renderer.getContext().finish();
       this.reportPresented(version); return;
     }
+    const protection = this.activeGaussianProtection();
+    // A protected capture cannot draw its default startup camera before the
+    // first sampled shot, even if the source splat has already decoded.
+    if (protection && (this.sampledLoadVersion !== version || !protectedGaussianPose(protection, this.latestSample?.camera))) return;
     // Orbit/resize may change the live camera while Spark awaits its worker.
     // Sort and draw the same camera, then consume newer input on the next frame.
     // Reuse its identity: Three caches glass transmission buffers by camera.id.
@@ -2651,7 +2719,7 @@ export class StudioViewport {
     if ((optics?.enabled||!postProcessingIsNeutral(finish)) && !this.options.capture) {
       this.depthOfFieldPreview ??= new DepthOfFieldPreview();
       const gate=this.filmGuides?filmGateRect(size.width,size.height,this.filmOutputAspect):undefined;
-      this.depthOfFieldPreview.render(this.renderer, this.scene, camera, size.width, size.height, optics, focalLengthMm, splatBackground,finish,gate,this.previewConnection?.saveData!==true);
+      this.depthOfFieldPreview.render(this.renderer, this.scene, camera, size.width, size.height, optics, focalLengthMm, splatBackground,finish,gate,this.previewConnection?.saveData!==true,this.activeGaussianProtection()?.outside);
     } else {
       this.depthOfFieldPreview?.dispose(); this.depthOfFieldPreview = null;
       this.renderer.render(this.scene, camera);
@@ -2854,7 +2922,7 @@ export class StudioViewport {
   }
 
   frameSelection(): void {
-    if (!this.options.studioMode || this.options.capture || this.disposed || !this.focusedRoots().length) return;
+    if (!this.options.studioMode || this.options.capture || this.disposed || this.activeGaussianProtection() || !this.focusedRoots().length) return;
     if (!this.sampledCamera) this.sampledCamera = {
       position: this.camera.position.clone(), quaternion: this.camera.quaternion.clone(), fov: this.camera.fov,
       target: this.controls?.target.clone() || this.camera.position.clone().add(this.camera.getWorldDirection(new THREE.Vector3())),
@@ -3030,7 +3098,7 @@ export class StudioViewport {
 
   /** Frame the real prop instance while keeping the sampled shot available to reset. */
   frameWorldObject(id: string): void {
-    if (!this.options.studioMode || this.options.capture || this.disposed) return;
+    if (!this.options.studioMode || this.options.capture || this.disposed || this.activeGaussianProtection()) return;
     if (!this.sampledCamera) this.sampledCamera = {
       position: this.camera.position.clone(), quaternion: this.camera.quaternion.clone(), fov: this.camera.fov,
       target: this.controls?.target.clone() || this.camera.position.clone().add(this.camera.getWorldDirection(new THREE.Vector3())),
@@ -3044,6 +3112,7 @@ export class StudioViewport {
   }
 
   private fitSelection(): void {
+    if (this.activeGaussianProtection()) return;
     const bounds = new THREE.Box3();
     const id = this.framedWorldObjectId;
     const roots = id === '$product' ? [...this.components.values()]
@@ -3134,6 +3203,7 @@ export class StudioViewport {
     this.deferredWorld = null;
     this.worldLoadVersion = -1;
     this.worldReady = false;
+    this.disposeWaterRippleMaps();
     if (this.selection) {
       this.scene.remove(this.selection);
       this.selection.geometry.dispose();
@@ -3148,6 +3218,7 @@ export class StudioViewport {
     this.components.clear();
     this.environmentObjects.clear();
     this.environmentBackground = null;
+    this.gaussianProtection = null;
     this.scene.environment = null;
     this.scene.environmentIntensity = 1;
     this.scene.environmentRotation.set(0, 0, 0);

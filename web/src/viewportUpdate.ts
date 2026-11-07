@@ -1,7 +1,7 @@
 /** Conservative GPU-resource boundary. Unknown fields remain in the key: new
  * scene features cannot silently inherit an incomplete incremental adapter. */
 const materialValues = ['name','baseColor','roughness','metallic','transmission','ior','normalScale','heightScaleM','textureRepeat'];
-const lightValues = ['id','name','enabled','type','positionM','targetM','powerW','diameterM','color','coneDeg','blend'];
+const lightValues = ['id','name','enabled','type','positionM','targetM','powerW','diameterM','color','coneDeg','blend','waterRipple'];
 function remove(object:any, keys:readonly string[]) {if(object)for(const key of keys)delete object[key];}
 function materialResource(material:any) {remove(material,materialValues);}
 function copy(scene:any):any {return JSON.parse(JSON.stringify(scene));}
@@ -55,7 +55,7 @@ export function viewportSamplesKey(scene:any):string {
   for(const prop of value.environment?.props??[])delete prop.material;
   if(value.lighting){
     const {ambientStrength,ambientColor,hdri,...lighting}=value.lighting;
-    value.lighting={...lighting,lights:(lighting.lights??[]).map((light:any)=>{const pose={...light};remove(pose,['name','type','powerW','diameterM','color','coneDeg','blend']);return pose;})};
+    value.lighting={...lighting,lights:(lighting.lights??[]).map((light:any)=>{const pose={...light};remove(pose,['name','type','powerW','diameterM','color','coneDeg','blend','waterRipple']);return pose;})};
   }
   return JSON.stringify(value);
 }

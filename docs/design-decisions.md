@@ -1718,3 +1718,9 @@ The viewport shows a shot camera reset only in Film during inspection. Its label
 ### 2026-11-06 — Give the product its own Stage handles
 
 **Implemented for the connected editor.** Stage → Objects treats the whole product as a selectable subject. If it is the only visible object, it starts selected. Move edits the saved placement offset, Rotate turns around vertical, and Resize scales uniformly. The camera and model geometry are separate from these placement edits. The viewport labels the selection as Product placement so it is distinguishable from a prop or contact surface. Scope includes `App.tsx`, `viewport.ts`, and `propTransform.ts`.
+
+### 2026-11-06 — Edit moving water light and constrain reviewed Gaussian rooms
+
+**Implemented for the connected editor.** Stage → Lighting adds a water ripple projection to spotlights with strength, scale, and speed. The same projected pattern advances from sampled film time in the browser and native Cycles. The projector illuminates scene geometry. Lighting baked into a Gaussian stays in its plate.
+
+The local catalog offers Authored studio and the two selected refined rooms. Choosing a protected room copies its position and aim bounds into the scene. Existing endpoints outside them move to the reviewed camera in the same undoable edit. Evaluation checks every visible scene frame after film motion, the visible room disables free orbit and asset alignment, and uncovered plate pixels use a black or white matte. The render pipeline keeps its per-camera, pixel-verified Gaussian copy and retains the original source. Archive and protection records live in the workspace. Scope includes Stage lighting, viewport rendering, scene validation, and the workspace world catalog.
