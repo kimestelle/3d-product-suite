@@ -56,7 +56,7 @@ input::placeholder,textarea::placeholder{color:var(--gesso-text-muted)}
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--gesso-border-focus);outline-offset:var(--gesso-space-2)}
 kbd{font:400 10px/12px var(--gesso-font-text);color:var(--gesso-text-muted)}
 h2,h3{font-family:var(--gesso-font-text);font-size:14px;line-height:20px;font-weight:500}
-.gesso-ui-icon{display:inline-block;flex:none;background:currentColor;mask-repeat:no-repeat;mask-position:center;mask-size:auto;-webkit-mask-repeat:no-repeat;-webkit-mask-position:center;-webkit-mask-size:auto;vertical-align:middle}
+.gesso-ui-icon{display:inline-block;flex:none;background:none;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle;overflow:visible}
 
 /* The frame stays quiet; the native renderer retains the whole center. */
 .gesso-studio{--rail-width:340px;--gesso-font-section:var(--gesso-font-text)}
@@ -72,7 +72,7 @@ h2,h3{font-family:var(--gesso-font-text);font-size:14px;line-height:20px;font-we
 .gesso-header-actions .gesso-save-status:is([data-state=saving],[data-state=opening],[data-state=working]){color:var(--gesso-signal-pending)}
 .gesso-save-status .gesso-ui-icon{flex:none}
 .gesso-header-actions .gesso-export-entry{display:inline-flex;align-items:center;gap:var(--gesso-space-4)}
-.gesso-export-arrow{width:14px;height:20px;mask-image:url("./assets/gesso/about-arrow-up-right.svg");-webkit-mask-image:url("./assets/gesso/about-arrow-up-right.svg");mask-size:contain;-webkit-mask-size:contain}
+.gesso-export-arrow{background:currentColor;width:14px;height:20px;mask-image:url("./assets/gesso/about-arrow-up-right.svg");-webkit-mask-image:url("./assets/gesso/about-arrow-up-right.svg");mask-size:contain;-webkit-mask-size:contain}
 .gesso-navrow button{height:32px;min-height:32px;font-size:13px;line-height:18px;gap:var(--gesso-space-4);color:var(--gesso-text-secondary);border-radius:4px}
 .gesso-navrow button[aria-pressed=true]{color:var(--gesso-text-primary)}
 .gesso-navrow button:hover,.gesso-film-mode button:hover{background:transparent}
@@ -239,10 +239,8 @@ select option{background:var(--gesso-surface-field);color:var(--gesso-text-prima
 .gesso-material-preview-label{display:flex;align-items:center;gap:var(--gesso-space-8)}
 .gesso-header-actions .gesso-save-status{height:21px;min-height:21px;font:400 11px/16px var(--gesso-font-text)}
 
-/* Button highlights use surfaces; keyboard focus gets a distinct solid fill. */
+/* Hover and selected surfaces are independent of keyboard focus. */
 :is(.gesso-studio,.gesso-aperture-editor,.gesso-export-dialog) button:is(:hover,:active,[aria-pressed=true],[aria-selected=true],[aria-expanded=true],.selected,.is-selected):not(:disabled){border-color:transparent;outline:none;box-shadow:none}
-:is(.gesso-studio,.gesso-aperture-editor,.gesso-export-dialog) button:focus-visible:not(:disabled){border-color:transparent;outline:none;box-shadow:none;background:var(--gesso-surface-action);color:var(--gesso-text-on-action)}
-:is(.gesso-studio,.gesso-aperture-editor,.gesso-export-dialog) button:focus-visible:not(:disabled) :is(span,small,kbd){color:inherit}
 
 
 /* Section rules follow their labels, leaving metadata on the right.

@@ -1,101 +1,125 @@
-import {useEffect, useLayoutEffect, useRef} from 'react';
+import {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {FrameWindow, useFrameSource, useFrameInvalidation} from './DynamicFrame';
 import {aboutFrameNodes} from './frameGeometry';
-import arrowUpRight from './assets/gesso/about-nav-arrow.svg';
-import {PRODUCT_DESCRIPTION, PRODUCT_LAYERS, PRODUCT_PROCESS_NOTE, PRODUCT_ENDNOTE, PRODUCT_GALLERY, PRODUCT_GALLERY_NOTE, type GalleryItem} from './productDescription';
+import PublicSiteHeader from './PublicSiteHeader';
+import {UiIcon} from './UiIcon';
+import {PRODUCT_DESCRIPTION, PRODUCT_LAYERS, PRODUCT_GALLERY, PRODUCT_GALLERY_NOTE, type GalleryItem} from './productDescription';
 import './about.css';
-import './site-grid.css';
 
-/* A loop plays only while it is on screen; reduced motion keeps the poster. */
-function GalleryLoop({item}: {item: GalleryItem}) {
-  const video = useRef<HTMLVideoElement>(null);
-  useEffect(() => {
-    const element = video.current;
-    if (!element || typeof IntersectionObserver === 'undefined') return;
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
-    const observer = new IntersectionObserver(entries => {
-      for (const entry of entries) {
-        if (entry.isIntersecting && entry.intersectionRatio >= .4) element.play().catch(() => {});
-        else element.pause();
-      }
-    }, {threshold: [0, .4]});
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-  return <li>
-    <video ref={video} className="about-gallery-video gesso-product-film" muted loop playsInline preload="none"
-      poster={`/media/gallery/${item.slug}.jpg`} aria-label={`${item.product} in ${item.world}`}>
-      <source src={`/media/gallery/${item.slug}.webm`} type="video/webm"/>
-      <source src={`/media/gallery/${item.slug}.mp4`} type="video/mp4"/>
-    </video>
-    <p className="about-gallery-caption"><span>{item.product}</span> · {item.world}</p>
-    <p className="about-gallery-credit">{item.credit}</p>
-  </li>;
+// Every film keeps its own poster. Only one can play, and only on this page, in view.
+function GalleryFilm({item,active,selected,requested,onSelect}:{
+  item:GalleryItem;active:boolean;selected:boolean;requested:boolean;onSelect:(slug:string|null)=>void;
+}) {
+  const video=useRef<HTMLVideoElement>(null);
+  const [playing,setPlaying]=useState(false);
+  useEffect(()=>{
+    const element=video.current;
+    if(!element)return;
+    const motion=matchMedia('(prefers-reduced-motion: reduce)');
+    const connection=(navigator as Navigator & {connection?:EventTarget & {saveData?:boolean}}).connection;
+    let visible=typeof IntersectionObserver==='undefined';
+    const sync=()=>{
+      if(active&&visible&&selected&&!document.hidden&&(requested||(!motion.matches&&!connection?.saveData))){
+        void element.play().catch(()=>{});
+      }else element.pause();
+    };
+    const observer=typeof IntersectionObserver==='undefined'?null:new IntersectionObserver(([entry])=>{
+      visible=entry.isIntersecting&&entry.intersectionRatio>=.2;sync();
+    },{threshold:[0,.2]});
+    observer?.observe(element);sync();
+    document.addEventListener('visibilitychange',sync);motion.addEventListener('change',sync);connection?.addEventListener('change',sync);
+    return ()=>{observer?.disconnect();document.removeEventListener('visibilitychange',sync);motion.removeEventListener('change',sync);connection?.removeEventListener('change',sync);element.pause();};
+  },[active,selected,requested]);
+  return <figure className="about-film">
+    <div className="about-film-screen">
+      <video ref={video} className="about-gallery-video gesso-product-film" muted loop playsInline preload="none"
+        poster={`/media/gallery/${item.slug}.jpg`} aria-label={`${item.product} in ${item.world}`}
+        onPlaying={()=>setPlaying(true)} onPause={()=>setPlaying(false)}>
+        <source src={`/media/gallery/${item.slug}.webm`} type="video/webm"/>
+        <source src={`/media/gallery/${item.slug}.mp4`} type="video/mp4"/>
+      </video>
+      <button className="about-film-play" type="button" aria-label={`${playing?'Pause':'Play'} ${item.product} film`}
+        onClick={()=>{onSelect(playing?null:item.slug); if(!playing)void video.current?.play().catch(()=>{});}}>
+        <UiIcon name={playing?'pause':'play'}/>
+      </button>
+    </div>
+    <figcaption><p className="about-gallery-caption">{item.product}<span>{item.world}</span></p>
+      <p className="about-gallery-credit">{item.credit}</p></figcaption>
+  </figure>;
 }
 
-export default function AboutPage({active = true}: {active?:boolean}) {
-  const root = useRef<HTMLDivElement>(null);
-  const frame = useRef<{width:number;height:number;ground:string;fill:string;light:string}|null>(null);
-  const invalidate = useFrameInvalidation();
-  useFrameSource('about', () => {
-    if (!root.current || !frame.current) return null;
-    const {width,height,ground,fill,light} = frame.current, mobile = width <= 760;
-    return {nodes:aboutFrameNodes(width,height),ground,fill,
-      halo:{color:light,blur:mobile?50:95,spread:mobile?24:65,opacity:mobile?.32:.8}};
+export default function AboutPage({active=true}:{active?:boolean}) {
+  const root=useRef<HTMLDivElement>(null);
+  const frame=useRef<{width:number;height:number;ground:string;fill:string}|null>(null);
+  const [featured,...gallery]=PRODUCT_GALLERY;
+  const [playback,setPlayback]=useState<{slug:string|null;requested:boolean}>({slug:featured.slug,requested:false});
+  const invalidate=useFrameInvalidation();
+  useFrameSource('about',()=>{
+    if(!root.current||!frame.current)return null;
+    const {width,height,ground,fill}=frame.current;
+    return {nodes:aboutFrameNodes(width,height),ground,fill,halo:{color:ground,blur:0,spread:0,opacity:0}};
   });
-  useLayoutEffect(() => {
-    const element = root.current;
-    if (!element) return;
-    const measure = () => {
-      if (!element.clientWidth || !element.clientHeight) return;
-      const styles = getComputedStyle(element);
-      frame.current = {width:element.clientWidth,height:element.clientHeight,
-        ground:styles.getPropertyValue('--about-ground').trim() || '#1c3e9f',
-        fill:styles.getPropertyValue('--about-surface').trim() || '#131313',
-        light:styles.getPropertyValue('--about-light').trim() || '#247cda'};
+  useLayoutEffect(()=>{
+    const element=root.current;
+    if(!element)return;
+    const measure=()=>{
+      if(!element.clientWidth||!element.clientHeight)return;
+      const styles=getComputedStyle(element);
+      frame.current={width:element.clientWidth,height:element.clientHeight,
+        ground:styles.getPropertyValue('--about-ground').trim(),fill:styles.getPropertyValue('--about-surface').trim()};
       invalidate('about');
     };
-    const observer = new ResizeObserver(measure); observer.observe(element); measure();
-    return () => observer.disconnect();
-  }, [active, invalidate]);
+    const observer=new ResizeObserver(measure);observer.observe(element);measure();
+    return ()=>observer.disconnect();
+  },[active,invalidate]);
+  useLayoutEffect(()=>{
+    if(!active)return;
+    // The retained route resets its scrollport on entry. Restore an explicit
+    // destination after that reset and the shell's default heading focus.
+    let frame=0;
+    const follow=()=>{
+      cancelAnimationFrame(frame);
+      const hash=location.hash;
+      if(!/^\/about\/?$/.test(location.pathname)||
+        !['#about-title','#about-process-title','#about-gallery-title'].includes(hash))return;
+      frame=requestAnimationFrame(()=>{
+        const target=root.current?.querySelector<HTMLElement>(hash);
+        target?.scrollIntoView({block:'start',behavior:'instant'});target?.focus({preventScroll:true});
+      });
+    };
+    follow();window.addEventListener('hashchange',follow);
+    return ()=>{cancelAnimationFrame(frame);window.removeEventListener('hashchange',follow);};
+  },[active]);
+  const film=(item:GalleryItem)=><GalleryFilm item={item} active={active} selected={playback.slug===item.slug}
+    requested={playback.requested} onSelect={slug=>setPlayback({slug,requested:true})}/>;
   return <div ref={root} className="gesso-about" inert={!active} aria-hidden={!active}>
     <a data-frame-outside className="about-skip" href="#about-title">Skip to product description</a>
-    <header className="about-header gesso-site-header" data-frame-outside>
-      <a className="about-wordmark gesso-site-wordmark" href="/landing" aria-label="gesso home">gesso</a>
-      <nav className="gesso-site-nav" aria-label="Main navigation">
-        <a className="site-about-link" href="#about-title" aria-current="page">about</a>
-        <a className="site-study-link" href="/aperture">form + light</a>
-        <a className="site-studio-link" data-studio-resume href="/?step=product&layer=model">enter studio <img src={arrowUpRight} alt="" width="14" height="20"/></a>
-      </nav>
-    </header>
-    <FrameWindow className="about-window" role="main" aria-label="About gesso">
+    <div data-frame-outside className="about-header"><PublicSiteHeader current="about"/></div>
+    <FrameWindow className="about-window" role="main" aria-label="About Gesso">
       <div className="about-scroll" data-frame-scroll role="region" aria-label="Product description" tabIndex={0}>
-      <div className="about-description">
-        <section className="about-description-row" aria-labelledby="about-title">
-          <h1 id="about-title" tabIndex={-1}>{PRODUCT_DESCRIPTION.title}</h1>
-          <div className="about-description-body">{PRODUCT_DESCRIPTION.paragraphs.map(text => <p key={text}>{text}</p>)}</div>
-        </section>
-        <section className="about-description-row" aria-labelledby="about-process-title">
-          <h2 id="about-process-title">Product to film<br/>in three steps</h2>
-          <div className="about-description-body">
-            <div className="about-process-grid"><dl className="about-layers">{PRODUCT_LAYERS.map((layer, index) => <div key={layer.name}>
-              <dt><span>{String(index + 1).padStart(2, '0')}</span>{layer.name}</dt>
-              <dd>{layer.text}</dd>
+        <div className="about-description">
+          <section className="about-intro" aria-labelledby="about-title">
+            <div className="about-intro-copy">
+              <h1 id="about-title" tabIndex={-1}>{PRODUCT_DESCRIPTION.title.replace('image-making','image‑making')}</h1>
+              {PRODUCT_DESCRIPTION.paragraphs.map(text=><p key={text}>{text}</p>)}
+            </div>
+            {film(featured)}
+          </section>
+          <section className="about-process" aria-labelledby="about-process-title">
+            <h2 id="about-process-title" tabIndex={-1}>Build the scene</h2>
+            <dl className="about-layers">{PRODUCT_LAYERS.map(layer=><div key={layer.name}>
+              <dt>{layer.name}</dt><dd>{layer.text}</dd>
             </div>)}</dl>
-            <p className="about-process-promise">{PRODUCT_PROCESS_NOTE}</p></div>
-          </div>
-        </section>
-        <section className="about-description-row about-gallery-row" aria-labelledby="about-gallery-title">
-          <h2 id="about-gallery-title">Made with<br/>gesso</h2>
-          <div className="about-description-body">
-            <ul className="about-gallery">{PRODUCT_GALLERY.map(item => <GalleryLoop key={item.slug} item={item}/>)}</ul>
-            <p className="about-process-note">{PRODUCT_GALLERY_NOTE}</p>
-          </div>
-        </section>
-        <footer className="about-description-row about-endnote">
-          <div className="about-description-body"><p>{PRODUCT_ENDNOTE}</p><a data-studio-resume href="/?step=product&layer=model">enter studio <span className="about-endnote-arrow" aria-hidden="true"/></a></div>
-        </footer>
-      </div>
+          </section>
+          <section className="about-gallery-section" aria-labelledby="about-gallery-title">
+            <div className="about-section-head"><h2 id="about-gallery-title" tabIndex={-1}>Made with Gesso</h2><p>{PRODUCT_GALLERY_NOTE}</p></div>
+            <ul className="about-gallery">{gallery.map(item=><li key={item.slug}>{film(item)}</li>)}</ul>
+          </section>
+          <footer className="about-endnote">
+            <a href="/aperture">Form + light</a>
+            <a data-studio-resume href="/?step=product&layer=model">Enter studio</a>
+          </footer>
+        </div>
       </div>
     </FrameWindow>
   </div>;

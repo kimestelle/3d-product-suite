@@ -36,7 +36,7 @@ export default function EditorNavigation({group,onGroup,exportActive,onExport,ex
     </div>
     <div className="gesso-export-actions" role="group" aria-label="Export actions" data-with-dice={!!onRandomSetup} data-disabled={exportDisabled}>
       {onRandomSetup && <button type="button" className="gesso-random-setup-button" aria-label="Generate random"
-        title="Configure random setup" aria-pressed={randomSetupActive} disabled={exportDisabled} onClick={onRandomSetup}>generate random</button>}
+        title="Generate a new film preview" aria-pressed={randomSetupActive} disabled={exportDisabled} onClick={onRandomSetup}>generate random</button>}
       <button type="button" className="gesso-export-tab gesso-export-tab-button" aria-pressed={exportActive} disabled={exportDisabled} onClick={onExport}
         style={{'--export-contour':`path("${exportActive?exportTabContour:exportButtonContour}")`} as CSSProperties}>
         <span className="gesso-export-tab-surface" aria-hidden="true"><svg viewBox="0 0 200 36" preserveAspectRatio="none">

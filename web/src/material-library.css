@@ -36,7 +36,6 @@
 .gesso-preset-scope>.gesso-ui-icon{flex-shrink:0}
 .gesso-preset-fields{display:flex;flex-direction:column;gap:var(--gesso-space-8)}
 .gesso-panel .gesso-field.gesso-material-field{display:grid;grid-template-columns:86px minmax(0,1fr);align-items:center;gap:var(--gesso-space-8);height:32px;margin:0;padding:var(--gesso-space-4) var(--gesso-space-8);border:1px solid var(--gesso-border-control,#626262);border-radius:var(--gesso-radius-control,4px);background:var(--gesso-surface-field,#242424)}
-.gesso-panel .gesso-material-field:focus-within{outline:2px solid var(--gesso-border-focus,#f5f5f3);outline-offset:var(--gesso-space-2)}
 .gesso-panel .gesso-material-field>span{font:400 12px/18px var(--gesso-font-text);color:var(--gesso-text-secondary,#aaa9a7)}
 .gesso-panel .gesso-material-field input:not([type=color]),.gesso-panel .gesso-material-field select{height:20px;min-width:0;width:100%;border:0;border-radius:0;padding:0 0 var(--gesso-space-2);outline:0;background:transparent;color:var(--gesso-text-primary,#f5f5f3);font:400 13px/18px var(--gesso-font-text)}
 .gesso-material-field .gesso-color{min-width:0;gap:var(--gesso-space-8)}
@@ -86,14 +85,12 @@
 .gesso-material-sample-shapes{position:absolute;z-index:2;top:0;right:0;display:flex;gap:4px}
 .gesso-panel .gesso-material-sample-shapes>button{display:grid;place-items:center;width:28px;height:28px;min-height:28px;padding:3px 5px;border:0;background:transparent;box-shadow:none;color:var(--gesso-text-primary,#f5f5f3);opacity:.35;transition:opacity 160ms ease}
 .gesso-panel .gesso-material-sample-shapes>button[aria-pressed=true],.gesso-panel .gesso-material-sample-shapes>button:hover{opacity:1;background:transparent;outline:0;box-shadow:none}
-.gesso-panel .gesso-material-sample-shapes>button:focus-visible{outline:1px solid currentColor;outline-offset:2px}
 .gesso-material-sample-shapes svg{display:block;width:18px;height:18px}
 .gesso-material-sample-render{position:absolute;inset:0;pointer-events:none}
 .gesso-panel .gesso-material-sample-rotate{position:absolute;inset:0;z-index:1;display:block;width:100%;height:100%;min-height:0;margin:0;padding:0;border:0;border-radius:4px;background:transparent;box-shadow:none;cursor:grab;touch-action:none;user-select:none}
 .gesso-panel .gesso-material-sample-rotate:hover,.gesso-panel .gesso-material-sample-rotate:active{background:transparent}
 .gesso-panel .gesso-material-sample-rotate[data-dragging=true]{cursor:grabbing}
 .gesso-panel .gesso-material-sample-rotate:disabled{cursor:default}
-.gesso-studio .gesso-panel .gesso-material-sample-rotate:focus-visible{background:transparent;outline:1px solid var(--gesso-border-focus);outline-offset:-2px}
 .gesso-material-sample .gesso-material-swatch-grid{display:block}
 .gesso-material-sample button.gesso-material-swatch{height:184px;min-height:184px;gap:0}
 .gesso-material-sample .gesso-material-swatch-image{width:184px;height:184px;flex-basis:184px}
@@ -106,7 +103,7 @@
 .gesso-panel .gesso-material-menu-trigger:hover,.gesso-panel .gesso-material-menu-trigger[aria-expanded=true]{color:var(--gesso-text-primary);background:var(--gesso-surface-hover)}
 .gesso-material-menu{position:fixed;z-index:300;width:224px;max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);overflow:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:2px;padding:4px;border:1px solid var(--gesso-border-subtle);border-radius:4px;background:var(--gesso-surface-field);color:var(--gesso-text-primary);font:400 12px/18px var(--gesso-font-text);box-shadow:0 8px 24px #0003;animation:gesso-material-menu-in 160ms ease-out both}
 .gesso-material-menu button{display:flex;align-items:center;width:100%;min-height:32px;padding:3px 8px 5px;border:0;background:transparent;color:var(--gesso-text-secondary);text-align:left;font:inherit}
-.gesso-material-menu button:hover,.gesso-material-menu button:focus-visible{background:var(--gesso-surface-hover);color:var(--gesso-text-primary)}
+.gesso-material-menu button:hover{background:var(--gesso-surface-hover);color:var(--gesso-text-primary)}
 .gesso-material-menu .is-destructive{color:var(--gesso-signal-error)}
 .gesso-material-menu [role=separator]{height:1px;background:var(--gesso-border-subtle);margin:4px}
 .gesso-material-menu>strong{padding:8px 8px 0;font-weight:500;overflow-wrap:anywhere}

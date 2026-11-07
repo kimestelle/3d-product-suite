@@ -4,6 +4,13 @@
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <meta name="theme-color" content="#131313"/>
+    <meta name="description" content="An image-making studio for physical products. Set up a 3D scene, change the material or camera, and render stills and films."/>
+    <script>
+      if (/^\/(landing|about|aperture)\/?$/.test(location.pathname)) {
+        document.documentElement.dataset.publicEntry = /^\/landing\/?$/.test(location.pathname) ? 'landing' : 'true';
+        document.querySelector('meta[name="theme-color"]').content = document.documentElement.dataset.publicEntry === 'landing' ? '#080808' : '#fafaf7';
+      }
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=halo-oval-1"/>
     <link rel="preconnect" href="https://use.typekit.net" crossorigin/>
     <link rel="preconnect" href="https://p.typekit.net"/>
@@ -16,6 +23,10 @@
       #gesso-boot-message{position:absolute;top:calc(50% + 76px);left:50%;transform:translateX(-50%);width:min(320px,calc(100vw - 48px))}
       #gesso-boot p{margin:0}
       #gesso-boot a{display:inline-block;margin-top:8px;padding:3px 12px 5px;color:inherit;text-underline-offset:4px}
+      html[data-public-entry],html[data-public-entry] body,html[data-public-entry] #gesso-boot{background:#fafaf7;color:#101112}
+      html[data-public-entry="landing"],html[data-public-entry="landing"] body,html[data-public-entry="landing"] #gesso-boot{background:#080808;color:#fafaf7}
+      html[data-public-entry] #gesso-boot-glyph{display:none}
+      html[data-public-entry] #gesso-boot-message{top:50%}
       #gesso-boot a[hidden]{display:none}
       #gesso-boot a:focus-visible{outline:1px solid currentColor;outline-offset:4px}
     </style>

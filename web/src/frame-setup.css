@@ -11,7 +11,6 @@
 .frame-setup-target>small{flex:none;font-size:10px;line-height:16px;color:var(--gesso-text-muted)}
 .frame-setup-target:hover{background:var(--gesso-surface-hover)}
 .frame-setup-target[data-selected=true]{background:var(--gesso-surface-selected);color:var(--gesso-text-primary)}
-.frame-setup-target:focus-within{outline:2px solid var(--gesso-border-focus);outline-offset:var(--gesso-space-2)}
 .frame-setup-target[data-unavailable=true]{cursor:default;color:var(--gesso-text-disabled)}
 .frame-setup-target[data-unavailable=true]:hover{background:transparent}
 .frame-setup-target-hint{margin:0 var(--gesso-space-8) var(--gesso-space-4) var(--gesso-space-30);font:400 10px/14px var(--gesso-font-text);color:var(--gesso-text-muted)}

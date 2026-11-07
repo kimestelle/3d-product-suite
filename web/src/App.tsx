@@ -71,7 +71,8 @@ import {canonicalizeDecalArtwork} from './artwork';
 import { groups, shortcutDestination, type EditorDestination } from './navigation';
 import {useEditorNavigation} from './useEditorNavigation';
 import {startExportJobPolling} from './exportJobPolling';
-import {resolveSaveStatus} from './saveStatus';
+import {resolveSaveStatus, type SavePreview} from './saveStatus';
+import {CampaignSaveControl} from './CampaignSaveControl';
 import EditorNavigation, {EditorLayerNavigation} from './EditorNavigation';
 import {UiIcon} from './UiIcon';
 import {EditorMenu} from './editorMotion';
@@ -441,6 +442,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     return()=>{recoveryMounted.current=false;window.removeEventListener('pagehide',flush);window.removeEventListener('beforeunload',closing);window.removeEventListener('storage',changed);recoveryWriter.current?.dispose();importGuard.current.cancel();++recoveryGeneration.current;};
   },[]);
   const saveStatus=resolveSaveStatus({saving,loaded:!!project,busy:busy||productImporting||importing||importingFilmImage,dirty});
+  const savePreview:SavePreview=materialPreview?'material':transformDraft?'transform':randomPreview&&exportDraft?'film':null;
   const valid=!!renderScene&&!!samples.length&&!evaluating&&!validationError&&evaluatedScene.current===renderScene;
   const visibleViewportLoading=productImporting||!validationError&&((viewportLoading.a&&(!showComparison||previewComparisonMode!=='b'))||(viewportLoading.b&&showComparison&&previewComparisonMode!=='a'));
   const controlsReady=valid||!!(renderScene&&evaluatedScene.current&&!validationError&&!visibleViewportLoading&&!renderScene.comparison&&fullViewportInstalls.current===0&&canUpdateViewportScene(evaluatedScene.current,renderScene));
@@ -776,7 +778,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
       setProjects(await api('/api/projects'));return result;
     }finally{setSaving(false);}
   };
-  const save=()=>perform(async()=>{if(cleanupPreviewRef.current)throw new Error('Apply the cleanup preview or return to the original before saving.');await persistCurrentRevision();setNotice('Revision saved','success');});
+  const save=()=>perform(async()=>{if(cleanupPreviewRef.current)throw new Error('Apply the cleanup preview or return to the original before saving.');await persistCurrentRevision();setNotice(savePreview?'Original campaign saved; preview not included':'Revision saved','success');});
   const approve=()=>perform(async()=>{if(!project||dirty)throw new Error('Save this revision before approving it.');const result=await api(`/api/projects/${project.id}/approve`,'POST',{expectedRevisionId:project.revisionId});setProject(result);setNotice('Approved revision preserved','success')});
   const restore=()=>perform(async()=>{if(!allowSceneEdit()||!project?.approvedRevisionId)return;const old=await api(`/api/projects/${project.id}/revisions/${project.approvedRevisionId}`);setHistory(h=>commitHistory(h,old.scene));setNotice('Approved scene restored as an editable draft','success')});
   const exportBlockedReason=cleanupPreview?'Apply the cleanup preview or return to the original before exporting.':randomPreview&&(!exportDraft||randomSettingsDirty)?'Generate setup to preview and export these choices.':transformMode?'Apply or cancel the transform before exporting.':materialPreview?'Save or discard the material preview before exporting.':validationError?validationError:!valid?'Wait for the current scene to finish loading.':'';
@@ -1272,7 +1274,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
           <button className="gesso-header-icon" aria-label="Undo" title={randomPreview?"Return to Current scene to undo campaign edits":"Undo (⌘/Ctrl Z)"} disabled={!!cleanupPreview||randomPreview||!canUndo(history)} onClick={undo}><UiIcon name="undo"/></button>
           <button className="gesso-header-icon" aria-label="Redo" title={randomPreview?"Return to Current scene to redo campaign edits":"Redo (⌘/Ctrl Shift Z)"} disabled={!!cleanupPreview||randomPreview||!canRedo(history)} onClick={redo}><UiIcon name="redo"/></button>
           <button className="gesso-header-icon" aria-label="History" title="History" aria-expanded={menu==='History'} onClick={()=>setMenu(menu==='History'?null:'History')}><UiIcon name="history"/></button>
-          <>{saveStatus!=='unsaved' ? <span className="gesso-save-status" data-state={saveStatus} role="status" title={saveStatus==='saved'?'Saved locally':saveStatus==='saving'?'Saving revision':saveStatus==='opening'?'Opening campaign':'Operation in progress'}><UiIcon name={saveStatus==='saved'?'check':'loader'}/>{{saved:'Saved',saving:'Saving…',opening:'Opening…',working:'Working…'}[saveStatus]}</span> : <button className="gesso-save" disabled={!!cleanupPreview||!!transformMode||busy||!project||evaluating} onClick={save} title={materialPreview?'Save the material preset first to include its preview in this revision':'Save revision (⌘/Ctrl S)'}>Save</button>}</>
+          <CampaignSaveControl status={saveStatus} preview={savePreview} disabled={!!cleanupPreview||!!transformMode||busy||!project||evaluating} onSave={save}/>
           <img className="gesso-avatar" src={avatar} alt=""/>
         </div>
       </div>
@@ -1391,6 +1393,6 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   </div>
 
 }
-const StudioEditor = memo(Editor);
+export const StudioEditor = memo(Editor);
 const renderEditor = (props: StudioEditorProps) => <StudioEditor {...props}/>;
 export default function App(){return location.pathname==='/capture'?<Capture/>:<StudioEntry renderEditor={renderEditor}/>}

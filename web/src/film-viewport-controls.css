@@ -19,7 +19,7 @@
 .gesso-film-target-handle>span{left:8px;top:8px;transition:background-color 160ms ease}
 .gesso-film-focus-marker{left:-16px;top:-16px}
 .gesso-film-target-handle[aria-disabled=true]{cursor:default;pointer-events:none}
-.gesso-film-target-handle:hover>span,.gesso-film-target-handle:focus-visible>span,.is-dragging .gesso-film-target-handle>span{background:#fff1}
+.gesso-film-target-handle:hover>span,.is-dragging .gesso-film-target-handle>span{background:#fff1}
 .gesso-film-guide-description{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .gesso-film-guide-error{position:absolute;bottom:12px;left:24px;right:24px;margin:0;font:400 12px/18px var(--gesso-font-text);color:var(--gesso-signal-error);text-shadow:0 1px 2px #000}
 .with-film-guides .gesso-view-toolbar{top:16px;bottom:auto;left:24px;right:24px}

@@ -1,18 +1,18 @@
 export const PRODUCT_DESCRIPTION = {
-  title: 'An image-making studio for people who know their product.',
+  title: 'An image‑making studio for people who know their product.',
   paragraphs: [
-    'For people who design and build physical products. You know the parts, materials, and details. Gesso helps you make stills and films—whether you’re launching without the time or budget for a studio production, or making new content every week.',
-    'World models generate a 3D setting around your product, so you don’t have to model a whole room or regenerate a video for every change. Your product stays a separate, editable model: its shape, finishes, and artwork stay consistent while you adjust the setting, camera, and motion.',
+    'Bring in your product model and build a scene around it. Choose the setting, adjust the materials, and frame the shot.',
+    'When the label changes or you want another finish, reopen the scene and work from the setup you already made.',
   ],
 };
 
 export const PRODUCT_LAYERS = [
-  {name: 'Product', text: 'Bring in a model. Organize its parts, assign materials, and place artwork.'},
+  {name: 'Product', text: 'Organize the model’s parts, assign materials, and place artwork.'},
   {name: 'Stage', text: 'Choose the setting, place props, and shape the light around the product.'},
-  {name: 'Film', text: 'Frame a still or build a sequence. Set focus, animate the scene, and export.'},
+  {name: 'Film', text: 'Frame a still or arrange camera moves into a film, then render the output.'},
 ];
 
-export const PRODUCT_PROCESS_NOTE = 'Start anywhere. A polished still or film is always one step away; everything stays editable.';
+export const PRODUCT_PROCESS_NOTE = 'The product, setting, and camera remain editable after a render.';
 
 export const PRODUCT_ENDNOTE = 'Set up the product once. Keep making with it.';
 
@@ -27,4 +27,4 @@ export const PRODUCT_GALLERY: GalleryItem[] = [
   {slug: 'theo-teapot', product: 'Theo teapot set', world: 'Orange field', credit: 'Stelton Theo teapot set via Blendswap · CC0'},
 ];
 
-export const PRODUCT_GALLERY_NOTE = 'Five products from Blendswap, each in its own setting. The rooms were generated from inspiration photos with World Labs Marble and keep their geometry, so the product rests on, shadows and hides behind real surfaces; the colour fields are the studio itself. Every film is lit by an adjustable ambient wash and a spot that moves.';
+export const PRODUCT_GALLERY_NOTE = 'World Labs Marble generated the rooms from reference photographs. The camera and teapot use flat studio fields. Each scene keeps the product model separate from its setting.';

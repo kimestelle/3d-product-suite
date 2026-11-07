@@ -64,6 +64,30 @@ describe('Export settings and deliverables', () => {
     expect(exportDownloadUrl('/api/jobs/1/files/film.mp4')).toBe('/api/jobs/1/files/film.mp4?download=1');
     expect(exportDownloadUrl('/pair.zip?revision=1')).toBe('/pair.zip?revision=1&download=1');
   });
+  it('rejects unusable primary receipts without falling back to a different output', () => {
+    for (const artifact of [
+      {name:'film.mov',url:''}, {name:'film.mov',url:'   '},
+      {name:'film.mov',url:'javascript:alert(1)'}, {name:'film.mov',url:'//outside.test/film.mov'},
+      {name:'film.mov',url:'/api/jobs/render-1/files/film.mov',bytes:0},
+      {name:'film.mov',url:'/api/jobs/render-1/files/film.mov',bytes:NaN},
+      {name:'film.mov',url:'/api/jobs/render-1/files/film.mov',bytes:-1},
+    ]) {
+      const artifacts=[artifact,{name:'film.mp4',url:'/api/jobs/render-1/files/film.mp4',bytes:200}];
+      expect(primaryExportArtifact({...job,artifacts})).toBeUndefined();
+      expect(artifacts).toHaveLength(2);
+    }
+    expect(primaryExportArtifact({...job,artifacts:[{name:'film.mov',url:'/api/jobs/render-1/files/film.mov',bytes:200}]})?.bytes).toBe(200);
+  });
+  it('does not substitute a completed child for a missing paired archive', () => {
+    const pair={...job,paired:true,primaryArtifact:'pair.zip',artifacts:[
+      {name:'pair.zip',url:'/api/comparison-renders/pair/files/pair.zip',bytes:0},
+      {name:'a/film.mp4',url:'/api/jobs/a/files/film.mp4',bytes:200},
+      {name:'b/film.mp4',url:'/api/jobs/b/files/film.mp4',bytes:200},
+    ]};
+    expect(primaryExportArtifact(pair)).toBeUndefined();
+    expect(pair.artifacts).toHaveLength(3);
+    expect(primaryExportArtifact({...pair,artifacts:[...pair.artifacts,{name:'pair.zip',url:'/api/comparison-renders/pair/files/pair.zip',bytes:500}]})?.bytes).toBe(500);
+  });
   it('keeps comparison children out of history while retaining both frame counts and downloads', () => {
     const a = {...job, id: 'a', state: 'succeeded', filename: 'Lamp', format: 'mp4' as const, completedFrames: 360};
     const b = {...job, id: 'b', state: 'running', format: 'mp4' as const, completedFrames: 72};

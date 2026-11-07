@@ -1,0 +1,73 @@
+.landing-finish-proof { margin: 0; min-width: 0; }
+.landing-finish-proof__stage {
+  display: grid;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  place-items: center;
+  overflow: hidden;
+  background: #fff;
+}
+.landing-finish-proof__stage > .dynamic-frame-inside {
+  display: grid;
+  place-items: center;
+}
+/* The source photos are 1120 × 840. A shared 560 × 420 source window
+   shows the whole case and crown, with matching registration in both finishes. */
+.landing-finish-proof__stage img {
+  display: block;
+  position: absolute;
+  left: calc(-100% * 300 / 560);
+  top: calc(-100% * 180 / 420);
+  width: 200%;
+  height: 200%;
+  max-width: none;
+}
+.landing-finish-proof__stage img[aria-hidden="true"] { visibility: hidden; }
+.landing-finish-proof__controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  margin: 8px 0 0;
+  border: 0;
+  padding: 0;
+  min-width: 0;
+  color: #101112;
+  font: 400 14px/1.3 var(--gesso-font-text, 'halyard-text-variable', sans-serif);
+}
+.landing-finish-proof__controls legend {
+  float: left;
+  display: grid;
+  min-height: 44px;
+  align-items: center;
+  padding: 0;
+}
+.landing-finish-proof__choices,
+.landing-finish-proof__choices label > span { display: inline-flex; align-items: center; }
+.landing-finish-proof__choices { flex-wrap: wrap; gap: 4px; }
+.landing-finish-proof__choices label { position: relative; display: block; cursor: pointer; }
+.landing-finish-proof__choices input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: inherit;
+}
+.landing-finish-proof__choices label > span {
+  min-height: 44px;
+  padding: 0 12px;
+  gap: 7px;
+  border-radius: 4px;
+  background: #efefe9;
+}
+.landing-finish-proof__choices i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.landing-finish-proof__choices input:checked + span { background: #101112; color: #fafaf7; }
+.landing-finish-proof__choices input:checked + span i { box-shadow: 0 0 0 1px #fafaf77f; }
+.landing-finish-proof__choices input:focus-visible + span { outline: 2px solid #1c48db; outline-offset: 3px; }
+.landing-finish-proof__choices input:disabled + span { opacity: .55; }

@@ -1,203 +1,155 @@
-import {useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type RefObject} from 'react';
-import reelPoster from './assets/gesso/landing-showcase-poster.webp';
-import watchStill from './assets/gesso/form-light-renders/omega-speedmaster.webp';
-import navArrow from './assets/gesso/about-arrow-up-right.svg';
-import {FrameOutside, FrameWindow, useFrameSource, useFrameInvalidation} from './DynamicFrame';
-import {landingFrameNodes} from './frameGeometry';
-import {LandingReel, LANDING_REEL_STILL} from './landingReel';
-import LandingVideoOverlay from './LandingVideoOverlay';
-import type {EntranceOrigin} from './studioEntrance';
-import {STATIC_MOTION_QUERY} from './motionPolicy';
+import {useLayoutEffect, useRef, useState} from 'react';
+import {useFrameSource, useFrameInvalidation} from './DynamicFrame';
+import {roundedFrameNodes} from './frameGeometry';
 import {PAGE_SCROLL_RESET_EVENT} from './pageScroll';
+import PublicSiteHeader from './PublicSiteHeader';
+import {landingWorlds} from './landingWorlds';
+import LandingProjection, {type ProjectionMotion} from './LandingProjection';
+import LandingFinishProof from './LandingFinishProof';
+import LandingFilm from './LandingFilm';
+import {landingScrollPose,landingScrollStep} from './landingScroll';
 import './landing.css';
-import './site-grid.css';
 
-const clamp = (value: number) => Math.min(1, Math.max(0, value));
-const repeatability = 'Set up your product once. Generate infinite worlds and content.';
+const cards=[
+  {type:'world',label:'Blue studio'},
+  {type:'world',label:'Velvet curtain'},
+  {type:'world',label:'Concrete atrium'},
+  {type:'finish',label:'Blue dial'},
+  {type:'finish',label:'Green dial'},
+  {type:'film',label:'The Film workspace'},
+] as const;
+const chapters={
+  world:{title:<>Set up the product once.<br/>Keep making with it.</>,description:'Make images and films from your 3D product model. Choose the setting, materials and camera.'},
+  finish:{title:<>Compare finishes without resetting the shot.</>,description:'The case, strap, lighting and camera stay in place.'},
+  film:{title:<>Make stills and films from the same scene.</>,description:'Arrange camera moves into a sequence, then render the film. Reopen the scene when a shot needs changing.'},
+};
+const ground='#080808';
+const shortQuery='(max-height: 520px) and (max-width: 650px)';
+const initialCard=()=>location.hash==='#studio-film'?5:location.hash==='#material-edit'?3:0;
 
-// Hover keeps one reversible timeline. Continuous geometry belongs to the shared
-// frame renderer; only the entrance's semantic thresholds update React.
-function useAperture(rootRef: RefObject<HTMLElement | null>, invalidate: () => void, active: boolean) {
-  const windowRef = useRef<HTMLDivElement>(null);
-  const [semantic, setSemantic] = useState({open: false, expanded: false});
-  const semanticRef = useRef(semantic);
-  const blocked = useRef(!active);
-  const motion = useRef({hover: false, focus: false, pinned: false, reduced: false, compact: false, progress: 0, target: 0, frame: 0, last: 0});
-  const paint = useCallback((progress: number) => {
-    const reveal = clamp((progress - .68) / .26);
-    const style = rootRef.current?.style;
-    style?.setProperty('--aperture-progress', String(progress));
-    style?.setProperty('--entrance-reveal', String(reveal));
-    style?.setProperty('--entrance-offset', `${(1 - reveal) * 8}px`);
-    if (windowRef.current) windowRef.current.dataset.aperture = progress.toFixed(3);
-    const next = {open: reveal > .9, expanded: progress === 1};
-    if (next.open !== semanticRef.current.open || next.expanded !== semanticRef.current.expanded) {
-      semanticRef.current = next;
-      setSemantic(next);
-    }
-    invalidate();
-  }, [rootRef, invalidate]);
-  const drive = useCallback(() => {
-    const m = motion.current;
-    m.target = !m.compact && (m.hover || m.focus || m.pinned) ? 1 : 0;
-    if (document.hidden || blocked.current) return;
-    if (m.reduced || m.compact) {
-      cancelAnimationFrame(m.frame); m.frame = 0;
-      m.progress = m.target; paint(m.progress); return;
-    }
-    if (m.frame || Math.abs(m.target - m.progress) < .001) return;
-    m.last = performance.now();
-    const tick = (now: number) => {
-      const dt = Math.max(0, Math.min(now - m.last, 48)); m.last = now;
-      const delta = m.target - m.progress;
-      // Reversing changes only direction; it never restarts the playhead.
-      const step = dt / 600;
-      m.progress += Math.sign(delta) * Math.min(Math.abs(delta), step);
-      // Keep exact endpoints for the shared frame and its content clip.
-      if (Math.abs(m.target - m.progress) < .001) m.progress = m.target;
-      paint(m.progress);
-      m.frame = Math.abs(m.target - m.progress) > .001 ? requestAnimationFrame(tick) : 0;
-    };
-    m.frame = requestAnimationFrame(tick);
-  }, [paint]);
-  useLayoutEffect(() => {
-    blocked.current = !active;
-    cancelAnimationFrame(motion.current.frame); motion.current.frame = 0;
-    if (active) {paint(motion.current.progress); drive();}
-    else Object.assign(motion.current, {hover: false, focus: false, pinned: false});
-  }, [active, paint, drive]);
-  useEffect(() => {
-    const preference = matchMedia(STATIC_MOTION_QUERY);
-    const compact = matchMedia('(max-width: 760px)');
-    const changePreference = () => {
-      motion.current.reduced = preference.matches; motion.current.compact = compact.matches;
-      if (compact.matches) Object.assign(motion.current, {hover: false, focus: false, pinned: false});
-      drive();
-    };
-    const visibility = () => {
-      cancelAnimationFrame(motion.current.frame); motion.current.frame = 0;
-      if (!document.hidden) drive();
-    };
-    changePreference();
-    preference.addEventListener('change', changePreference);
-    compact.addEventListener('change', changePreference);
-    document.addEventListener('visibilitychange', visibility);
-    return () => {
-      cancelAnimationFrame(motion.current.frame); motion.current.frame = 0;
-      preference.removeEventListener('change', changePreference);
-      compact.removeEventListener('change', changePreference);
-      document.removeEventListener('visibilitychange', visibility);
-    };
-  }, [drive]);
-  const readProgress = useCallback(() => motion.current.compact ? 0 : motion.current.progress, []);
-  return {windowRef, ...semantic, readProgress,
-    hover: () => {motion.current.hover = true; drive();},
-    leave: () => {motion.current.hover = false; motion.current.pinned = false; drive();},
-    focus: (focused: boolean) => {motion.current.focus = focused; drive();},
-    toggle: () => {motion.current.pinned = !motion.current.pinned; drive();},
-    dismiss: () => {Object.assign(motion.current, {hover: false, focus: false, pinned: false}); drive();},
-  };
-}
-
-function useLandingReel(active: boolean) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const player = useRef<LandingReel | null>(null);
-  const [state, setState] = useState(LANDING_REEL_STILL);
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    const reel = new LandingReel(video, setState, !active);
-    player.current = reel;
-    return () => {reel.dispose(); player.current = null;};
-  }, []);
-  useEffect(() => player.current?.setEntering(!active), [active]);
-  return {...state, videoRef, toggle: () => player.current?.toggle()};
-}
-
-export default function LandingPage({active}: {active:boolean}) {
-  const id = useId().replace(/:/g, '');
-  const [ready, setReady] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const rootRef = useRef<HTMLElement>(null);
-  const invalidate = useFrameInvalidation();
-  const invalidateLanding = useCallback(() => invalidate('landing'), [invalidate]);
-  const aperture = useAperture(rootRef, invalidateLanding, active);
-  const reel = useLandingReel(active);
-  const stillRender = reel.failed || (!reel.wanted && !reel.frameReady) ? watchStill : reelPoster;
-  const pointerKind = useRef('mouse');
-  const frame = useRef<{origin:EntranceOrigin;ground:string;light:string}|null>(null);
-  useFrameSource('landing', () => {
-    if (!rootRef.current || !aperture.windowRef.current || !frame.current) return null;
-    const {origin, ground, light} = frame.current;
-    const scale = origin.width / 1000;
-    return {nodes:landingFrameNodes({...origin, aperture:aperture.readProgress()}),ground,fill:light,
-      halo:{color:light,blur:104*scale,spread:72*scale,opacity:.8}};
+export default function LandingPage({active}:{active:boolean}) {
+  const root=useRef<HTMLElement>(null);
+  const track=useRef<HTMLDivElement>(null);
+  const projections=useRef<Array<ProjectionMotion|null>>([]);
+  const pose=useRef(landingScrollPose(0));
+  const [state,setState]=useState({index:0,filmReady:false,flow:matchMedia(shortQuery).matches});
+  const lastState=useRef(state);
+  const invalidate=useFrameInvalidation();
+  useFrameSource('landing',()=>{
+    const host=root.current;
+    const panel=host?.querySelector<HTMLElement>(`[data-story-card="${pose.current.index}"]`);
+    const source=panel?.querySelector<HTMLElement>('[data-landing-frame]');
+    if(!host||!source)return null;
+    const r=source.getBoundingClientRect();
+    if(!r.width||!r.height)return null;
+    for(const frame of host.querySelectorAll('[data-landing-frame]'))frame.toggleAttribute('data-frame-subject',frame===source);
+    const face=source.hasAttribute('data-projection-end');
+    const closed=face?0:(1-pose.current.opening)/2;
+    const bounds={left:r.left+r.width*closed,top:r.top+r.height*closed,right:r.right-r.width*closed,bottom:r.bottom-r.height*closed};
+    return {nodes:roundedFrameNodes(bounds,face?Math.min(r.width*24/440,(bounds.right-bounds.left)/2):0),ground,
+      fill:source.dataset.frameFill||(pose.current.index===5?'#242424':'#ffffff'),halo:{color:ground,opacity:0,blur:0,spread:0}};
   });
-  useLayoutEffect(() => {
-    const root = rootRef.current, window = aperture.windowRef.current;
-    if (!root || !window) return;
-    const measure = () => {
-      const box = window.getBoundingClientRect();
-      if (box.width <= 0 || box.height <= 0) return;
-      const styles = getComputedStyle(root);
-      frame.current = {origin:{x:box.left+box.width/2,y:box.top+box.height/2,width:box.width,
-        viewportWidth:innerWidth,viewportHeight:innerHeight,aperture:aperture.readProgress()},
-        ground:styles.getPropertyValue('--landing-surround').trim() || '#980101',
-        light:styles.getPropertyValue('--landing-light').trim() || '#ff5724'};
-      invalidateLanding();
+
+  useLayoutEffect(()=>{
+    const host=root.current,journey=track.current;
+    if(!host||!journey)return;
+    const panels=Array.from(host.querySelectorAll<HTMLElement>('[data-story-card]'));
+    const reduced=matchMedia('(prefers-reduced-motion: reduce)');
+    const short=matchMedia(shortQuery);
+    const connection=(navigator as Navigator&{connection?:EventTarget&{saveData?:boolean}}).connection;
+    let raf=0,step=landingScrollStep(host.clientHeight);
+    function paint() {
+      raf=0;
+      const quiet=reduced.matches||Boolean(connection?.saveData)||short.matches;
+      let progress=host!.scrollTop/step;
+      if(short.matches){
+        const middle=host!.getBoundingClientRect().top+host!.clientHeight*.5;
+        progress=panels.map((panel,index)=>({index,r:panel.getBoundingClientRect()}))
+          .sort((a,b)=>Math.abs((a.r.top+a.r.bottom)/2-middle)-Math.abs((b.r.top+b.r.bottom)/2-middle))[0]?.index??0;
+      }
+      const next=landingScrollPose(progress,quiet);
+      pose.current=next;
+      host!.dataset.storyIndex=String(next.index);
+      host!.dataset.storyQuiet=String(quiet);
+      host!.dataset.storyPhase=next.phase;
+      host!.dataset.storyHandoff=String(next.from===2||next.from===4);
+      host!.style.setProperty('--story-opening',String(next.opening));
+      host!.style.setProperty('--story-inset',`${50*(1-next.opening)}%`);
+      host!.style.setProperty('--story-handoff-opacity',String(Math.min(1,next.opening/.14)));
+      host!.style.setProperty('--story-copy',String(next.copy));
+      projections.current.forEach((projection,index)=>projection?.setOpening(index===next.index?next.opening:1));
+      const focused=document.activeElement;
+      if(active&&!short.matches&&panels.some((panel,index)=>index!==next.index&&focused&&panel.contains(focused)))host!.focus({preventScroll:true});
+      panels.forEach((panel,index)=>{
+        const visible=index===next.index||short.matches;
+        panel.dataset.active=String(index===next.index);
+        panel.inert=!visible;
+        panel.setAttribute('aria-hidden',String(!visible));
+      });
+      const filmReady=active&&next.index===5&&next.opening>.98;
+      if(lastState.current.index!==next.index||lastState.current.filmReady!==filmReady||lastState.current.flow!==short.matches){
+        lastState.current={index:next.index,filmReady,flow:short.matches};setState(lastState.current);
+      }
+      invalidate('landing');
+    }
+    const schedule=()=>{if(!raf&&active&&!document.hidden)raf=requestAnimationFrame(paint);};
+    function measure() {
+      const previousStep=step;
+      step=landingScrollStep(host!.clientHeight);
+      host!.style.setProperty('--story-height',host!.clientHeight+'px');
+      journey!.style.height=short.matches?'auto':host!.clientHeight+step*5.3+'px';
+      if(!short.matches&&previousStep!==step)host!.scrollTop=host!.scrollTop/previousStep*step;
+      paint();
+    }
+    const toHash=()=>{
+      if(short.matches)panels[initialCard()]?.scrollIntoView({block:'start',behavior:'instant'});
+      else host!.scrollTo({top:initialCard()*step,behavior:'instant'});
+      paint();
     };
-    const observer = new ResizeObserver(measure); observer.observe(window);
-    globalThis.addEventListener('resize', measure);
-    root.addEventListener('scroll', measure, {passive:true});
-    root.addEventListener(PAGE_SCROLL_RESET_EVENT, measure);
+    const resize=new ResizeObserver(measure);
+    resize.observe(host);
+    // Projection drawing already invalidates its measured frame. Observing
+    // its changing width here would measure the same scroll pose twice.
+    for(const frame of host.querySelectorAll('[data-landing-frame]:not([data-projection-end])'))resize.observe(frame);
     measure();
-    return () => {observer.disconnect();globalThis.removeEventListener('resize', measure);root.removeEventListener('scroll', measure);root.removeEventListener(PAGE_SCROLL_RESET_EVENT, measure);};
-  }, [active, aperture.windowRef, aperture.readProgress, invalidateLanding]);
+    if(active)toHash();
+    host.addEventListener('scroll',schedule,{passive:true});
+    host.addEventListener(PAGE_SCROLL_RESET_EVENT,paint);
+    window.addEventListener('hashchange',toHash);
+    reduced.addEventListener('change',measure);
+    short.addEventListener('change',measure);
+    connection?.addEventListener('change',measure);
+    document.addEventListener('visibilitychange',paint);
+    return ()=>{cancelAnimationFrame(raf);resize.disconnect();host.removeEventListener('scroll',schedule);host.removeEventListener(PAGE_SCROLL_RESET_EVENT,paint);window.removeEventListener('hashchange',toHash);reduced.removeEventListener('change',measure);short.removeEventListener('change',measure);connection?.removeEventListener('change',measure);document.removeEventListener('visibilitychange',paint);};
+  },[active,invalidate]);
 
-  return <main ref={rootRef} data-frame-scroll inert={!active} aria-hidden={!active} className="gesso-landing" aria-label="gesso — your product, infinite worlds"
-    onPointerDown={event=>{pointerKind.current=event.pointerType;if(event.pointerType==='touch'&&!aperture.windowRef.current?.contains(event.target as Node)) aperture.dismiss();}}>
-    <FrameOutside className="landing-dither" aria-hidden="true"/>
-    <div className="landing-topline gesso-site-header" data-frame-outside><a className="landing-mobile-home gesso-site-wordmark" href="/landing" aria-label="gesso home">gesso</a><nav className="gesso-site-nav" aria-label="Main navigation"><a className="landing-about-link site-about-link" href="/about">about</a><a className="landing-study-link site-study-link" href="/aperture">form + light</a><a className="landing-studio-link site-studio-link" data-studio-resume href="/?step=product&layer=model">enter studio <img src={navArrow} alt="" width="14" height="20"/></a></nav></div>
-
-    <section className="landing-composition" aria-label="Your product, infinite worlds">
-      <h1 className="landing-mobile-logo" data-frame-outside aria-label="gesso"><span aria-hidden="true">gesso</span></h1>
-      <a className="landing-side landing-product" data-frame-outside href="/?step=product&layer=model"><span>your product</span></a>
-
-      <div ref={aperture.windowRef} className={`landing-window ${ready || reel.frameReady ? 'is-ready' : ''} ${aperture.open ? 'is-open' : ''}`}
-        data-aperture="0.000"
-        onPointerEnter={event=>{if(active&&event.pointerType!=='touch') aperture.hover();}}
-        onPointerLeave={event=>{if(active&&event.pointerType!=='touch') aperture.leave();}}
-        onFocusCapture={event=>{if(active&&event.target.matches(':focus-visible')) aperture.focus(true);}}
-        onBlurCapture={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node)) aperture.focus(false);}}
-        onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();event.currentTarget.querySelector<HTMLButtonElement>('.landing-aperture-trigger')?.focus({preventScroll:true});aperture.dismiss();}}}
-        onPointerDown={event=>{if(event.pointerType==='touch'&&!(event.target as Element).closest('a,button')) aperture.toggle();}}>
-        <h1 className="landing-logo" data-frame-outside aria-label="gesso"><button className="landing-aperture-trigger" type="button" aria-label="Reveal studio entrance" aria-expanded={aperture.open} aria-controls={`${id}-enter`} onClick={event=>{if(event.detail===0) aperture.focus(true);else if(pointerKind.current==='touch') aperture.toggle();}}><span aria-hidden="true">gesso</span></button></h1>
-        <FrameWindow className="landing-window-content" vignette>
-          <img className="landing-render gesso-product-film" src={stillRender} alt="Chronograph fan art in the velvet jewel-box, rendered in gesso" onLoad={()=>setReady(true)} onError={()=>setFailed(true)}/>
-          <video ref={reel.videoRef} className={`landing-video gesso-product-film ${reel.frameReady ? 'has-frame' : ''}`}
-            data-failed={reel.failed} poster={stillRender} autoPlay muted playsInline loop preload="none" disablePictureInPicture tabIndex={-1} aria-hidden="true"/>
-          <LandingVideoOverlay visible={active && aperture.open} playing={reel.playing} failed={reel.failed} videoRef={reel.videoRef} onToggle={reel.toggle}/>
-        </FrameWindow>
-        <div id={`${id}-enter`} className="landing-entrance" data-frame-outside inert={!aperture.open}>
-          <a className="landing-enter" data-studio-resume href="/?step=product&layer=model">enter studio <svg width="14.25" height="20" viewBox="0 0 14.25 20" fill="none" aria-hidden="true"><path d="M13.5 17V7H3.5M13.5 7L3.5 17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg></a>
-          <p className="landing-repeatability">{repeatability}</p>
+  return <main className="gesso-landing public-landing" ref={root} data-frame-scroll data-story-index={state.index} tabIndex={0}
+    aria-label="Gesso product story" inert={!active} aria-hidden={!active}>
+    <a className="public-skip" href="#landing-top">Skip to the introduction</a>
+    <div ref={track} className="landing-scroll-track">
+      <div className="public-cover" id="landing-top">
+        <PublicSiteHeader current="landing"/>
+        <div className="landing-workbench">
+          {cards.map((card,index)=>{
+            const content=chapters[card.type];
+            return <section key={card.label} data-story-card={index} data-active={state.index===index} aria-label={card.label}
+              aria-hidden={!state.flow&&state.index!==index} inert={!state.flow&&state.index!==index} className={'landing-task landing-task--'+card.type}>
+              <div className="landing-task-copy">
+                {index===0?<h1 id="landing-title" tabIndex={-1}>{content.title}</h1>:<h2>{content.title}</h2>}
+                <p>{content.description}</p>
+              </div>
+              <div className="landing-task-specimen">
+                {card.type==='world'?<LandingProjection scene={landingWorlds[index]} active={false} motionRef={controller=>{projections.current[index]=controller;}}/>:card.type==='finish'?<LandingFinishProof finish={index===3?'blue':'green'} controls={false}/>:<LandingFilm active={active&&state.filmReady} autoPlayOnReveal/>}
+                {card.type!=='film'&&<p className="landing-scene-name">{card.label}</p>}
+              </div>
+            </section>;
+          })}
         </div>
-        {(!reel.wanted || reel.failed) && !reel.playing && <button className="landing-mobile-play" data-frame-outside type="button" onClick={reel.toggle}>play product videos</button>}
-        {failed && !reel.frameReady && <p className="landing-image-error" role="status">The scene image couldn’t load. <button onClick={()=>location.reload()}>Reload</button></p>}
+        <footer className="landing-scroll-footer">
+          <p>{state.index<3?'Scroll to change the world':state.index===3?'Scroll to change the finish':state.index===4?'Scroll into the editor':'Scroll back to compare'}</p>
+          <a href="/about#about-gallery-title">More products</a>
+        </footer>
       </div>
-
-      <div className="landing-mobile-action" data-frame-outside>
-        <p>your product <span aria-label="by">×</span> infinite worlds</p>
-        <a className="landing-mobile-enter" data-studio-resume href="/?step=product&layer=model">use on desktop!</a>
-      </div>
-      <a className="landing-side landing-world" data-frame-outside href="/?step=world&layer=environment"><span>infinite worlds</span></a>
-    </section>
-
-    <footer className="landing-footer" data-frame-outside>
-      <p className="landing-repeatability landing-repeatability-compact" aria-hidden={!aperture.open}>{repeatability}</p>
-      <span className="landing-caption">a reusable studio for product activation content</span>
-      {reel.failed && <span className="landing-reel-status" role="status">Video unavailable. The still image is shown.</span>}
-      <span className="landing-caption landing-credit">est. 2026</span>
-    </footer>
+    </div>
   </main>;
 }

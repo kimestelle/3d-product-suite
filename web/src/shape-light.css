@@ -1,93 +1,67 @@
-/* Keep the cover's seven-column Figma grid. Each principle occupies one
-   composition; the persistent frame morphs between the same 64 cubic anchors. */
+/* The image follows the 64-point contour; the surrounding page is unprinted
+   ground. These two reading lanes match the renderer's seven-column grid. */
 .gesso-shape-light {
-  --shape-paper: var(--gesso-surface-chalk);
-  --shape-ground: #080808;
-  --shape-halo: #888;
+  --shape-paper: #101112;
+  --shape-ground: #fafaf7;
   --shape-gutter: var(--site-margin);
-  --shape-light: var(--gesso-surface-chalk);
-  --shape-specimen: #d9d9d9;
-  --shape-column: var(--site-column);
-  --shape-pitch: calc(var(--shape-column) + var(--site-gap));
-  --shape-reading-width: calc(2 * var(--shape-pitch) - 44px);
-  --shape-copy-inset: var(--gesso-space-48);
-  --shape-header-height: var(--gesso-space-96);
-  position: relative;
-  isolation: isolate;
-  height: 100dvh;
-  overflow-y: auto;
-  overflow-x: clip;
-  scrollbar-width: none;
-  background: var(--shape-ground);
-  color: var(--shape-paper);
-  color-scheme: dark;
-  font: var(--gesso-type-body);
-  scroll-padding-top: var(--shape-header-height);
-  overflow-anchor: none;
+  --shape-specimen: #deded8;
+  --shape-pitch: calc(var(--site-column) + var(--site-gap));
+  --shape-reading-width: calc(2 * var(--shape-pitch) - 32px);
+  --shape-copy-inset: 20px;
+  --shape-header-height: 82px;
+  position: relative; isolation: isolate; height: 100dvh;
+  overflow-y: auto; overflow-x: clip; scrollbar-width: none;
+  background: var(--shape-ground); color: var(--shape-paper); color-scheme: light;
+  font: 400 17px/1.46 var(--gesso-font-text);
+  -webkit-font-smoothing: antialiased;
+  scroll-padding-top: var(--shape-header-height); overflow-anchor: none;
 }
 .gesso-shape-light::-webkit-scrollbar { display: none; }
 .gesso-shape-light :is(h1,h2,p) { margin: 0; }
-/* Narrative text is Regular; navigation and numbered wayfinding retain emphasis. */
-.gesso-shape-light :is(h1,h2,.shape-light-bridge,.shape-light-copy) { -webkit-font-smoothing: antialiased; }
 .gesso-shape-light a { color: inherit; }
-.gesso-shape-light :is(a,button):focus-visible { outline: 2px solid var(--shape-paper); outline-offset: var(--gesso-space-6); }
-.gesso-shape-light :is(main,section):focus { outline: none; }
-.shape-light-header { position: sticky; top: 0; z-index: 4; height: var(--shape-header-height); margin: 0 var(--shape-gutter); isolation: isolate; }
-/* The navigation stays crisp while scrolling content fades beneath it. */
-.shape-light-header::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  inset: 0 calc(-1 * var(--shape-gutter)) auto;
-  height: calc(var(--shape-header-height) + 56px);
-  background: var(--shape-ground);
-  mask-image: linear-gradient(to bottom, #000 0%, #000 28%, rgb(0 0 0 / .94) 42%, rgb(0 0 0 / .6) 60%, rgb(0 0 0 / .18) 80%, transparent 100%);
-  pointer-events: none;
-}
-.gesso-shape-light .shape-light-wordmark { color: var(--shape-light); }
-.shape-light-skip { position: absolute; top: var(--gesso-space-16); left: var(--site-margin); z-index: 5; transform: translateY(-180%); padding: var(--gesso-space-8) var(--gesso-space-16); background: var(--shape-ground); }
+.gesso-shape-light :is(a,button):focus-visible { outline: 2px solid #1c48db; outline-offset: 4px; }
+.gesso-shape-light :is(main,section,h1):focus { outline: none; }
+.shape-light-header { position: sticky; top: 0; z-index: 4; min-height: var(--shape-header-height); padding: 0 var(--public-page-gutter); background: var(--shape-ground); }
+.shape-light-skip { position: absolute; top: 12px; left: var(--shape-gutter); z-index: 5; transform: translateY(-180%); padding: 8px 12px; color: var(--shape-paper); background: var(--shape-ground); }
 .shape-light-skip:focus { transform: none; }
 .gesso-shape-light > main { position: relative; margin: 0 calc(var(--shape-gutter) + var(--shape-pitch)); }
-.shape-light-intro { position: relative; height: calc(100dvh - 140px); min-height: 620px; }
-.shape-light-dictionary { position: absolute; top: var(--gesso-space-72); left: var(--shape-copy-inset); width: var(--shape-reading-width); }
-.shape-light-index { font: var(--gesso-type-caption); opacity: 1; }
-.gesso-shape-light h1 { margin-top: var(--gesso-space-8); font: 400 clamp(32px, 3.75vw, 48px)/1.083333 var(--gesso-font-display); letter-spacing: -.4px; }
-.gesso-shape-light .shape-light-bridge { margin-top: var(--gesso-space-24); font: var(--gesso-type-body); }
-.shape-light-chapter { position: relative; height: max(620px, calc(100dvh - var(--shape-header-height))); padding: var(--gesso-space-64) 0 104px; display: flex; align-items: center; }
+.shape-light-intro { position: relative; height: max(560px,calc(100dvh - var(--shape-header-height))); }
+.shape-light-dictionary { position: absolute; top: clamp(46px,14vh,160px); left: var(--shape-copy-inset); width: var(--shape-reading-width); }
+.shape-light-dictionary[data-flow-side] { text-align: left; }
+.shape-light-index { font: 400 15px/20px var(--gesso-font-text); color: #51524e; }
+.gesso-shape-light h1 { margin-top: 12px; font: 400 clamp(40px,3.8vw,66px)/1.02 var(--gesso-font-display); letter-spacing: -.04em; }
+.gesso-shape-light .shape-light-bridge { max-width: 31ch; margin-top: 24px; }
+.shape-light-chapter { position: relative; height: max(560px,calc(100dvh - var(--shape-header-height))); padding: 56px 0 76px; display: flex; align-items: center; }
 .shape-light-chapter-copy { flex: none; width: var(--shape-reading-width); }
-.shape-light-chapter-copy[data-flow-side="right"] { margin-left: calc(3 * var(--shape-pitch) - var(--shape-copy-inset)); }
+.shape-light-chapter-copy[data-flow-side="right"] { margin-left: calc(3 * var(--shape-pitch) + 12px); }
 .shape-light-chapter-copy[data-flow-side="left"] { margin-left: var(--shape-copy-inset); }
-.gesso-shape-light [data-flow-side="left"] { text-align: right; }
-.gesso-shape-light .shape-light-chapter h2 { margin-top: var(--gesso-space-20); font: 400 clamp(32px, 3.3vw, 48px)/1.08 var(--gesso-font-display); letter-spacing: -.5px; text-wrap: balance; }
-.shape-light-chapter .shape-light-copy { max-width: 42ch; padding-top: var(--gesso-space-32); }
-.shape-light-contents { display: grid; width: max-content; max-width: 100%; gap: var(--gesso-space-12); margin-top: var(--gesso-space-40); font: var(--gesso-type-body); }
-.shape-light-contents a { display: flex; align-items: baseline; gap: var(--gesso-space-24); width: fit-content; }
-.shape-light-contents a span { opacity: 1; font: var(--gesso-type-caption); }
-.shape-light-contents a:hover { color: var(--shape-light); }
-.shape-light-contents { margin-left: auto; margin-right: var(--gesso-space-28); justify-items: end; }
-.shape-light-copy { padding-top: var(--gesso-space-32); font: var(--gesso-type-body); }
-.shape-light-copy > p + p { margin-top: var(--gesso-space-16); }
+.gesso-shape-light .shape-light-chapter h2 { font: 400 clamp(36px,3.25vw,58px)/1.03 var(--gesso-font-display); letter-spacing: -.04em; text-wrap: balance; }
+.shape-light-copy { max-width: 34ch; padding-top: 22px; }
+.shape-light-copy > p + p { margin-top: 14px; }
+.shape-light-contents { display: grid; justify-items: start; margin-top: 20px; }
+.shape-light-contents a { display: flex; width: fit-content; min-height: 38px; align-items: center; text-decoration: underline; text-decoration-color: #95958d; text-underline-offset: .22em; }
+.shape-light-contents a:hover,.shape-light-endnote a:hover { text-decoration-color: currentColor; }
+.shape-light-endnote { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 20px clamp(24px,4vw,80px) 30px; position: relative; z-index: 1; background: var(--shape-ground); }
+.shape-light-endnote a { font: 500 16px/1.3 var(--gesso-font-text); text-decoration: underline; text-underline-offset: .23em; padding-block: 12px; }
 .shape-light-mobile-shape, .shape-light-mobile-specimen { display: none; }
-@media (max-width: 900px) {
+@media (max-width:900px) {
+  .gesso-shape-light { --shape-header-height: 68px; font-size: 16px; }
   .gesso-shape-light [data-frame-outside] { clip-path: none !important; }
-  .gesso-shape-light { --shape-header-height: var(--gesso-space-88); }
-  .gesso-shape-light > main { margin: 0 var(--shape-gutter); }
-  .shape-light-intro { height: auto; min-height: 0; padding: var(--gesso-space-48) 0 var(--gesso-space-56); display: flex; flex-direction: column; gap: var(--gesso-space-28); }
-  .shape-light-dictionary { position: static; width: auto; }
-  .gesso-shape-light h1 { font-size: 40px; line-height: 44px; }
-  .shape-light-mobile-shape { display: block; width: 82%; aspect-ratio: 655.12 / 354.716; margin: var(--gesso-space-96) auto; margin: round(nearest, clamp(var(--gesso-space-56), 18vw, var(--gesso-space-128)), var(--gesso-space-4)) auto; border-radius: 24px; transform: rotate(-30deg); background: var(--shape-specimen); }
-  .shape-light-mobile-shape { box-shadow: 0 0 96px 32px color-mix(in srgb, var(--shape-halo) 80%, transparent); }
-  .shape-light-chapter { display: flex; flex-direction: column; align-items: stretch; gap: var(--gesso-space-40); height: auto; min-height: 0; padding: var(--gesso-space-48) 0 var(--gesso-space-64); }
+  .gesso-shape-light > main { margin: 0 clamp(22px,5vw,44px); }
+  .shape-light-intro { height: auto; min-height: 0; padding: 40px 0 52px; display: flex; flex-direction: column; gap: 32px; }
+  .shape-light-dictionary { position: static; transform: none; width: auto; }
+  .gesso-shape-light h1 { font-size: clamp(43px,8.4vw,68px); max-width: 15ch; }
+  .shape-light-mobile-shape { display: block; width: min(66%,460px); aspect-ratio: 655.12/354.716; margin: clamp(50px,12vw,88px) auto; border-radius: 20px; transform: rotate(-30deg); background: var(--shape-specimen); }
+  .shape-light-chapter { display: flex; flex-direction: column; align-items: stretch; gap: 28px; height: auto; min-height: 0; padding: 38px 0 50px; }
   .shape-light-chapter .shape-light-chapter-copy { width: 100%; margin-left: 0; }
-  .gesso-shape-light .shape-light-chapter h2 { font-size: 36px; max-width: 18ch; }
-  .shape-light-chapter .shape-light-copy { padding-top: var(--gesso-space-24); }
-  .shape-light-chapter-copy[data-flow-side="left"] :is(h2, .shape-light-copy) { margin-left: auto; }
-  .shape-light-contents { margin-top: var(--gesso-space-28); margin-right: 0; }
-  .shape-light-mobile-specimen { display: block; width: 72%; max-height: 260px; fill: var(--shape-specimen); align-self: flex-end; overflow: visible; filter: drop-shadow(0 0 56px color-mix(in srgb, var(--shape-halo) 80%, transparent)); }
+  .gesso-shape-light .shape-light-chapter h2 { font-size: clamp(36px,7.3vw,54px); max-width: 17ch; }
+  .shape-light-chapter .shape-light-copy { padding-top: 16px; }
+  .shape-light-contents { margin-top: 14px; }
+  .shape-light-contents a { min-height: 44px; }
+  .shape-light-mobile-specimen { display: block; width: 76%; max-height: 320px; fill: var(--shape-specimen); align-self: flex-end; overflow: visible; }
   .shape-light-chapter[data-copy-side="right"] .shape-light-mobile-specimen { align-self: flex-start; }
-  .shape-light-copy { padding-top: 0; }
 }
-@media (prefers-reduced-motion: reduce), (max-width: 900px), (hover: none) and (pointer: coarse) {
+@media (prefers-reduced-motion:reduce),(max-width:900px),(hover:none) and (pointer:coarse) {
   .gesso-shape-light, .gesso-shape-light * { transition: none !important; scroll-behavior: auto !important; }
 }
 

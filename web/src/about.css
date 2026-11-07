@@ -1,56 +1,76 @@
-/* About frame 184:7680: seven columns, 40px margins, 20px gutters.
-   Monochrome ground and light; keep the broad, subdued halo. */
-.gesso-about{--about-ground:#080808;--about-light:#777;--about-action:#fff;--about-surface:var(--gesso-surface-chrome);--about-ink:var(--gesso-text-primary);position:relative;height:100dvh;overflow:clip;background:transparent;color:var(--about-ink);color-scheme:dark;font:var(--gesso-type-body)}
-.gesso-about :is(h1,h2,p,dl,dd){margin:0}
-.gesso-about :is(a,button):focus-visible{outline:2px solid currentColor;outline-offset:var(--gesso-space-4)}
-.about-header{height:80px;position:sticky;top:0;margin:0 var(--site-margin);color:var(--gesso-surface-chalk);z-index:2}
-.about-wordmark{text-decoration:none}
-.about-window{position:relative;height:calc(100dvh - 81px);min-height:0;margin:1px var(--site-margin) 0;background:transparent}
-.about-window>.dynamic-frame-inside{height:100%;min-height:0;overflow:hidden}
-/* Give the local clip a viewport on initial WebKit paint. The SVG contains defs only. */
-.about-window>.dynamic-frame-local-defs{width:100%;height:100%;overflow:visible}
-/* The native scroller sits inside the stationary contour; scrolling never moves its clip. */
-.about-scroll{height:100%;min-height:0;overflow-y:auto;overflow-x:clip;overscroll-behavior-y:contain;scroll-padding-top:var(--gesso-space-32);scroll-behavior:auto}
-.about-scroll:focus-visible{outline:2px solid var(--about-ink);outline-offset:calc(-1 * var(--gesso-space-6))}
-.about-description{padding:var(--gesso-space-72) 0 var(--gesso-space-72);display:flex;flex-direction:column;gap:var(--gesso-space-72)}
-.about-description-row{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));column-gap:var(--gesso-space-20);align-items:start}
-.about-description-row>h1,.about-description-row>h2{grid-column:1 / span 2;justify-self:end;width:min(250px,100%)}
-.about-description-row>h1,.about-description-row>h2{font:500 28px/34px var(--gesso-font-display);letter-spacing:-.4px}
-/* Reading copy stays Regular; steps and footer keep their existing emphasis.
-   Grayscale edges avoid the heavier white-on-dark rendering on macOS. */
-.about-description-row>h1{font-weight:400;-webkit-font-smoothing:antialiased}
-.about-description-row:not(.about-endnote) .about-description-body>p{-webkit-font-smoothing:antialiased}
-.about-description-row>h1:focus{outline:none}
-.about-description-body{grid-column:3 / span 4;min-width:0;font:400 16px/24px var(--gesso-font-text)}
-.about-description-body>p+p{margin-top:var(--gesso-space-24)}
-.about-process-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--gesso-space-24)}
-.about-layers{display:contents}
-.about-process-promise{font:400 16px/24px var(--gesso-font-text)}
-.about-layers>div{min-width:0}
-.about-layers dt{font:500 14px/20px var(--gesso-font-text);display:flex;gap:var(--gesso-space-12);margin-bottom:var(--gesso-space-4)}
-.about-layers dt>span{flex:none;width:18px;font-weight:400;opacity:.6;font-variant-numeric:tabular-nums}
-.about-layers dd{font:400 16px/24px var(--gesso-font-text)}
-.about-description-body .about-process-note{margin-top:var(--gesso-space-32)}
-/* Made with gesso: two loops per row on the body columns, captions in the step label type. */
-.about-gallery{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--gesso-space-24) var(--gesso-space-20)}
-.about-gallery>li{min-width:0}
-.about-gallery-video{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:var(--gesso-radius-control);background:#000}
-.about-gallery-caption{margin-top:var(--gesso-space-8);font:400 14px/20px var(--gesso-font-text)}
-.about-gallery-caption>span{font-weight:500}
-.about-gallery-credit{font:400 12px/18px var(--gesso-font-text);opacity:.6}
-.about-endnote{font:400 12px/18px var(--gesso-font-text)}
-/* The endnote spans columns 3–6; its action starts at column 6,
-   directly beneath Shape + Light in the shared header. */
-.about-endnote .about-description-body{grid-column:3 / span 4;padding-right:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));column-gap:var(--site-gap);font:400 14px/20px var(--gesso-font-text)}
-.about-endnote .about-description-body>p{grid-column:1 / span 3}
-.about-endnote .about-description-body>a{grid-column:4;justify-self:start}
-.about-endnote a{white-space:nowrap;display:inline-flex;align-items:center;gap:var(--gesso-space-4);font-weight:600;color:var(--about-action);text-decoration:none}
-.about-endnote-arrow{display:block;flex:none;width:14px;height:20px;background:currentColor;mask:url("./assets/gesso/about-studio-arrow.svg") center/contain no-repeat;-webkit-mask:url("./assets/gesso/about-studio-arrow.svg") center/contain no-repeat}
-.about-skip{position:absolute;top:var(--gesso-space-16);left:var(--gesso-space-40);z-index:5;transform:translateY(-180%);padding:var(--gesso-space-8) var(--gesso-space-16);background:var(--gesso-surface-chalk)}
-.about-skip:focus{transform:none}
-@media(max-width:1100px) and (min-width:761px){.about-description-body{grid-column:3 / span 5;padding-right:var(--gesso-space-32)}.about-description-row>h1,.about-description-row>h2{padding-left:var(--gesso-space-24);width:100%;font-size:24px;line-height:30px}.about-process-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:760px){.about-header{height:80px}.about-window{height:calc(100dvh - var(--gesso-space-80));min-height:0;margin:0 var(--gesso-space-16);background:transparent}.about-description{padding:var(--gesso-space-56) var(--gesso-space-24) var(--gesso-space-40);gap:var(--gesso-space-48)}.about-description-row{display:flex;flex-direction:column;gap:var(--gesso-space-24)}.about-description-row>h1,.about-description-row>h2{width:100%;max-width:18ch;font-size:28px;line-height:34px}.about-description-body{font-size:16px;line-height:24px;width:100%}.about-process-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.about-endnote .about-description-body{display:flex;align-items:flex-start;flex-direction:column;gap:var(--gesso-space-20)}.about-skip{left:var(--gesso-space-24)}.about-header .gesso-site-nav img{width:14px;height:20px}}
-@media(max-width:560px){.about-process-grid{grid-template-columns:1fr}.about-gallery{grid-template-columns:1fr}}
-@media (prefers-reduced-motion: reduce), (max-width: 760px), (hover: none) and (pointer: coarse) {
-  .gesso-about, .gesso-about * { transition: none !important; scroll-behavior: auto !important; }
+/* The About window keeps its native scrollport while its paper and the masthead
+   share a ground. Colour belongs to the model films. */
+.gesso-about {
+  --about-ground: #fafaf7;
+  --about-surface: #fafaf7;
+  --about-ink: #101112;
+  --about-secondary: #51524e;
+  --about-gutter: var(--public-page-gutter);
+  position: relative; height: 100dvh; overflow: clip;
+  background: var(--about-ground); color: var(--about-ink); color-scheme: light;
+  font: 400 17px/1.46 var(--gesso-font-text);
+  -webkit-font-smoothing: antialiased;
+}
+.gesso-about :is(h1,h2,p,dl,dd,figure) { margin: 0; }
+.about-header { position: relative; z-index: 2; height: 81px; margin-inline: var(--about-gutter); }
+.about-window { position: relative; height: calc(100dvh - 81px); min-height: 0; margin: 0 40px; }
+.about-window > .dynamic-frame-inside { height: 100%; min-height: 0; overflow: hidden; }
+.about-window > .dynamic-frame-local-defs { width: 100%; height: 100%; overflow: visible; }
+.about-scroll { height: 100%; overflow-y: auto; overflow-x: clip; overscroll-behavior-y: contain; scroll-padding-top: 20px; }
+.about-scroll:focus-visible { outline: 2px solid currentColor; outline-offset: -4px; }
+.about-description { max-width: 1560px; margin-inline: auto; padding: clamp(42px,5.8vw,92px) max(12px,calc(var(--about-gutter) - 40px)) 36px; display: grid; gap: clamp(76px,10vw,156px); }
+.about-intro { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.12fr); gap: clamp(36px,6vw,112px); align-items: center; }
+.about-intro h1 { max-width: 16ch; font: 400 clamp(50px,5.25vw,89px)/.96 var(--gesso-font-display); letter-spacing: -.04em; text-wrap: balance; }
+.about-intro h1:focus { outline: none; }
+.about-intro-copy p { max-width: 35ch; }
+.about-intro-copy h1 + p { margin-top: clamp(20px,2.7vw,42px); }
+.about-intro-copy p + p { margin-top: 12px; }
+.about-film { min-width: 0; }
+.about-film-screen { position: relative; background: #101112; overflow: hidden; aspect-ratio: 1; }
+.about-gallery-video { width: 100%; height: 100%; display: block; object-fit: cover; }
+.about-film-play { position: absolute; right: 12px; bottom: 12px; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; background: #fafaf7; color: #101112; border: 0; border-radius: 50%; cursor: pointer; }
+.about-film-play:hover { background: #e4e4dc; }
+.about-film figcaption { margin-block-start: 12px; }
+.about-gallery-caption { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 16px; font: 500 17px/1.24 var(--gesso-font-text); }
+.about-gallery-caption span { color: var(--about-secondary); font: 400 14px/1.5 var(--gesso-font-text); }
+.about-gallery-credit { margin-top: 3px !important; color: var(--about-secondary); font: 400 13px/1.5 var(--gesso-font-text); }
+.about-description h2 { font: 400 clamp(36px,4.15vw,68px)/1 var(--gesso-font-display); letter-spacing: -.04em; }
+.about-process { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.12fr); gap: clamp(36px,6vw,112px); }
+.about-process h2 { max-width: 9ch; }
+.about-layers { display: grid; gap: 20px; }
+.about-layers > div { display: grid; grid-template-columns: minmax(68px,.24fr) minmax(0,1fr); column-gap: 24px; }
+.about-layers dt { font-weight: 500; }
+.about-layers dd { max-width: 37ch; }
+.about-section-head { display: flex; align-items: end; justify-content: space-between; gap: 40px; margin-bottom: 32px; }
+.about-section-head p { max-width: 43ch; }
+.about-gallery { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); column-gap: clamp(16px,2vw,32px); row-gap: clamp(30px,4vw,64px); }
+.about-endnote { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.about-endnote a { color: inherit; font: 500 16px/1.3 var(--gesso-font-text); text-decoration: underline; text-underline-offset: .23em; padding-block: 12px; }
+.gesso-about :is(button,a):focus-visible { outline: 2px solid #1c48db; outline-offset: 4px; }
+.about-film-play:focus-visible { outline-offset: -4px; }
+.about-skip { position: absolute; z-index: 5; top: 12px; left: var(--about-gutter); padding: 8px 12px; color: var(--about-ink); background: var(--about-ground); transform: translateY(-180%); }
+.about-skip:focus { transform: none; }
+@media (min-width:1700px) { .about-header { max-width: 1560px; margin-inline: auto; } }
+@media (max-width:900px) {
+  .about-intro h1 { font-size: clamp(44px,6.6vw,60px); }
+  .about-process { gap: 32px; }
+  .about-section-head { align-items: start; }
+}
+@media (max-width:760px) {
+  .gesso-about { font-size: 16px; }
+  .about-header { height: 80px; }
+  .about-window { margin: 0 16px; height: calc(100dvh - 80px); }
+  .about-description { padding: 22px 6px 24px; gap: 64px; }
+  .about-intro,.about-process { grid-template-columns: 1fr; gap: 26px; }
+  .about-intro h1 { font-size: clamp(44px,9vw,64px); max-width: 15ch; }
+  .about-intro-copy p { max-width: 42ch; }
+  .about-process h2 { max-width: none; }
+  .about-section-head { display: grid; gap: 14px; margin-bottom: 24px; }
+  .about-gallery-caption { display: grid; justify-content: start; font-size: 16px; }
+  .about-layers > div { grid-template-columns: 70px 1fr; gap: 14px; }
+}
+@media (max-width:480px) {
+  .about-gallery { column-gap: 12px; }
+  .about-gallery-credit { font-size: 12px; }
+  .about-film-play { right: 6px; bottom: 6px; }
 }

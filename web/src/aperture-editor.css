@@ -36,7 +36,6 @@
 .aperture-slider input[type=range]::-moz-range-progress{height:2px;background:var(--gesso-text-primary)}
 .aperture-slider input[type=range]::-moz-range-thumb{width:10px;height:10px;border:0;border-radius:50%;background:var(--gesso-text-primary)}
 .aperture-tint,.aperture-select{display:flex;align-items:center;gap:var(--gesso-space-8);min-height:32px;padding:var(--gesso-space-4) var(--gesso-space-8);border:1px solid var(--gesso-border-control);border-radius:var(--gesso-radius-control);background:var(--gesso-surface-field);font:400 12px/18px var(--gesso-font-text);color:var(--gesso-text-secondary)}
-.aperture-tint:focus-within,.aperture-select:focus-within{outline:2px solid var(--gesso-border-focus);outline-offset:var(--gesso-space-2)}
 .aperture-tint input[type=color]{margin-left:auto;width:20px;height:20px;min-height:20px;border:0;padding:0;background:transparent;border-radius:2px;cursor:pointer}
 .aperture-tint output{color:var(--gesso-text-primary);font:400 13px/18px var(--gesso-font-text);font-variant-numeric:tabular-nums;min-width:64px}
 .aperture-select>span{flex:0 0 86px}
@@ -53,7 +52,6 @@
 .aperture-guides{touch-action:none}
 .aperture-anchor,.aperture-handle{fill:#131313;stroke:#d9d9d9;stroke-width:1.2;vector-effect:non-scaling-stroke;cursor:move;touch-action:none;outline:none}
 .aperture-anchor.selected{fill:#f9faf7;stroke:#131313;stroke-width:1.5}
-.aperture-anchor:focus-visible,.aperture-handle:focus-visible{stroke:#ff5724;stroke-width:3}
 .aperture-handle{fill:#ff5724;stroke:#131313}
 .aperture-point-editor{position:absolute;bottom:var(--gesso-space-40);left:50%;transform:translateX(-50%);display:flex;gap:var(--gesso-space-16);align-items:center;max-width:calc(100% - 40px);background:var(--gesso-surface-chrome);border:1px solid var(--gesso-border-subtle);border-radius:var(--gesso-radius-control);padding:var(--gesso-space-8) var(--gesso-space-12);box-shadow:0 2px 12px #0002}
 .aperture-point-editor label{display:flex;align-items:center;gap:var(--gesso-space-8);font:400 12px/18px var(--gesso-font-text);color:var(--gesso-text-secondary);white-space:nowrap}

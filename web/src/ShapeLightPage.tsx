@@ -9,7 +9,7 @@ import {PHILOSOPHY_SCREENSHOTS} from './philosophyScreenshots';
 import {philosophyScrollProgress} from './philosophyMotion';
 import {PAGE_SCROLL_RESET_EVENT} from './pageScroll';
 import {mountContourText,paintContourText,contourTextMoving,unmountContourText,resetContourText,type ContourTextBlock,type ContourTextCache} from './philosophyTextDom';
-import navArrow from './assets/gesso/about-arrow-up-right.svg';
+import PublicSiteHeader from './PublicSiteHeader';
 import './shape-light.css';
 import './site-grid.css';
 
@@ -18,13 +18,13 @@ const EMPTY_FRAME=roundedFrameNodes({left:0,top:0,right:0,bottom:0});
 export const PHILOSOPHY_INTRO = {
   label:'gesso (noun)',
   heading:'A ground applied to a surface before painting.',
-  bridge:'We prepare the scene around your product. These principles guide how the studio works.',
+  bridge:'In Gesso, the ground is a 3D setting. Your product sits in it as a separate model.',
 };
 export const PHILOSOPHY_ROWS = [
-  {id:'result', label:'01 / the result', title:'A finished image. At any step.', side:'right', paragraphs:['From any step, jump to a polished still or film. Gesso fills the gaps around the decisions you’ve made. Everything it adds stays inspectable and editable.']},
-  {id:'product', label:'02 / the product', title:'Same product. Different scene.', side:'left', paragraphs:['Change the room, light, or camera. Your product keeps its dimensions, parts, materials, artwork, and motion.']},
-  {id:'interface', label:'03 / the interface', title:'One opening. Different work.', side:'right', paragraphs:['The same boundary makes room for a parts tree, a material, a camera, a timeline. The product stays visible. Controls appear where their effects can be seen.']},
-  {id:'person', label:'04 / the person', title:'For the person making the next version.', side:'left', paragraphs:['A supplier or CG artist prepares the asset. The designer directs, revises, and exports.', 'A new label. Another finish. A different room. The scene stays editable for whatever comes next.']},
+  {id:'result', label:'Rendering', title:'Choose the shot before you render.', side:'right', paragraphs:['Frame a still or arrange shots on the timeline. Set the light, lens and focus before rendering; the scene stays editable afterward.']},
+  {id:'product', label:'The model', title:'Change the setting around your model.', side:'left', paragraphs:['The product and setting remain separate. You can replace the setting while retaining the model’s materials and artwork.']},
+  {id:'interface', label:'The viewport', title:'Edit the part you’re looking at.', side:'right', paragraphs:['Select a part to change its finish, or switch to Film to set the camera. The viewport stays visible while you work.']},
+  {id:'person', label:'Revisions', title:'Reopen the scene for the next revision.', side:'left', paragraphs:['Start with a model prepared by you, your supplier or a CG artist. When a new label arrives, replace the artwork and render another image from the saved scene.']},
 ] as const;
 
 function StaticShape({stage}:{stage:number}) {
@@ -113,9 +113,9 @@ function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|
     const preference = matchMedia(STATIC_MOTION_QUERY);
     const layout = createFlowLayout(root, first);
     const palette = getComputedStyle(root);
-    const ground = palette.getPropertyValue('--shape-ground').trim() || '#4e2d97';
+    const ground = palette.getPropertyValue('--shape-ground').trim() || '#fafaf7';
     const specimen = palette.getPropertyValue('--shape-specimen').trim() || '#d9d9d9';
-    const halo = palette.getPropertyValue('--shape-halo').trim() || '#a546dc';
+
     const sections=[first,...root.querySelectorAll<HTMLElement>('.shape-light-chapter')];
     let stops:number[]=[];
     let frame = 0, alive = true,initialHashRestored=false;
@@ -146,11 +146,8 @@ function usePhilosophyFrames(active:boolean,study:RefObject<GlassineStudyHandle|
       if (root.dataset.frame !== frameName) root.dataset.frame = frameName;
       const nodes=compact?EMPTY_FRAME:geometryChanged?sample(shown,shrinkRef.current):visual.current!.nodes;
       if(geometryChanged&&!compact)layout.query=createContourQuery(philosophySequenceContour(nodes));
-      // Expand blur and spread together so the halo reaches farther without
-      // concentrating the existing purple into a brighter, tighter rim.
-      const lightScale=Math.min(1.25,layout.width/1280,layout.height/832);
       visual.current={nodes,ground,fill:compact?'transparent':specimen,
-        halo:{color:halo,blur:136*lightScale,spread:64*lightScale,opacity:compact?0:.8}};
+        halo:{color:ground,blur:0,spread:0,opacity:0}};
       // The shared renderer measures section clips before text writes can
       // invalidate layout. Shape, text and material still commit in this frame.
       if(geometryChanged||scroll!==lastScroll)invalidate('philosophy');
@@ -228,14 +225,7 @@ export default function ShapeLightPage({active=true}:{active?:boolean}) {
     <GlassineStudy ref={study} active={active} page={page}/>
     <a data-frame-outside className="shape-light-skip" href="#shape-light-content">Skip to philosophy</a>
     <a data-frame-outside className="shape-light-skip" href="#shape-light-principles">Skip to principles</a>
-    <header data-frame-outside className="shape-light-header gesso-site-header">
-      <a className="shape-light-wordmark gesso-site-wordmark" href="/landing" aria-label="gesso home">gesso</a>
-      <nav className="gesso-site-nav" aria-label="Main navigation">
-        <a className="site-about-link" href="/about">about</a>
-        <a className="site-study-link" href="#shape-light-content" aria-current="page">form + light</a>
-        <a className="site-studio-link" data-studio-resume href="/?step=product&layer=model">enter studio <img src={navArrow} alt="" width="14" height="20"/></a>
-      </nav>
-    </header>
+    <div data-frame-outside className="shape-light-header"><PublicSiteHeader current="philosophy"/></div>
     <main id="shape-light-content" tabIndex={-1}>
       <FrameOutside as="section" ref={intro} className="shape-light-intro" aria-labelledby="shape-light-title">
         <div className="shape-light-dictionary" data-flow-side="left">
@@ -247,22 +237,21 @@ export default function ShapeLightPage({active=true}:{active?:boolean}) {
       </FrameOutside>
       <FrameOutside as="section" id="shape-light-principles" className="shape-light-chapter shape-light-opener" aria-labelledby="shape-light-principles-title" tabIndex={-1}>
         <div className="shape-light-chapter-copy" data-flow-side="left">
-          <p className="shape-light-index">form + light / principles</p>
-          <h2 id="shape-light-principles-title">How we<br/>make things.</h2>
+          <h2 id="shape-light-principles-title">Inside the studio</h2>
           <nav className="shape-light-contents" aria-label="Principles">
-            {PHILOSOPHY_ROWS.map(row=><a key={row.id} href={`#principle-${row.id}`}><span>{row.label.slice(0,2)}</span>{row.label.slice(5)}</a>)}
+            {PHILOSOPHY_ROWS.map(row=><a key={row.id} href={`#principle-${row.id}`}>{row.label}</a>)}
           </nav>
         </div>
         <StaticShape stage={1}/>
       </FrameOutside>
       {PHILOSOPHY_ROWS.map((row,index)=><FrameOutside as="section" id={`principle-${row.id}`} className={`shape-light-chapter shape-light-principle shape-light-${row.id}`} data-copy-side={row.side} aria-labelledby={`principle-${row.id}-title`} key={row.id} tabIndex={-1}>
         <div className="shape-light-chapter-copy" data-flow-side={row.side}>
-          <p className="shape-light-index">{row.label}</p>
           <h2 id={`principle-${row.id}-title`}>{row.title}</h2>
           <div className="shape-light-copy">{row.paragraphs.map(paragraph=><p key={paragraph}>{paragraph}</p>)}</div>
         </div>
         <StaticShape stage={index+2}/>
       </FrameOutside>)}
     </main>
+    <footer className="shape-light-endnote"><a href="/about">About Gesso</a><a data-studio-resume href="/?step=product&layer=model">Enter studio</a></footer>
   </div>;
 }

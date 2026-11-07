@@ -63,10 +63,19 @@ export function makeExportPayload(scene: ExportScene, settings: {mode: ExportMod
   if (!Number.isFinite(scene.render.fps) || scene.render.fps <= 0) throw new Error('The film needs a valid frame rate.');
   return {kind: settings.mode === 'still' ? 'still' : 'reel', format: settings.format, filename: exportFilename(settings.filename), frame: settings.frame, ...dimensions, samples: settings.samples};
 }
+/** A file receipt needs a usable download address. Older receipts may omit
+ * bytes; an explicit empty/invalid size must never become a ready download. */
+export function isUsableExportArtifact(artifact: ExportArtifact): boolean {
+  if (typeof artifact.url !== 'string' || !artifact.url || /[\s\\]/.test(artifact.url)) return false;
+  if (artifact.bytes !== undefined && (!Number.isSafeInteger(artifact.bytes) || artifact.bytes <= 0)) return false;
+  if (!/^(?:\/(?!\/)|https?:\/\/)/i.test(artifact.url)) return false;
+  try {return ['http:', 'https:'].includes(new URL(artifact.url, 'https://gesso.invalid').protocol);}
+  catch {return false;}
+}
 export function primaryExportArtifact(job: ExportJob): ExportArtifact | undefined {
   if (job.state !== 'succeeded') return undefined;
   const name = job.primaryArtifact || exportFormats[job.format ?? (job.kind === 'still' ? 'png' : 'mp4')].artifact;
-  return job.artifacts.find(artifact => artifact.name === name);
+  return job.artifacts.find(artifact => artifact.name === name && isUsableExportArtifact(artifact));
 }
 export function exportDownloadUrl(url: string): string {return `${url}${url.includes('?') ? '&' : '?'}download=1`;}
 export function exportProgress(job: ExportJob): {completed: number; total: number; ratio: number} {

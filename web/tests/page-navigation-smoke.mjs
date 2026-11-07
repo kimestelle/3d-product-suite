@@ -19,13 +19,13 @@ try {
     await page.goto(origin+'/about');await settled('about');
     assert.equal(await page.evaluate(()=>history.scrollRestoration),'manual');
     await scroll('.about-scroll');
-    await page.locator('.about-header .site-study-link').click();await settled('philosophy');
+    await page.locator('.about-header nav a[href="/aperture"]').click();await settled('philosophy');
     await scroll('.gesso-shape-light');
-    await page.locator('.shape-light-header .site-about-link').click();
+    await page.locator('.shape-light-header nav a[href="/about"]').click();
     assert.equal(await top('.about-scroll'),0,'About resets before route motion finishes');
     await settled('about');
     assert.equal(await page.evaluate(()=>document.activeElement.id),'about-title');
-    await page.locator('.about-header .site-study-link').click();
+    await page.locator('.about-header nav a[href="/aperture"]').click();
     assert.equal(await top('.gesso-shape-light'),0,'Form + Light resets before destination sampling');
     assert.equal(await page.locator('.gesso-shape-light').getAttribute('data-frame'),'ground');
     await settled('philosophy');
@@ -34,7 +34,7 @@ try {
     await scroll('.about-scroll');
     await page.goForward();await settled('philosophy');assert.equal(await top('.gesso-shape-light'),0);
     await scroll('.gesso-shape-light');
-    await page.locator('.shape-light-header .site-about-link').click();
+    await page.locator('.shape-light-header nav a[href="/about"]').click();
     await page.goBack();await settled('philosophy');
     assert.equal(await top('.gesso-shape-light'),0,'An interrupted return also starts at the cover');
     assert.equal(await page.locator('.gesso-shape-light').getAttribute('data-frame'),'ground');

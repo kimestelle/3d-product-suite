@@ -1,0 +1,83 @@
+/* Keyboard focus marks the current owner; selection and action surfaces stay put.
+   Shared by the editor entry and guide specimens. Outline priority protects the ring
+   from hover/pressed rules that reset outlines without repainting those states. */
+:where(.gesso-studio,.gesso-aperture-editor,.curve-demo,.gesso-keyframe-editor,.gesso-export-dialog,.gesso-menu,.gesso-material-menu,.gesso-scene-menu,.gesso-preset-dialog,.gesso-recovery-dialog)
+  :where(button,a[href],input,select,textarea,summary,[tabindex]):focus-visible:not(:disabled){
+  outline:2px solid var(--gesso-focus-color,var(--gesso-text-primary,#f5f5f3)) !important;
+  outline-offset:var(--gesso-focus-offset,2px) !important;
+}
+
+/* Insets keep the same ring inside scroll clips, edge-mounted targets and menus.
+   Ordinary controls retain a 2px gap where the surrounding layout has room. */
+:where(.gesso-studio,.gesso-aperture-editor,.curve-demo,.gesso-keyframe-editor)
+  :is(.gesso-layer-button,.gesso-tree-toggle,.gesso-section-toggle,.gesso-category-button,
+      .gesso-header-icon,.gesso-material-menu-trigger,.gesso-part-menu-trigger,
+      .gesso-export-tab,.gesso-control-step,.gesso-material-swatch,
+      .gesso-material-sample-rotate,.gesso-world-cover-card,.gesso-world-object-preview,
+      .gesso-uv-map,.film-motion-preview,.film-scene-reorder,.film-scene-trim,
+      .film-scene-name,.film-scene-menu-trigger,.film-motion-block,.film-track-name,
+      .viewport,.curve-viewport,.kf-key){--gesso-focus-offset:-2px}
+:where(.gesso-studio) :is(.gesso-appmenus,.gesso-film-mode-tabs,.gesso-material-sample-shapes,.film-transport) button,
+:where(.gesso-menu,.gesso-material-menu,.gesso-scene-menu,.gesso-preset-dialog) :is(button,a[href]){
+  --gesso-focus-offset:-2px;
+}
+
+/* Light scene surfaces invert their ink. Popup portals always own dark tokens. */
+.film-timeline .film-shot-box.is-editing{--gesso-focus-color:#181818}
+.gesso-studio .gesso-export-tab:not([aria-pressed=true]){--gesso-focus-color:#181818}
+.gesso-studio .gesso-uv-map,.curve-demo .curve-viewport{--gesso-focus-color:#181818}
+:is(.gesso-menu,.gesso-material-menu,.gesso-scene-menu){--gesso-focus-color:#fff}
+
+/* A field's label, value and unit are one target. Focus the enclosing surface,
+   leaving embedded step buttons as independent actions with their own ring. */
+:where(.gesso-studio,.gesso-aperture-editor,.gesso-export-dialog,.gesso-scene-menu)
+  :is(.gesso-field,.gesso-material-field,.gesso-export-field,.gesso-setup-field,
+      .aperture-tint,.aperture-select,.frame-setup-target):has(> :is(input,select,textarea):focus-visible),
+:where(.gesso-studio,.gesso-aperture-editor) .gesso-control-row:has(.gesso-control-value:focus-visible),
+:where(.gesso-studio) .gesso-material-field:has(> .gesso-color input:focus-visible),
+:where(.gesso-studio,.gesso-export-dialog) .gesso-export-filename>div:has(input:focus-visible){
+  outline:2px solid var(--gesso-focus-color,var(--gesso-text-primary,#f5f5f3)) !important;
+  outline-offset:-2px !important;
+}
+:where(.gesso-studio,.gesso-aperture-editor,.gesso-export-dialog,.gesso-scene-menu)
+  :is(.gesso-field,.gesso-material-field,.gesso-export-field,.gesso-setup-field,
+      .aperture-tint,.aperture-select,.frame-setup-target)>:is(input,select,textarea):focus-visible,
+:where(.gesso-studio,.gesso-aperture-editor) .gesso-control-value:focus-visible,
+:where(.gesso-studio) .gesso-material-field>.gesso-color input:focus-visible,
+:where(.gesso-studio,.gesso-export-dialog) .gesso-export-filename input:focus-visible{
+  outline:none !important;
+}
+:where(.gesso-studio,.gesso-aperture-editor) .gesso-control-row[data-state=invalid]{
+  --gesso-focus-color:var(--gesso-signal-error,#ff968b);
+}
+
+/* The transparent range is the native input; its visible ruler carries focus. */
+.film-time-surface:has(.film-shot-seek:focus-visible) .film-time-ruler>div,
+.film-shot-surface:not(.film-time-surface .film-shot-surface):has(.film-shot-seek:focus-visible),
+.kf-ruler:has(>input:focus-visible){
+  outline:2px solid var(--gesso-focus-color,var(--gesso-text-primary,#f5f5f3)) !important;
+  outline-offset:-2px !important;
+}
+.film-shot-seek:focus-visible,.kf-ruler>input:focus-visible{outline:none !important}
+
+/* Native select enhancement uses the same owner cue in its dark picker. */
+@supports (appearance:base-select){
+  :where(.gesso-studio,.gesso-aperture-editor,.gesso-scene-menu) select option:focus-visible:not(:disabled){
+    outline:2px solid #fff !important;
+    outline-offset:-2px !important;
+  }
+}
+
+/* A geometry handle retains its fill and stroke while receiving the same ring. */
+.gesso-aperture-editor :is(.aperture-anchor,.aperture-handle){--gesso-focus-offset:2px}
+
+@media(forced-colors:active){
+  :where(.gesso-studio,.gesso-aperture-editor,.curve-demo,.gesso-keyframe-editor,.gesso-export-dialog,.gesso-menu,.gesso-material-menu,.gesso-scene-menu,.gesso-preset-dialog,.gesso-recovery-dialog)
+    :focus-visible,
+  :where(.gesso-studio,.gesso-aperture-editor,.gesso-export-dialog,.gesso-scene-menu)
+    :is(.gesso-field,.gesso-material-field,.gesso-export-field,.gesso-setup-field,.gesso-control-row,.aperture-tint,.aperture-select,.frame-setup-target):has(:focus-visible),
+  .gesso-export-filename>div:has(input:focus-visible),
+  .film-time-surface:has(.film-shot-seek:focus-visible) .film-time-ruler>div,
+  .film-shot-surface:has(.film-shot-seek:focus-visible),
+  .kf-ruler:has(>input:focus-visible){outline-color:Highlight !important}
+}

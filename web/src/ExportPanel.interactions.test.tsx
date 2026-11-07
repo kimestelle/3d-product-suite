@@ -71,12 +71,72 @@ describe('Export sidebar interactions', () => {
     button(tree,'New export').props.onClick();render(props);expect(onReviewJob).toHaveBeenLastCalledWith(null);
   });
   it('never reports the previous selected artifact under a new source or mode',()=>{
-    const onReviewJob=vi.fn(),current={},candidate={},complete={...queued,state:'succeeded'};
+    const onReviewJob=vi.fn(),current={},candidate={},complete={...queued,state:'succeeded',artifacts:[{name:'film.mp4',url:'/api/jobs/render-1/files/film.mp4'}]};
     const props={...base,previewSource:current,jobs:[complete],onReviewJob};
     button(render(props),'Lamp handoff').props.onClick();render(props);expect(onReviewJob).toHaveBeenLastCalledWith(complete);
     onReviewJob.mockClear();render({...props,previewSource:candidate});expect(onReviewJob.mock.calls.every(([job])=>job===null)).toBe(true);
     button(render(props),'Lamp handoff').props.onClick();render(props);onReviewJob.mockClear();
     render({...props,initialMode:'video'});expect(onReviewJob.mock.calls.every(([job])=>job===null)).toBe(true);
+  });
+  it.each([
+    {artifacts:[]},
+    {artifacts:[{name:'scene.blend',url:'/api/jobs/render-1/files/scene.blend',bytes:500}]},
+    {artifacts:[{name:'film.mp4',url:'',bytes:500}]},
+    {artifacts:[{name:'film.mp4',url:'javascript:alert(1)',bytes:500}]},
+    {artifacts:[{name:'film.mp4',url:'/api/jobs/render-1/files/film.mp4',bytes:0}]},
+  ])('keeps a successful receipt without claiming a usable download or opening empty review: %j',({artifacts})=>{
+    const onReviewJob=vi.fn(),onControl=vi.fn(),complete={...queued,state:'succeeded',artifacts};
+    const props={...base,jobs:[complete],onReviewJob,onControl};
+    button(render(props),'Lamp handoff').props.onClick();
+    const tree=render(props),html=renderToStaticMarkup(tree);
+    expect(html).toContain('Render complete · download unavailable');
+    expect(html).not.toContain('Ready to download');
+    expect(html).not.toContain('Review rendered output');
+    expect(html).toContain('This export remains in history');
+    expect(button(tree,'Download unavailable').props.disabled).toBe(true);
+    expect(onReviewJob).toHaveBeenLastCalledWith(null);
+    expect(nodes(tree).some(node=>node.type==='button'&&renderToStaticMarkup(node).includes('Resume render'))).toBe(false);
+    expect(onControl).not.toHaveBeenCalled();
+    button(tree,'New export').props.onClick();
+    expect(renderToStaticMarkup(render(props))).toContain('Previous exports');
+    expect(complete.artifacts).toBe(artifacts);
+  });
+  it('becomes ready and reviewable when polling supplies the primary artifact',()=>{
+    const onReviewJob=vi.fn(),complete={...queued,state:'succeeded',completedFrames:360};
+    let props={...base,jobs:[complete],onReviewJob};
+    button(render(props),'Lamp handoff').props.onClick();
+    expect(renderToStaticMarkup(render(props))).toContain('download unavailable');
+    const available={...complete,artifacts:[{name:'film.mp4',url:'/api/jobs/render-1/files/film.mp4',bytes:2048}]};
+    props={...props,jobs:[available]};
+    const tree=render(props),html=renderToStaticMarkup(tree);
+    expect(html).toContain('Ready to download');
+    expect(html).toContain('Download MP4');
+    expect(onReviewJob).toHaveBeenLastCalledWith(available);
+    button(tree,'Review rendered output').props.onClick();
+    expect(onReviewJob).toHaveBeenLastCalledWith(available,true);
+  });
+  it('can review available pair children without calling a missing archive ready',()=>{
+    const onReviewJob=vi.fn(),complete={...queued,state:'succeeded',paired:true,primaryArtifact:'pair.zip',artifacts:[
+      {name:'pair.zip',url:'/api/comparison-renders/pair/files/pair.zip',bytes:0},
+      {name:'a/film.mp4',url:'/api/jobs/a/files/film.mp4',bytes:200},
+      {name:'b/film.mp4',url:'/api/jobs/b/files/film.mp4',bytes:200},
+    ]};
+    const props={...base,jobs:[complete],onReviewJob};
+    button(render(props),'Lamp handoff').props.onClick();
+    const tree=render(props),html=renderToStaticMarkup(tree);
+    expect(html).toContain('paired archive is unavailable');expect(html).not.toContain('Ready to download');
+    button(tree,'Review rendered output').props.onClick();
+    expect(onReviewJob.mock.lastCall?.[0].artifacts).toEqual(complete.artifacts.slice(1));
+    expect(onReviewJob.mock.lastCall?.[1]).toBe(true);
+    expect(complete.artifacts).toHaveLength(3);
+  });
+  it('only offers review when the existing viewer can open an artifact',()=>{
+    const onReviewJob=vi.fn(),complete={...queued,state:'succeeded',artifacts:[{name:'film.mp4',url:'/api/exports/render-1/film.mp4',bytes:200}]};
+    const props={...base,jobs:[complete],onReviewJob};
+    button(render(props),'Lamp handoff').props.onClick();
+    const html=renderToStaticMarkup(render(props));
+    expect(html).toContain('Ready to download');expect(html).not.toContain('Review rendered output');
+    expect(onReviewJob).toHaveBeenLastCalledWith(null);
   });
   it('switches mode without rendering, retains shared settings, and submits the selected video format', async () => {
     const onSubmit = vi.fn(async () => queued), onModeChange = vi.fn();

@@ -29,7 +29,7 @@ describe('editor export navigation', () => {
     expect(props.group).toBe('renders');
   });
 
-  it('opens random setup without generating or changing a workspace', () => {
+  it('delegates generation to the parent without separately switching workspaces', () => {
     const props = {...context(), onRandomSetup: vi.fn(), randomSetupActive: true};
     const nav = EditorNavigation(props), button = nav.props.children[1].props.children[0];
     if (!button) throw new Error('Missing random setup action');
@@ -38,12 +38,12 @@ describe('editor export navigation', () => {
     expect(props.onExport).not.toHaveBeenCalled();
     expect(props.onGroup).not.toHaveBeenCalled();
     const html = renderToStaticMarkup(<EditorNavigation {...props}/>);
-    expect(html).toContain('aria-label="Generate random" title="Configure random setup" aria-pressed="true"');
+    expect(html).toContain('aria-label="Generate random" title="Generate a new film preview" aria-pressed="true"');
     expect(html.indexOf('aria-label="Generate random"')).toBeLessThan(html.indexOf('>Export<'));
     expect(html).not.toContain('gesso-export-actions-surface');
     expect(html).toContain('gesso-export-tab-fill');
     const disabled = renderToStaticMarkup(<EditorNavigation {...props} exportDisabled/>);
-    expect(disabled).toContain('title="Configure random setup" aria-pressed="true" disabled=""');
+    expect(disabled).toContain('title="Generate a new film preview" aria-pressed="true" disabled=""');
   });
 
   it('uses the parent Export action and native disabled behavior', () => {

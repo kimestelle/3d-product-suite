@@ -1,0 +1,2 @@
+/* Ownership labels must fit without overlapping the adjacent avatar. */
+.gesso-header-actions :is(.gesso-save-status,.gesso-save)[data-preview]{width:max-content;min-width:76px}

@@ -1,6 +1,7 @@
 import {useEffect, useId, useRef, useState, type ReactNode} from 'react';
 import FilmModeTabs from './FilmModeTabs';
-import {exportBlockReason, exportBytes, exportDimensions, exportDownloadUrl, exportExecutionLabel, exportFilename, exportFormats, exportProgress, formatsForMode, makeExportPayload, primaryExportArtifact, totalExportFrames, type ExportCapabilities, type ExportFormat, type ExportJob, type ExportMode, type ExportPayload, type ExportScale, type ExportScene} from './exportModel';
+import {exportBlockReason, exportBytes, exportDimensions, exportDownloadUrl, exportExecutionLabel, exportFilename, exportFormats, exportProgress, formatsForMode, isUsableExportArtifact, makeExportPayload, primaryExportArtifact, totalExportFrames, type ExportCapabilities, type ExportFormat, type ExportJob, type ExportMode, type ExportPayload, type ExportScale, type ExportScene} from './exportModel';
+import {exportReviewFiles} from './ExportArtifactPreview';
 import './export.css';
 
 export interface ExportPanelProps {
@@ -21,8 +22,9 @@ function jobTitle(job: ExportJob) {return `${job.filename || 'gesso'}${job.paire
 function jobFormat(job: ExportJob) {return exportFormats[job.format ?? (job.kind === 'still' ? 'png' : 'mp4')].label;}
 function JobStatus({job}: {job: ExportJob}) {
   const progress = exportProgress(job), active = ['queued', 'running'].includes(job.state);
-  const state = job.state === 'succeeded' ? 'Ready to download' : job.state === 'running' ? job.stage === 'capturing' ? 'Capturing environment' : progress.completed === progress.total && progress.total > 0 ? 'Preparing files' : 'Rendering' : job.state === 'queued' ? 'Queued' : job.state === 'cancelled' ? 'Cancelled' : job.state === 'interrupted' ? 'Interrupted' : 'Render failed';
-  const tone = job.state === 'succeeded' ? 'success' : active || job.state === 'cancelled' ? 'note' : 'error';
+  const ready = !!primaryExportArtifact(job);
+  const state = job.state === 'succeeded' ? ready ? 'Ready to download' : 'Render complete · download unavailable' : job.state === 'running' ? job.stage === 'capturing' ? 'Capturing environment' : progress.completed === progress.total && progress.total > 0 ? 'Preparing files' : 'Rendering' : job.state === 'queued' ? 'Queued' : job.state === 'cancelled' ? 'Cancelled' : job.state === 'interrupted' ? 'Interrupted' : 'Render failed';
+  const tone = ready ? 'success' : job.state === 'succeeded' || active || job.state === 'cancelled' ? 'note' : 'error';
   return <div className="gesso-export-status"><div className="gesso-export-status-line"><span className="gesso-feedback" data-tone={tone} role="status" aria-live="polite">{state}</span><span>{progress.completed} / {progress.total} {progress.total === 1 ? 'frame' : 'frames'}</span></div>
     <progress aria-label="Rendered frames" max={Math.max(progress.total, 1)} value={progress.completed}/>
     {exportExecutionLabel(job.execution) && <p className="gesso-note" title={job.execution?.cycles?.fallbackReason}>{exportExecutionLabel(job.execution)}</p>}
@@ -51,6 +53,12 @@ export default function ExportPanel({scene, projectName, frame, initialMode, cap
   let dimensions = {width: scene.render.width, height: scene.render.height}, sizeError = '';
   try {dimensions = exportDimensions(scene, scale);} catch (failure) {sizeError = (failure as Error).message;}
   const total = totalExportFrames(scene), download = job ? primaryExportArtifact(job) : undefined;
+  // Filter only the review projection, never the stored job or its receipts.
+  // A pair can still review its child media when its primary ZIP is unavailable.
+  const usableArtifacts = job?.artifacts.filter(isUsableExportArtifact) ?? [];
+  const reviewCandidate = job && (usableArtifacts.length === job.artifacts.length ? job : {...job, artifacts: usableArtifacts});
+  const canReview = !!reviewCandidate && exportReviewFiles(reviewCandidate).length > 0;
+  const reviewJob = job?.state === 'succeeded' ? canReview ? reviewCandidate : null : job;
   const failed = job && ['failed', 'cancelled', 'interrupted'].includes(job.state);
   const active = job && (job.canCancel ?? ['queued', 'running'].includes(job.state));
   const savedName = exportFilename(filename), otherJobs = jobs.filter(item => !job || item.id !== job.id || !!item.paired !== !!job.paired);
@@ -61,7 +69,7 @@ export default function ExportPanel({scene, projectName, frame, initialMode, cap
   }, []);
   useEffect(() => {setSelectedJob(null);setError('');}, [previewSource]);
   useEffect(()=>{
-    onReviewJob?.(selectedScope.current.source===previewSource&&selectedScope.current.mode===mode?job:null);
+    onReviewJob?.(selectedScope.current.source===previewSource&&selectedScope.current.mode===mode?reviewJob:null);
   },[job,previewSource,mode,onReviewJob]);
   const changeMode = (value: ExportMode, notify = true) => {
     if (value === currentMode.current) return;
@@ -107,10 +115,11 @@ export default function ExportPanel({scene, projectName, frame, initialMode, cap
         <p className="gesso-export-note">{job.width && job.height ? `${job.width} × ${job.height} px · ` : ''}{job.kind === 'still' ? `Frame ${job.frame ?? frame}` : `${job.fps ?? scene.render.fps} fps`}{job.samples ? ` · ${job.samples} samples` : ''}</p>
         {job.sourceDigest && job.sourceDigest !== currentDigest && <p className="gesso-export-note">Earlier scene revision</p>}
         <JobStatus job={job}/>
-        {job.state==='succeeded'&&onReviewJob&&<button type="button" className="gesso-export-text-button gesso-export-review-action" onClick={()=>onReviewJob(job,true)}>Review rendered output</button>}
+        {job.state==='succeeded'&&!download&&<p className="gesso-export-note">The {job.paired?'paired archive':'primary output file'} is unavailable. This export remains in history. Use New export to render again.</p>}
+        {canReview&&onReviewJob&&<button type="button" className="gesso-export-text-button gesso-export-review-action" onClick={()=>onReviewJob(reviewCandidate,true)}>Review rendered output</button>}
         {active && <button type="button" className="gesso-export-text-button" disabled={pending} onClick={() => void control('cancel')}>{pending ? 'Updating…' : job.paired ? 'Cancel both renders' : 'Cancel render'}</button>}
         {failed && <p className="gesso-export-note">Resume keeps completed frames and retries the rest.</p>}
-        {job.state === 'succeeded' && <div className="gesso-export-secondary-links">{job.artifacts.filter(artifact => artifact !== download && (artifact.name.endsWith('.blend') || artifact.name === 'contact-sheet.png' || job.paired)).map(artifact => <a key={artifact.name} href={exportDownloadUrl(artifact.url)} download={artifact.downloadName}>{artifact.name.endsWith('.blend') ? `${artifact.name.startsWith('a/') ? 'A · ' : artifact.name.startsWith('b/') ? 'B · ' : ''}Scene file · .blend` : artifact.name === 'contact-sheet.png' ? 'Contact sheet' : artifact.name}<span>↓</span></a>)}</div>}
+        {job.state === 'succeeded' && <div className="gesso-export-secondary-links">{usableArtifacts.filter(artifact => artifact !== download && (artifact.name.endsWith('.blend') || artifact.name === 'contact-sheet.png' || job.paired)).map(artifact => <a key={artifact.name} href={exportDownloadUrl(artifact.url)} download={artifact.downloadName}>{artifact.name.endsWith('.blend') ? `${artifact.name.startsWith('a/') ? 'A · ' : artifact.name.startsWith('b/') ? 'B · ' : ''}Scene file · .blend` : artifact.name === 'contact-sheet.png' ? 'Contact sheet' : artifact.name}<span>↓</span></a>)}</div>}
       </section>}
       {error && <p className="gesso-export-error" role="alert">{error}</p>}
       {otherJobs.length > 0 && <details className="gesso-export-history"><summary>Previous exports <span>{otherJobs.length}</span></summary><div>{otherJobs.map(item => {const file = primaryExportArtifact(item); return <article key={`${item.paired ? 'pair-' : ''}${item.id}`}><button type="button" onClick={() => {selectJob(item); setError('');}}><span>{jobTitle(item)}</span><small>{jobFormat(item)} · {item.state}</small></button>{file && <a href={exportDownloadUrl(file.url)} download={file.downloadName} aria-label={`Download ${file.downloadName || file.name}`}>↓</a>}</article>;})}</div></details>}

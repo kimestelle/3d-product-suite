@@ -13,6 +13,7 @@
   "dependencies": {
     "@chenglou/pretext": "1.0.0",
     "@sparkjsdev/spark": "2.3.1",
+    "lucide-react": "1.68.0",
     "react": "19.1.1",
     "react-dom": "19.1.1",
     "three": "0.180.0"

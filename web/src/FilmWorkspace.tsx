@@ -71,7 +71,7 @@ export function FilmObjects(props: FilmWorkspaceProps) {
     const cameraState = target === '$camera' && props.mode !== 'still' ? cameraMotionSelection(scene, shot.id) : null;
     return <div className={`film-object${target === selectedTarget ? ' is-selected' : ''}`} key={target}>
       <button type="button" className="film-object-name" aria-pressed={target === selectedTarget} onClick={() => chooseTarget(target)}>
-        <span>{target === '$camera' ? <UiIcon name="circle"/> : target === '$product' ? <span className="film-product-mark" aria-hidden="true"/> : isLightTarget(target) ? <span className="film-light-mark" aria-hidden="true"/> : <span className="film-part-mark"/>}{filmTargetName(scene, target)}</span>
+        <span><UiIcon name={target === '$camera' ? "camera" : target === '$product' ? "product" : isLightTarget(target) ? "light" : "part"} size={16}/>{filmTargetName(scene, target)}</span>
         <small>{target === '$camera' ? cameraState === 'dolly' ? 'push in' : cameraState === 'custom' ? 'path' : cameraState ?? 'frame' : count ? `${count} ${count === 1 ? 'motion' : 'motions'}` : isLightTarget(target) ? 'still' : 'pose'}</small>
       </button>
     </div>;
