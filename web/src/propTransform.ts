@@ -1,12 +1,16 @@
 import {Quaternion, Scene, Vector3, type Object3D, type PerspectiveCamera, type WebGLRenderer} from 'three';
 import {TransformControls, type TransformControlsMode} from 'three/addons/controls/TransformControls.js';
+import {PRODUCT_SCALE_MAX, PRODUCT_SCALE_MIN} from './transforms';
 
 export type PropTransformMode = TransformControlsMode;
 type Vec3 = [number, number, number];
 export type PropTransformEdit =
-  | {id: string; mode: 'translate'; translationM: Vec3}
-  | {id: string; mode: 'rotate'; rotationXyzw: [number, number, number, number]}
-  | {id: string; mode: 'scale'; sizeM: Vec3};
+  | {id: string; target?: never; mode: 'translate'; translationM: Vec3}
+  | {id: string; target?: never; mode: 'rotate'; rotationXyzw: [number, number, number, number]}
+  | {id: string; target?: never; mode: 'scale'; sizeM: Vec3}
+  | {id: '$product'; target: 'product'; mode: 'translate'; deltaM: Vec3}
+  | {id: '$product'; target: 'product'; mode: 'rotate'; deltaYawDegrees: number}
+  | {id: '$product'; target: 'product'; mode: 'scale'; scaleFactor: number};
 export type PropTransformCommit = (edit: PropTransformEdit) => boolean | void;
 
 type Target = {
@@ -16,6 +20,7 @@ type Target = {
   sizeM: Vec3;
   cylinder: boolean;
   yawOnly: boolean;
+  productScale?: number;
   onCommit: PropTransformCommit;
 };
 type Drag = {
@@ -127,10 +132,16 @@ export class PropTransform {
     }
     if (target.mode === 'scale') {
       const factor = object.scale.clone().divide(drag.scale);
-      for (const axis of [0, 1, 2]) factor.setComponent(axis, Math.max(.001 / target.sizeM[axis], factor.getComponent(axis)));
-      if (target.cylinder) {
-        const radius = this.controls.axis?.includes('X') ? factor.x : factor.z;
-        factor.x = factor.z = radius;
+      if (target.productScale !== undefined) {
+        const axis = this.controls.axis ?? 'XYZ';
+        const uniform = axis.includes('X') ? factor.x : axis.includes('Y') ? factor.y : factor.z;
+        factor.setScalar(Math.min(PRODUCT_SCALE_MAX / target.productScale, Math.max(PRODUCT_SCALE_MIN / target.productScale, uniform)));
+      } else {
+        for (const axis of [0, 1, 2]) factor.setComponent(axis, Math.max(.001 / target.sizeM[axis], factor.getComponent(axis)));
+        if (target.cylinder) {
+          const radius = this.controls.axis?.includes('X') ? factor.x : factor.z;
+          factor.x = factor.z = radius;
+        }
       }
       object.scale.copy(drag.scale).multiply(factor);
     }
@@ -142,13 +153,22 @@ export class PropTransform {
     event.preventDefault();
     event.stopImmediatePropagation();
     const {id, mode, object, sizeM} = target;
+    const product = target.productScale !== undefined;
     let edit: PropTransformEdit | undefined;
     if (mode === 'translate' && !object.position.equals(drag.position)) {
-      edit = {id, mode, translationM: object.position.toArray()};
+      edit = product
+        ? {id: '$product', target: 'product', mode, deltaM: object.position.clone().sub(drag.position).toArray()}
+        : {id, mode, translationM: object.position.toArray()};
     } else if (mode === 'rotate' && !object.quaternion.equals(drag.rotation)) {
-      edit = {id, mode, rotationXyzw: object.quaternion.toArray()};
+      if (product) {
+        const delta = object.quaternion.clone().multiply(drag.rotation.clone().invert());
+        const yaw = Math.atan2(delta.y, delta.w) * 360 / Math.PI;
+        edit = {id: '$product', target: 'product', mode, deltaYawDegrees: (yaw + 540) % 360 - 180};
+      } else edit = {id, mode, rotationXyzw: object.quaternion.toArray()};
     } else if (mode === 'scale' && !object.scale.equals(drag.scale)) {
-      edit = {id, mode, sizeM: object.scale.clone().divide(drag.scale).multiply(new Vector3(...sizeM)).toArray()};
+      edit = product
+        ? {id: '$product', target: 'product', mode, scaleFactor: object.scale.x / drag.scale.x}
+        : {id, mode, sizeM: object.scale.clone().divide(drag.scale).multiply(new Vector3(...sizeM)).toArray()};
     }
     try {
       if (!edit || target.onCommit(edit) === false) this.restore(target, drag);

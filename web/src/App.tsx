@@ -61,7 +61,7 @@ import {resolveFilmPlaybackFrame} from './filmPlayback';
 import {useFilmAudio} from './useFilmAudio';
 import {isCameraFilmGuide, type FilmPresentationGuide} from './filmGuides';
 import TransformShortcuts from './TransformShortcuts';
-import {formatScalePercent,type TransformMode,type TransformTarget} from './transforms';
+import {formatScalePercent,PRODUCT_SCALE_MIN,PRODUCT_SCALE_MAX,type TransformMode,type TransformTarget} from './transforms';
 import {NumberControl} from './EditorControls';
 import {decalForPart, newDecal, UvDecalOverlay} from './DecalEditor';
 import type {ProductDecal, UvLayout} from './decals';
@@ -243,6 +243,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   const previewComparisonMode=showExport?'split':comparisonMode;
   const materialEditorVisible=!!scene&&productWorkspace&&layer==='Materials';
   const [worldObjectId,setWorldObjectId]=useState<string|null>(null);
+  const stageObjectId=worldObjectId??(scene&&scene.environment.plinth.visible===false&&!scene.environment.props?.some((prop:any)=>prop.visible!==false)?'$product':null);
   const [stageTransformMode,setStageTransformMode]=useState<PropTransformEdit['mode']>('translate');
   useEffect(()=>setWorldObjectId(null),[project?.id,scene?.sceneId]);
   const worldEditorVisible=!!scene&&tab==='world'&&layer==='Props'&&!!worldObjectId&&[scene.environment.plinth,...(scene.environment.props??[])].some((item:any)=>item.id===worldObjectId);
@@ -697,7 +698,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     if(showExport){if(e.key==='Escape'){e.preventDefault();closeExport()}else if(inView&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&e.code==='Space'&&!target?.closest('button,a')){e.preventDefault();if(valid&&mode==='video'&&!e.repeat)togglePlayback()}return}
     if(inView&&!e.altKey&&!e.ctrlKey&&!e.metaKey&&e.code==='KeyF'){
       if(e.shiftKey&&filmWorkspace&&inspecting){e.preventDefault();resetView();}
-      else if(!e.shiftKey&&worldEditorVisible&&worldObjectId){e.preventDefault();frameProp(worldObjectId);}
+      else if(!e.shiftKey&&tab==='world'&&layer==='Props'&&stageObjectId){e.preventDefault();frameProp(stageObjectId);}
       else if(!e.shiftKey&&productWorkspace&&selected){e.preventDefault();framePart();}
       return;
     }
@@ -707,7 +708,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
     else if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='y'){e.preventDefault();redo()}
     else if((inTimeline||inView&&filmWorkspace)&&!target?.closest('button,a')&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&e.code==='Space'){e.preventDefault();if(valid&&!stillFilm&&!e.repeat){togglePlayback()}}
     else if((inTimeline||inView&&filmWorkspace)&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){e.preventDefault();setPlaying(false);setFrame(f=>Math.max(1,Math.min(total,f+(e.key==='ArrowRight'?1:-1))))}};
-    window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)},[active,showExport,sceneCreation,stillShowing,exportReviewVisible,total,valid,tab,mode,stillFilm,dirty,busy,evaluating,scene,project,chooseGroup,selectLayer,playbackStart,playbackEnd,filmWorkspace,productWorkspace,inspecting,selected,worldEditorVisible,worldObjectId]);
+    window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)},[active,showExport,sceneCreation,stillShowing,exportReviewVisible,total,valid,tab,mode,stillFilm,dirty,busy,evaluating,scene,project,chooseGroup,selectLayer,playbackStart,playbackEnd,filmWorkspace,productWorkspace,inspecting,selected,layer,stageObjectId]);
   const perform=async(fn:()=>Promise<void>)=>{setBusy(true);setError('');try{await fn()}catch(e:any){setError(e.message)}finally{setBusy(false)}};
   const openCampaign=(id:string)=>{
     if(dirty||busy||id===project?.id)return;
@@ -926,18 +927,25 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   const groupName=groups.find(item=>item.id===tab)!.label;
   const toggleVisibility=(id:string)=>setHiddenParts(current=>current.includes(id)?current.filter(item=>item!==id):[...current,id]);
   const framePart=()=>{setStillViewVersion(value=>value+1);setPlaying(false);setInspecting(true);viewport.current?.frameSelection();viewportB.current?.frameSelection()};
+  const stageProduct=stageObjectId==='$product';
   const stagePlinth=worldEditorVisible&&scene?.environment.plinth.id===worldObjectId;
   const stageProp=worldEditorVisible?(stagePlinth?scene.environment.plinth:scene.environment.props?.find((prop:any)=>prop.id===worldObjectId)):undefined;
   const stageActive=active&&tab==='world'&&layer==='Props'&&!graphicsError.a&&!scene?.comparison;
-  const stageObjectVisible=!!(stageActive&&stageProp&&stageProp.visible!==false);
+  const stageObjectVisible=!!(stageActive&&(stageProduct||stageProp&&stageProp.visible!==false));
   const stageToolsEnabled=stageObjectVisible&&!isStaticDemo;
   const stageMoveLocked=!!stageProp?.relationship;
   const activeStageMode=stagePlinth?'scale':stageMoveLocked&&stageTransformMode==='translate'?'rotate':stageTransformMode;
   const stageInteractive=stageActive&&valid&&!busy&&!playing&&!showExport&&!stillShowing&&!nativeProofShowing&&!cleanupPreview&&!transformMode&&!materialPreview&&!pickingSurface;
-  const stageTarget=stageToolsEnabled&&stageInteractive?stageProp.id:null;
+  const stageTarget=stageToolsEnabled&&stageInteractive?stageObjectId:null;
   const commitStageTransform=useRef<(edit:PropTransformEdit)=>boolean>(()=>false);
   commitStageTransform.current=(edit)=>{
     if(edit.id!==stageTarget||edit.mode!==activeStageMode)return false;
+    if(edit.target==='product') return change(next=>{
+      const placement=next.placement;
+      if(edit.mode==='translate')placement.translationM=placement.translationM.map((offset:number,axis:number)=>offset+edit.deltaM[axis]);
+      else if(edit.mode==='rotate')placement.rotationYDegrees=((placement.rotationYDegrees??0)+edit.deltaYawDegrees)%360;
+      else placement.scale=Math.min(PRODUCT_SCALE_MAX,Math.max(PRODUCT_SCALE_MIN,(placement.scale??1)*edit.scaleFactor));
+    });
     const current=historyRef.current.present;
     const prop=stagePlinth?current?.environment.plinth:current?.environment.props?.find((item:any)=>item.id===edit.id);
     if(!prop||prop.id!==edit.id||prop.visible===false||edit.mode==='translate'&&prop.relationship)return false;
@@ -1316,12 +1324,13 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
           {picking&&<div className="pick-hint" role="status">View {picking.side.toUpperCase()}: click {picking.kind==='floor'?'the floor':`measurement point ${calibrationDrafts[picking.side].points.length+1} of 2`}<button onClick={()=>setPicking(null)}>Cancel</button></div>}
           {pickingSurface&&<div className="pick-hint" role="status">Click a level surface in the world to place the product.<button onClick={()=>setPickingSurface(false)}>Cancel</button></div>}
           {!showExport&&!stillShowing&&!nativeProofShowing&&stageObjectVisible&&<div className="gesso-view-toolbar gesso-stage-transform-toolbar" role="group" aria-label="Selected object tools">
+            {stageProduct&&<span>Product placement</span>}
             {stageToolsEnabled&&<>
             {!stagePlinth&&<><button type="button" aria-pressed={activeStageMode==='translate'} disabled={stageMoveLocked} title={stageMoveLocked?'Position follows the object relationship':undefined} onClick={()=>setStageTransformMode('translate')}>Move</button>
             <button type="button" aria-pressed={activeStageMode==='rotate'} onClick={()=>setStageTransformMode('rotate')}>Rotate</button></>}
             <button type="button" aria-pressed={activeStageMode==='scale'} onClick={()=>setStageTransformMode('scale')}>Resize</button>
             </>}
-            <button type="button" disabled={!valid} onClick={()=>frameProp(stageProp.id)}>Frame selected object</button>
+            <button type="button" disabled={!valid} onClick={()=>{if(stageObjectId)frameProp(stageObjectId)}}>{stageProduct?'Frame product':'Frame selected object'}</button>
           </div>}
           {!showExport&&!stillShowing&&!nativeProofShowing&&filmWorkspace&&(inspecting&&filmSceneVisible||!playing&&frame!==filmEditFrame)&&<div className="gesso-view-toolbar" role="group" aria-label="Film view">
             {inspecting&&filmSceneVisible&&<button type="button" onClick={resetView} title="Leave inspection view and show the saved shot framing">Use shot camera</button>}

@@ -1714,3 +1714,7 @@ The viewport shows a shot camera reset only in Film during inspection. Its label
 ### 2026-11-06 — Curate the local world catalog without breaking saved scenes
 
 **Implemented for connected workspaces.** The editor omits world IDs listed in the workspace's `worlds/archive.json` from its available world choices. Existing scene revisions still refer directly to immutable assets. The full library remains available to internal tooling, and reseeding a bundled fixture does not bring an archived entry back into the picker. Scope includes `film/worlds.py`, `film/server.py`, and the catalog regression test.
+
+### 2026-11-06 — Give the product its own Stage handles
+
+**Implemented for the connected editor.** Stage → Objects treats the whole product as a selectable subject. If it is the only visible object, it starts selected. Move edits the saved placement offset, Rotate turns around vertical, and Resize scales uniformly. The camera and model geometry are separate from these placement edits. The viewport labels the selection as Product placement so it is distinguishable from a prop or contact surface. Scope includes `App.tsx`, `viewport.ts`, and `propTransform.ts`.

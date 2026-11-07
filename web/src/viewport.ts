@@ -167,6 +167,7 @@ export class StudioViewport {
   private propEntries() { return this.sceneProps ??= new Map(); }
   private propTransform: PropTransform | null = null;
   private propTransformTarget: {id: string; mode: PropTransformMode; onCommit: PropTransformCommit} | null = null;
+  private stageProductRoot: THREE.Group | null = null;
   private stagePropPick: ((id: string) => void) | undefined;
   private stagePropPointer: {id: number; x: number; y: number} | null = null;
   private readonly raycaster = new THREE.Raycaster();
@@ -498,8 +499,8 @@ export class StudioViewport {
         const plinthId = this.loadedSource?.environment?.plinth?.id;
         const plinth = plinthId && this.plinthObject(plinthId);
         if (plinth) props.set(plinth, plinthId);
-        if (!props.size) return;
-        const roots = [...props.keys(), ...this.components.values()];
+        const components = new Set(this.components.values());
+        const roots = [...props.keys(), ...components];
         if (world && this.loadedSource?.environment?.kind === 'mesh') roots.push(world);
         this.content.updateMatrixWorld(true);
         for (const hit of this.raycaster.intersectObjects(roots, true)) {
@@ -508,10 +509,10 @@ export class StudioViewport {
           const surface = Array.isArray(material) ? material[hit.face?.materialIndex ?? 0] : material;
           if (surface && (!surface.visible || (surface.transparent && surface.opacity <= 0))) continue;
           for (let object: THREE.Object3D | null = hit.object; object; object = object.parent) {
-            const id = props.get(object);
+            const id = props.get(object) ?? (components.has(object as THREE.Group) ? '$product' : undefined);
             if (id) {this.stagePropPick(id);break;}
           }
-          return; // An opaque product part or mesh wall occludes props behind it.
+          return; // An opaque mesh wall occludes objects behind it.
         }
       }
       return;
@@ -2382,6 +2383,8 @@ export class StudioViewport {
   async frame(sample: any): Promise<void> {
     if (this.disposed) throw new Error('Viewport has been disposed.');
     this.previewQuality?.activity();
+    if (this.stageProductRoot && this.propTransform?.draggedObject === this.stageProductRoot
+        && this.latestSample?.frame !== sample.frame) this.propTransform.cancel();
     this.latestSample = sample;
     const request = ++this.frameRequest;
     const version = this.loadVersion;
@@ -2396,12 +2399,14 @@ export class StudioViewport {
       if (this.loading || this.loadFailed) { this.dirty = true; return; }
       const previousKind = this.filmClip?.kind; this.filmClip = sample.clip ?? {kind: 'scene'};
       if (previousKind !== this.filmClip.kind) this.updateControlsEnabled();
-      for (const [id, pose] of Object.entries(sample.components || {}) as [string, any][]) {
-        const component = this.components.get(id);
-        if (!component) continue;
-        component.position.fromArray(pose.translationM);
-        component.quaternion.fromArray(pose.rotationXyzw);
-        component.scale.setScalar(pose.scale ?? 1);
+      if (!this.stageProductRoot || this.propTransform?.draggedObject !== this.stageProductRoot) {
+        for (const [id, pose] of Object.entries(sample.components || {}) as [string, any][]) {
+          const component = this.components.get(id);
+          if (!component) continue;
+          component.position.fromArray(pose.translationM);
+          component.quaternion.fromArray(pose.rotationXyzw);
+          component.scale.setScalar(pose.scale ?? 1);
+        }
       }
       this.applyPropPoses(sample.props);
       this.applyLightPoses(sample.lights ?? []);
@@ -2446,6 +2451,7 @@ export class StudioViewport {
       this.awaitingSample = false;
       this.sampledLoadVersion = version;
       if (firstSample) this.updateControlsEnabled();
+      else if (this.propTransformTarget?.id === '$product') this.syncPropTransform();
       if (!this.loading && (this.options.capture || (!document.hidden && this.visible))) await this.render(!!this.spark);
       else this.dirty = true;
     });
@@ -2965,6 +2971,28 @@ export class StudioViewport {
       return;
     }
     const source = this.loadedSource;
+    if (target.id === '$product') {
+      const scale = source?.placement?.scale ?? 1;
+      const pivot = this.latestSample?.productPlacement?.translationM;
+      if (!source?.product?.dimensionsM || !this.transformPlacement || !this.components.size || !(scale > 0)) {
+        this.propTransform?.setTarget(null);
+        return;
+      }
+      if (!this.stageProductRoot) {
+        this.stageProductRoot = new THREE.Group();
+        this.content.add(this.stageProductRoot);
+      }
+      const root = this.stageProductRoot;
+      if (this.propTransform?.draggedObject !== root) {
+        if (pivot) root.position.fromArray(pivot);
+        else root.position.copy(this.transformPlacement.pivot);
+        root.quaternion.identity();
+        root.scale.setScalar(1);
+      }
+      this.propTransformControls().setTarget({...target, object: root, sizeM: source.product.dimensionsM,
+        cylinder: false, yawOnly: target.mode === 'rotate', productScale: scale});
+      return;
+    }
     const plinth = source?.environment?.plinth;
     const isPlinth = plinth?.id === target.id;
     const prop = isPlinth ? plinth : source?.environment?.props?.find((value: any) => value.id === target.id);
@@ -2974,12 +3002,30 @@ export class StudioViewport {
       this.propTransform?.setTarget(null);
       return;
     }
-    this.propTransform ??= new PropTransform(this.canvas, this.camera, () => this.invalidate(), () => {
+    this.propTransformControls().setTarget({...target, object, sizeM: prop.sizeM, cylinder: prop.shape === 'cylinder',
+      yawOnly: target.mode === 'rotate' && source.placement?.restsOn === target.id});
+  }
+
+  private propTransformControls(): PropTransform {
+    return this.propTransform ??= new PropTransform(this.canvas, this.camera, () => this.invalidate(), () => {
       if (this.propTransform?.dragging) this.freezeSelectionFraming();
+      this.updateStageProductDrag();
       this.updateControlsEnabled();
     });
-    this.propTransform.setTarget({...target, object, sizeM: prop.sizeM, cylinder: prop.shape === 'cylinder',
-      yawOnly: target.mode === 'rotate' && source.placement?.restsOn === target.id});
+  }
+
+  private updateStageProductDrag(): void {
+    const root = this.stageProductRoot;
+    if (!root) return;
+    // Reparent the real sampled assembly only for the duration of the drag.
+    // attach preserves component poses and keeps nested GLB nodes untouched.
+    if (this.propTransform?.draggedObject === root) {
+      for (const component of this.components.values()) {
+        if (component.parent !== root) root.attach(component);
+      }
+    } else {
+      for (const component of [...root.children]) this.content.attach(component);
+    }
   }
 
   /** Frame the real prop instance while keeping the sampled shot available to reset. */
@@ -2999,9 +3045,9 @@ export class StudioViewport {
 
   private fitSelection(): void {
     const bounds = new THREE.Box3();
-    const roots = this.framedWorldObjectId
-      ? [...this.environmentObjects.keys()].filter(object => object.name === this.framedWorldObjectId
-        || object.userData.objectId === `plinth:${this.framedWorldObjectId}`)
+    const id = this.framedWorldObjectId;
+    const roots = id === '$product' ? [...this.components.values()]
+      : id ? [...this.environmentObjects.keys()].filter(object => object.name === id || object.userData.objectId === `plinth:${id}`)
       : this.focusedRoots();
     for (const selected of roots) {
       if (!this.objectVisible(selected)) continue;
@@ -3098,6 +3144,7 @@ export class StudioViewport {
     if (this.spark) { this.scene.remove(this.spark); this.spark.dispose(); this.spark = null; }
     this.disposeObject(this.content);
     this.content.clear();
+    this.stageProductRoot = null;
     this.components.clear();
     this.environmentObjects.clear();
     this.environmentBackground = null;
