@@ -124,9 +124,19 @@ Before routing the editor to a new backend:
    saved revision and explicitly resume an interrupted export.
 
 No AWS instance, Supabase project or paid generation was created by this audit.
-Local Docker execution is unavailable; the verification-only Linux container
-workflow supplies the next runtime gate. The Vercel demo remains separate from
-the connected backend until that host passes acceptance.
+Local Docker execution is unavailable. The [verification-only Linux container
+run](https://github.com/kimestelle/3d-product-suite/actions/runs/42345261350)
+was dispatched for commit `2e491721`, with publication disabled. GitHub rejected
+it before any step started: the account is locked for a billing issue. This
+does not establish whether the new Linux image builds or executes. Retry that
+verification after the account is unlocked, before publishing a new image.
+
+The local runtime probe rendered a real Blender 4.3.2 Cycles frame on Metal and
+initialized WebGL2 using the patched pinned Chromium 140.0.7339.186 software
+renderer. Installing its new headless runtime resolved the initial missing
+browser failure. This establishes local runtime behavior, not an NVIDIA result
+or a full Gaussian export. The Vercel demo remains separate from the connected
+backend until the AWS host passes acceptance.
 
 ## Remaining product boundaries
 
