@@ -5,7 +5,8 @@ import type {PostProcessingAnalysis} from './postProcessing';
 import {EditorCabinetBody} from './editorMotion';
 import {useEffect, useRef, useState, type ReactNode} from 'react';
 import {createPortal} from 'react-dom';
-import WorldObjectPreviews from './WorldObjectPreviews';
+import WorldObjectTree from './WorldObjectTree';
+import WorldProductEditor from './WorldProductEditor';
 import WorldObjectEditor from './WorldObjectEditor';
 import {useWorldCovers, WorldCoverImage, type CurrentWorldCapture} from './WorldCovers';
 import {worldCoverKey, type WorldCoverItem} from './worldCover';
@@ -17,7 +18,7 @@ import {assetUrl} from './runtime';
 import PolyHavenLibrary from './PolyHavenLibrary';
 import WorldCleanupPanel,{type WorldCleanupPreview,type WorldCleanupSelection} from './WorldCleanupPanel';
 import {addLight, addProp, addPropFromLibrary, applyDramaticSpot, applyDeskLamp, setHdriFromLibrary, colorFromHex, colorHex, defaultLighting, duplicateLight, ensureLighting, lightType, removeLight, setLightType, setWorldYaw, worldYaw, SPOT_DEFAULTS, type StudioLighting, type StudioLightType} from './world';
-import {objectName, productSupportTargets, relationLabels, sceneFloorY, setProductSupport, type RelationType, type ResolvedObjects} from './sceneGraph';
+import {objectName, productSupportTargets, sceneFloorY, setProductSupport, type ResolvedObjects} from './sceneGraph';
 
 export type WorldLayer = 'Environment' | 'Props' | 'Lights';
 export interface WorldPanelProps extends CurrentWorldCapture {
@@ -186,28 +187,26 @@ export default function WorldPanel({scene, layer, worlds, publishedWorldIds, onC
     const nextButton = Array.from(buttons ?? []).find(button => button.dataset.lightId === remaining?.id);
     (nextButton ?? addLightTrigger.current)?.focus();
   };
-  const objects = [environment.plinth, ...(environment.props ?? [])].map((object: any) => {
-    const isPlinth = object.id === environment.plinth.id;
-    const kind = isPlinth ? 'Contact surface' : object.shape === 'mesh' ? 'Imported mesh' : object.shape === 'cylinder' ? 'Cylinder' : 'Box';
-    const dimensions = object.sizeM.map((value: number) => Number((value * 1000).toFixed(1))).join(' × ');
-    const relation = object.relationship ? ` · ${relationLabels[object.relationship.type as RelationType] ?? object.relationship.type} ${objectName(scene, object.relationship.targetId)}` : '';
-    return {id: object.id, name: isPlinth ? 'Plinth' : object.displayName ?? object.id, object, isPlinth,
-      description: `${kind}${object.visible === false ? ' · Hidden' : ''}${relation} · ${dimensions} mm`};
-  });
   const closeEditor = (removed = false) => {
     // Return keyboard users to the object they were editing before collapsing the rail.
-    const buttons = root.current?.querySelectorAll<HTMLButtonElement>('.gesso-world-object-previews button');
+    const buttons = root.current?.querySelectorAll<HTMLButtonElement>('.gesso-stage-object-tree button');
     const button = removed ? root.current?.querySelector<HTMLButtonElement>('.gesso-world-object-actions button')
       : Array.from(buttons ?? []).find(button => button.dataset.objectId === selectedObjectId);
     button?.focus();
     onSelectObject?.(null);
   };
-  const editor = layer === 'Props' && selectedObjectId && objects.some(item => item.id === selectedObjectId)
-    ? <WorldObjectEditor scene={scene} objectId={selectedObjectId} onChange={onChange} onClose={closeEditor} onFrameProp={onFrameProp} resolved={resolved}/> : null;
+  const productPlacement = <ProductPlacement scene={scene} onChange={onChange} pickingSurface={pickingSurface} onPickSurface={onPickSurface} onCancelPick={onCancelPick} onFrameObjects={onFrameObjects} ready={ready}/>;
+  const editor = layer === 'Props' && selectedObjectId
+    ? selectedObjectId === '$product'
+      ? <WorldProductEditor scene={scene} onChange={onChange} onClose={closeEditor}>{productPlacement}</WorldProductEditor>
+      : [environment.plinth, ...(environment.props ?? [])].some(item => item.id === selectedObjectId)
+        ? <WorldObjectEditor scene={scene} objectId={selectedObjectId} onChange={onChange} onClose={closeEditor} onFrameProp={onFrameProp} resolved={resolved}/>
+        : null
+    : null;
 
   return <div ref={root} className="gesso-panel gesso-condensed-world gesso-control-sections">
     {editorHost && editor ? createPortal(editor, editorHost) : editor}
-    {layer!=='Lights'&&<figure className="gesso-selected-world-cover" aria-label="Current stage preview">
+    {layer==='Environment'&&<figure className="gesso-selected-world-cover" aria-label="Current stage preview">
       <WorldCoverImage name={currentWorld.name} cover={covers[worldCoverKey(environment, scene.product.dimensionsM)]} selected/>
       <figcaption><span>{currentWorld.name}</span><small>Scene preview</small></figcaption>
     </figure>}
@@ -270,12 +269,12 @@ export default function WorldPanel({scene, layer, worlds, publishedWorldIds, onC
       {children}
       </>}
       {layer==='Props' && <>
+      <WorldObjectTree scene={scene} selectedId={selectedObjectId} onSelect={id => onSelectObject?.(id)}/>
       <div className="gesso-world-object-actions">
         <div className="gesso-button-row">{(['box', 'cylinder'] as const).map(shape => <button key={shape} type="button" onClick={() => {const id = addProp(structuredClone(scene), shape); if (onChange(next => {addProp(next, shape);}) === false) return; onSelectObject?.(id);}}>Add {shape}</button>)}</div>
         <details className="gesso-disclosure"><summary>Prop library</summary><PolyHavenLibrary kind="models" scopeKey={scene.sceneId} onImport={result => {const id = addPropFromLibrary(structuredClone(scene), result.entry); if (onChange(next => {addPropFromLibrary(next, result.entry);}) === false) return; onSelectObject?.(id);}}/></details>
       </div>
-      <WorldObjectPreviews items={objects} selectedId={selectedObjectId ?? undefined} onSelect={id => onSelectObject?.(id)}/>
-      {!editor&&<ProductPlacement scene={scene} onChange={onChange} pickingSurface={pickingSurface} onPickSurface={onPickSurface} onCancelPick={onCancelPick} onFrameObjects={onFrameObjects} ready={ready}/>}
+      {!editor&&<p className="gesso-meta">Select an object to adjust its size and placement.</p>}
       </>}
       {layer==='Lights' && <>
       <section className="gesso-section"><div className="gesso-section-heading gesso-section-toolbar"><span className="gesso-section-label">Studio rig</span>

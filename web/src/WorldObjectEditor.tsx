@@ -28,7 +28,7 @@ export interface WorldObjectEditorProps {
 export default function WorldObjectEditor({scene, objectId, onChange, onClose, onFrameProp, resolved}: WorldObjectEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    if (document.activeElement?.matches('.gesso-world-object-previews button:focus-visible, .gesso-world-object-actions button:focus-visible')) {
+    if (document.activeElement?.matches('.gesso-stage-object-tree button:focus-visible, .gesso-world-object-actions button:focus-visible')) {
       editorRef.current?.querySelector<HTMLElement>('input, button')?.focus();
     }
   }, [objectId]);
@@ -36,7 +36,7 @@ export default function WorldObjectEditor({scene, objectId, onChange, onClose, o
   const isPlinth = objectId === environment.plinth.id;
   const prop = isPlinth ? environment.plinth : environment.props?.find((item: any) => item.id === objectId);
   if (!prop) return null;
-  const name = isPlinth ? 'Plinth' : prop.displayName ?? prop.id;
+  const name = isPlinth ? 'Plinth' : prop.displayName ?? prop.name ?? prop.id;
   const editProp = (edit: (value: any) => void) => onChange(next => {
     const target = isPlinth ? next.environment.plinth : next.environment.props?.find((item: any) => item.id === objectId);
     if (target) edit(target);
@@ -64,11 +64,11 @@ export default function WorldObjectEditor({scene, objectId, onChange, onClose, o
       <button type="button" className="gesso-text-button" onClick={() => onClose()} aria-label="Close object settings">Done</button>
     </header>
     <div className="gesso-world-object-body">
-      {!isPlinth && <Field label="Name"><input aria-label="Object name" value={prop.displayName ?? prop.id} maxLength={80} onChange={event => {const name = event.target.value; editProp(target => {target.displayName = name;});}}/></Field>}
+      {!isPlinth && <Field label="Name"><input aria-label="Object name" value={prop.displayName ?? prop.name ?? prop.id} maxLength={80} onChange={event => {const name = event.target.value; editProp(target => {target.displayName = name;});}}/></Field>}
       {isPlinth && <label className="gesso-check"><input type="checkbox" checked={prop.visible !== false} onChange={event => {const visible = event.target.checked; onChange(next => setPlinthShown(next, visible, resolved));}}/><span>Show plinth</span></label>}
       {!isPlinth&&<button type="button" disabled={restsOnThis || !canPropSupportProduct(prop)} title={!canPropSupportProduct(prop) ? 'A support needs a visible, level top surface.' : undefined}
         onClick={() => onChange(next => {usePropAsSupport(next, objectId, resolved);})}>{restsOnThis ? 'Product rests on this object' : 'Rest product on this object'}</button>}
-      <details className="gesso-disclosure" key={`transform-${objectId}`}><summary>Exact size and placement</summary>
+      <details className="gesso-disclosure" key={`transform-${objectId}`} open><summary>Exact size and placement</summary>
         <section className="gesso-section">
         {!isPlinth && <>
           {prop.shape === 'mesh' ? <p className="gesso-meta">Imported mesh · {prop.materialOverride ? 'material override' : 'original UVs and materials'}</p> : <Field label="Shape"><select value={prop.shape} onChange={event => {const shape = event.target.value as 'box' | 'cylinder'; editProp(target => setPropShape(target, shape));}}><option value="box">Box</option><option value="cylinder">Cylinder</option></select></Field>}</>}

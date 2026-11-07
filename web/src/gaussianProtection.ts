@@ -23,3 +23,15 @@ export function clampGaussianTarget(protection: GaussianProtection, target: Poin
   const clamp = (axis: number) => Math.min(protection.targetMaxM[axis], Math.max(protection.targetMinM[axis], target[axis]));
   return [clamp(0), clamp(1), clamp(2)];
 }
+
+/** Bound presentation-only orbit, pan and zoom to the reviewed room volume. */
+export function clampGaussianPose(protection: GaussianProtection,
+  camera: {positionM: readonly number[]; targetM: readonly number[]}): {positionM: Point; targetM: Point} | null {
+  if (![camera.positionM, camera.targetM].every(point => point.length === 3 && point.every(Number.isFinite))) return null;
+  const clamp = (point: readonly number[], minimum: Point, maximum: Point): Point =>
+    point.map((value, axis) => Math.max(minimum[axis], Math.min(maximum[axis], value))) as Point;
+  const positionM = clamp(camera.positionM, protection.positionMinM, protection.positionMaxM);
+  const targetM = clamp(camera.targetM, protection.targetMinM, protection.targetMaxM);
+  if (Math.hypot(...positionM.map((value, axis) => value - targetM[axis])) < .001) return null;
+  return {positionM, targetM};
+}

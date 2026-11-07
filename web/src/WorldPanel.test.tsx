@@ -11,13 +11,14 @@ function representationWorld(id: string, representation: string, providerWorldId
     revisionId: id, provenance: {representation, providerWorldId, ...(representation === 'hq-visual-glb' ? {meshVariant: 'textured'} : {})}, ...overrides}};
 }
 describe('World panel', () => {
-  it('shows a stage cover for Environment and Props and leads Lighting with the rig', () => {
-    for (const layer of ['Environment', 'Props'] as const) {
-      const html = render(layer);
-      expect(html).toContain('aria-label="Current stage preview"');
-      expect(html.indexOf('gesso-selected-world-cover')).toBeLessThan(html.indexOf('gesso-stage-controls'));
-      expect(html).toContain('Scene preview');
-    }
+  it('leads Environment with its cover, Objects with the graph and Lighting with the rig', () => {
+    const environment = render('Environment');
+    expect(environment).toContain('aria-label="Current stage preview"');
+    expect(environment.indexOf('gesso-selected-world-cover')).toBeLessThan(environment.indexOf('gesso-stage-controls'));
+    const objects = render('Props');
+    expect(objects).not.toContain('aria-label="Current stage preview"');
+    expect(objects.indexOf('aria-label="Scene objects"')).toBeLessThan(objects.indexOf('Add box'));
+    expect(objects).toContain('data-object-id="$product"');
     const lights = render('Lights');
     expect(lights).not.toContain('aria-label="Current stage preview"');
     expect(lights).toContain('aria-label="Select Key · Area"');

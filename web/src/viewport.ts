@@ -27,7 +27,7 @@ import { labelGeometry, labelImageDimensions, labelTemplateSvg, type LabelMappin
 import { assetUrl as runtimeAssetUrl } from './runtime';
 import { productSupportOrigin, sceneFloorY } from './sceneGraph';
 import {WaterRippleMap, type WaterRippleSettings} from './waterRipple';
-import {clampGaussianTarget, protectedGaussianPose, type GaussianProtection} from './gaussianProtection';
+import {clampGaussianPose, clampGaussianTarget, protectedGaussianPose, type GaussianProtection} from './gaussianProtection';
 import {PropTransform, type PropTransformCommit, type PropTransformMode} from './propTransform';
 
 export type {PropTransformEdit} from './propTransform';
@@ -332,7 +332,7 @@ export class StudioViewport {
 
   private updateControlsEnabled(): void {
     this.syncPropTransform();
-    if (this.controls) this.controls.enabled = this.inspectionEnabled && !this.activeGaussianProtection() && !(this.filmContent && this.filmClip?.kind !== 'scene') && !this.disposed && !this.loading && !(this.deferredWorld?.loading && !this.productPreview) && !this.loadFailed && !this.awaitingSample && !this.worldPickEnabled && !this.surfacePickEnabled && !this.propTransform?.dragging && this.parts.size > 0;
+    if (this.controls) this.controls.enabled = this.inspectionEnabled && !(this.filmContent && this.filmClip?.kind !== 'scene') && !this.disposed && !this.loading && !(this.deferredWorld?.loading && !this.productPreview) && !this.loadFailed && !this.awaitingSample && !this.worldPickEnabled && !this.surfacePickEnabled && !this.propTransform?.dragging && this.parts.size > 0;
     if(this.controls&&!this.controls.enabled&&this.controlsInteracting)this.rebuildControls(this.interactionSurface);
     (this.controlSurface?.element ?? this.canvas).style.cursor = this.worldPickEnabled || this.surfacePickEnabled ? 'crosshair' : this.propTransform?.dragging ? 'grabbing' : this.controls?.enabled ? 'grab' : '';
   }
@@ -346,7 +346,17 @@ export class StudioViewport {
     if(!this.controlsInteracting){this.controlsInteracting=true;this.options.onInteract?.();}
   }
 
-  private onControlsChange(): void { this.invalidate(); }
+  private onControlsChange(): void {
+    const protection = this.activeGaussianProtection();
+    if (protection && this.controls && this.sampledCamera) {
+      const pose = clampGaussianPose(protection, {positionM: this.camera.position.toArray(), targetM: this.controls.target.toArray()});
+      this.camera.position.fromArray(pose?.positionM ?? this.sampledCamera.position.toArray());
+      this.controls.target.fromArray(pose?.targetM ?? this.sampledCamera.target.toArray());
+      this.camera.lookAt(this.controls.target);
+      this.camera.updateMatrixWorld(true);
+    }
+    this.invalidate();
+  }
   private onControlsEnd(): void { this.finishControlsInteraction();this.updateControlsEnabled(); }
 
   private finishControlsInteraction():void {
@@ -2493,7 +2503,7 @@ export class StudioViewport {
       }
       const values = sample.camera;
       this.sampledOptics = sampledDepthOfField(values);
-      const inspection = this.inspectingCamera && !this.activeGaussianProtection() ? {
+      const inspection = this.inspectingCamera ? {
         position: this.camera.position.clone(), quaternion: this.camera.quaternion.clone(), fov: this.camera.fov,
       } : null;
       this.camera.position.fromArray(values.positionM);

@@ -251,7 +251,7 @@ function Editor({active = true, onReady, onLoadError}: StudioEditorProps) {
   const stageObjectId=worldObjectId??(scene&&scene.environment.plinth.visible===false&&!scene.environment.props?.some((prop:any)=>prop.visible!==false)?'$product':null);
   const [stageTransformMode,setStageTransformMode]=useState<PropTransformEdit['mode']>('translate');
   useEffect(()=>setWorldObjectId(null),[project?.id,scene?.sceneId]);
-  const worldEditorVisible=!!scene&&tab==='world'&&layer==='Props'&&!!worldObjectId&&[scene.environment.plinth,...(scene.environment.props??[])].some((item:any)=>item.id===worldObjectId);
+  const worldEditorVisible=!!scene&&tab==='world'&&layer==='Props'&&!!worldObjectId&&(worldObjectId==='$product'||[scene.environment.plinth,...(scene.environment.props??[])].some((item:any)=>item.id===worldObjectId));
   const sideEditorVisible=materialEditorVisible||worldEditorVisible;
   const filmGuidesVisible=filmWorkspace&&(!showComparison||showExport);
   const [filmGuide,setFilmGuide]=useState<FilmPresentationGuide|null>(null);

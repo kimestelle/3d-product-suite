@@ -2202,3 +2202,11 @@ This moves deletion out of Shape and placement so the actions that manage a ligh
 **Implemented in the public studio demo.** Estelle approved publishing the full Limestone Light Court and Water-light Pavilion. The Stage library shows lightweight snapshots of the actual splats. Each card opens its own Auden scene with a room overview and a detail shot inside the saved camera bounds. A selected room offers its full SPZ as a download. Authored studio returns to the original Auden campaign and its sampled film. The hosted scenes are view-only.
 
 Scope includes the static demo loader, Stage → Environment, and `scripts/add_demo_world_previews.py`. Each public scene uses the same existing Auden product revision. Publication copies only the two selected rooms and their referenced assets. The authored film samples and local world library are preserved.
+
+### 2026-11-06 — D249 — Lead Objects with its scene graph and allow bounded room inspection
+
+**Implemented.** Stage → Objects opens with the product, contact surface and all props, including hidden instances. Saved placement dependencies determine indentation. Selecting an object reveals its size and placement in the existing inspector. Product sizing changes its uniform Stage scale. The scene list replaces the thumbnail renderer on this surface.
+
+Room inspection permits orbit, pan and zoom inside the saved camera and aim bounds. The earlier blanket orbit restriction is superseded. Inspection changes the presented camera, while authored shots retain their existing validation. These rectangular bounds limit the reviewed room volume and do not provide collision geometry for furniture or reconstructed walls.
+
+Scope includes WorldObjectTree, WorldProductEditor, WorldPanel, WorldObjectEditor, App, gaussianProtection and viewport.
