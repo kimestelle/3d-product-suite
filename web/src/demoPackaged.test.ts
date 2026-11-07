@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { evaluateDemoScene, type DemoBundle } from './demo';
+import { evaluateDemoScene, loadDemoBundle, type DemoBundle } from './demo';
 
 vi.mock('./runtime', () => ({ demoDataUrl: (filename = 'bootstrap.json') => '/demo/' + filename }));
 const directory = process.env.GESSO_DEMO_DIR ?? fileURLToPath(new URL('../public/demo/', import.meta.url));
@@ -28,6 +28,7 @@ describe.skipIf(bundle?.bootstrap.demo?.playbackMode !== 'sampled')('the built c
   it('plays each packaged world and returns to the original with identical film samples', async () => {
     const original = bundle!.bootstrap.project.scene;
     for (const world of bundle!.bootstrap.worlds) {
+      if (Object.hasOwn(bundle!.bootstrap.demo.worldPreviews ?? {}, world.id)) continue;
       const scene = structuredClone(original);
       scene.environment = structuredClone(world.environment);
       for (const key of ['plinth', 'props', 'floorY', 'studioSizeM']) {
@@ -43,6 +44,31 @@ describe.skipIf(bundle?.bootstrap.demo?.playbackMode !== 'sampled')('the built c
       expect((await evaluateDemoScene(result.scene, bundle!)).scene).toEqual(original);
       scene.environment.asset.path = 'assets/not-packaged.glb';
       await expect(evaluateDemoScene(scene, bundle!)).rejects.toThrow('included environments');
+    }
+  });
+
+  it.skipIf(!Object.keys(bundle?.bootstrap.demo?.worldPreviews ?? {}).length)('opens the protected room samples without loading the authored film', async () => {
+    const requested: string[] = [];
+    vi.stubGlobal('fetch', async (url: string) => {
+      const filename = url.replace(/^\/demo\//, '');
+      requested.push(filename);
+      return {ok: true, json: async () => JSON.parse(readFileSync(join(directory, filename), 'utf8'))};
+    });
+    try {
+      for (const [id, filename] of Object.entries(bundle!.bootstrap.demo.worldPreviews)) {
+        requested.length = 0;
+        const preview = await loadDemoBundle(`?world=${encodeURIComponent(id)}`);
+        expect(requested).toEqual(['bootstrap.json', filename]);
+        const world = bundle!.bootstrap.worlds.find((world: any) => world.id === id);
+        expect(preview.bootstrap.project.scene.environment.asset).toEqual(world.environment.asset);
+        expect(preview.bootstrap.project.scene.environment.gaussianProtection).toEqual(world.cameraProtection.bounds);
+        expect((await evaluateDemoScene(preview.bootstrap.project.scene, preview)).frames).toEqual(preview.samples.frames);
+      }
+      const authored = await loadDemoBundle('');
+      expect(authored.bootstrap.project).toEqual(bundle!.bootstrap.project);
+      expect(authored.samples.frames).toEqual(bundle!.samples.frames);
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 

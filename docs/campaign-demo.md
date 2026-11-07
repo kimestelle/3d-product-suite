@@ -47,3 +47,28 @@ this small image first. Mesh and splat covers never fetch their full world asset
 the full asset loads only when a world is applied by a connected editor or is
 the bundle’s opening scene. A captured preview of the
 selected scene can replace its thumbnail. Missing thumbnails say “Open to preview.”
+
+## Publish protected room previews
+
+The public [Limestone Light Court](https://gesso-studio-gold.vercel.app/?step=world&layer=environment&world=world-364b6f8b24aad4424cab5870)
+and [Water-light Pavilion](https://gesso-studio-gold.vercel.app/?step=world&layer=environment&world=world-c26993d16004753b951c1562)
+open as separate sampled scenes with a room overview and an Auden detail.
+Their lightest library previews are JPEGs of the actual splats. Opening a room
+loads its full two-million-splat SPZ. The selected room offers a direct SPZ
+download. Authored studio returns to the original Auden film.
+
+To rebuild the release, extract the [Atlas rooms overlay](https://github.com/kimestelle/3d-product-suite/releases/tag/atlas-worlds-2026-11-06)
+into an empty directory and assemble it with the previously packaged Auden demo:
+
+```sh
+python3 scripts/add_demo_world_previews.py \
+  --base /path/to/packaged-auden-demo \
+  --overlay /path/to/extracted-atlas-worlds \
+  --output /path/to/empty/web/public/demo
+```
+
+The overlay holds the published world records, protected shot samples, covers,
+and SPZ files. The base supplies the already published Auden product and its
+original film samples. Assembly re-evaluates the protected shots and verifies
+referenced asset hashes before writing a new bundle. Build with
+`VITE_STATIC_DEMO=1` using that output. The hosted previews are view-only.

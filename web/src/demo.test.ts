@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { demoApi, evaluateDemoScene, type DemoBundle } from './demo';
+import { demoApi, evaluateDemoScene, loadDemoBundle, type DemoBundle } from './demo';
 
 vi.mock('./runtime', () => ({ demoDataUrl: (filename = 'bootstrap.json') => '/repository/demo/' + filename }));
 
@@ -124,6 +124,42 @@ describe('the original browser demo', () => {
 });
 
 describe('a packaged imported campaign', () => {
+  it('loads only a published preview and rejects frames outside its camera bounds', async () => {
+    const {bootstrap, samples: authoredSamples} = clone(sampledBundle);
+    const bounds = {outside: 'white', positionMinM: [-2, -2, -2], positionMaxM: [2, 2, 2],
+      targetMinM: [-2, -2, -2], targetMaxM: [2, 2, 2]};
+    const environment = bootstrap.project.scene.environment;
+    bootstrap.worlds = [{id: 'court', environment, cameraProtection: {bounds}}];
+    bootstrap.demo.worldPreviews = {court: 'previews/court.json'};
+    const project = {...bootstrap.project, id: 'court-preview', scene: {
+      ...bootstrap.project.scene, environment: {...environment, gaussianProtection: bounds},
+    }};
+    const samples = {...authoredSamples, digest: project.revisionId, frames: [authoredSamples.frames[0]]};
+    const files = {'bootstrap.json': bootstrap, 'samples.json': authoredSamples, 'previews/court.json': {project, samples}};
+    const fetcher = vi.fn(async (url: string) => {
+      const name = url.replace('/repository/demo/', '') as keyof typeof files;
+      return {ok: Object.hasOwn(files, name), json: async () => clone(files[name])};
+    });
+    vi.stubGlobal('fetch', fetcher);
+    try {
+      const preview = await loadDemoBundle('?world=court');
+      expect(preview.bootstrap.project).toEqual(project);
+      expect(preview.bootstrap.projects.map((item: any) => item.id)).toEqual(['court-preview']);
+      expect(preview.bootstrap.capabilities.staticWorldPreviewIds).toEqual(['court']);
+      expect(fetcher.mock.calls.flat()).toEqual(['/repository/demo/bootstrap.json', '/repository/demo/previews/court.json']);
+
+      fetcher.mockClear();
+      const baseline = await loadDemoBundle('?world=constructor');
+      expect(baseline.bootstrap.project).toEqual(bootstrap.project);
+      expect(fetcher.mock.calls.flat()).toEqual(['/repository/demo/bootstrap.json', '/repository/demo/samples.json']);
+
+      samples.frames[0].camera.positionM = [2.01, 0, 0];
+      await expect(loadDemoBundle('?world=court')).rejects.toThrow('reviewed camera');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('preserves canonical scaled assembly and Film motion samples exactly', async () => {
     const result = await evaluateDemoScene(sampledBundle.bootstrap.project.scene, sampledBundle);
     expect(result.frames).toEqual(sampledBundle.samples.frames);

@@ -1,6 +1,7 @@
 import { demoDataUrl } from './runtime';
 import { campaignMaterialPresets } from './materialPresets';
 import { removedPartIds } from './partTargets';
+import { protectedGaussianPose } from './gaussianProtection';
 
 /** The public fixture is an interactive preview. No backend calls are emulated. */
 export type DemoBundle = { bootstrap: any; samples: any };
@@ -307,12 +308,49 @@ export async function evaluateDemoScene(scene: any, bundle: DemoBundle): Promise
 }
 
 let loading: Promise<DemoBundle> | undefined;
+async function fetchDemoFile(filename: string) {
+  const response = await fetch(demoDataUrl(filename), { credentials: 'same-origin' });
+  if (!response.ok) throw new Error('The browser demo files could not be loaded. Reload this page.');
+  return response.json();
+}
+
+/** A published room is a separate, pre-sampled scene. The Auden film's
+ * camera and samples belong to its authored stage. */
+export async function loadDemoBundle(search: string): Promise<DemoBundle> {
+  const worldId = new URLSearchParams(search).get('world');
+  // Keep the baseline requests parallel. Alternate rooms never load the film's
+  // large sample file unless their URL names an unpublished room.
+  const [bootstrap, originalSamples] = await Promise.all([
+    fetchDemoFile('bootstrap.json'), worldId ? undefined : fetchDemoFile('samples.json'),
+  ]);
+  const files = bootstrap.demo?.worldPreviews;
+  const published = (bootstrap.worlds ?? []).filter((world: any) =>
+    files && Object.hasOwn(files, world.id) && typeof files[world.id] === 'string');
+  if (published.length) bootstrap.capabilities.staticWorldPreviewIds = published.map((world: any) => world.id);
+  const world = published.find((world: any) => world.id === worldId);
+  if (!world) return { bootstrap, samples: originalSamples ?? await fetchDemoFile('samples.json') };
+
+  const {project, samples} = await fetchDemoFile(files[world.id]);
+  const environment = project?.scene?.environment;
+  const protection = world.cameraProtection?.bounds;
+  requireDemo(typeof project?.id === 'string'
+    && environment?.kind === 'splat'
+    && environment.revisionId === world.environment.revisionId
+    && typeof environment.asset?.sha256 === 'string' && environment.asset.sha256 === world.environment.asset?.sha256
+    && typeof samples?.digest === 'string' && samples.digest === project.revisionId
+    && Array.isArray(samples?.frames) && samples.frames.length > 0
+    && protection && environment.gaussianProtection && equal(environment.gaussianProtection, protection)
+    && samples.frames.every((sample: any) => protectedGaussianPose(protection, sample.camera)),
+  'The published room and its reviewed camera could not be loaded.');
+  const {scene: _scene, ...summary} = project;
+  return { bootstrap: {
+    ...bootstrap, project, projects: [summary],
+    demo: {...bootstrap.demo, allowedPartIds: []},
+  }, samples };
+}
+
 async function demoBundle(): Promise<DemoBundle> {
-  if (!loading) loading = Promise.all(['bootstrap.json', 'samples.json'].map(async filename => {
-    const response = await fetch(demoDataUrl(filename), { credentials: 'same-origin' });
-    if (!response.ok) throw new Error('The browser demo files could not be loaded. Reload this page.');
-    return response.json();
-  })).then(([bootstrap, samples]) => ({ bootstrap, samples })).catch(error => { loading = undefined; throw error; });
+  if (!loading) loading = loadDemoBundle(globalThis.location?.search ?? '').catch(error => { loading = undefined; throw error; });
   return loading;
 }
 

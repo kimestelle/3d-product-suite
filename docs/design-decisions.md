@@ -2196,3 +2196,9 @@ Film keeps shot selection, aspect ratio and focal length visible. Camera motion,
 **Implemented in Stage → Lighting.** A three-dot menu beside each light opens Rename, Duplicate, and Delete light. Rename edits the row. Duplicate selects a separate copy of the light's settings and effects. Film motions stay with the original. Delete removes the light and its shot and film motions as one undoable edit. The eight-light limit and the requirement to keep a light or HDRI still apply.
 
 This moves deletion out of Shape and placement so the actions that manage a light live beside its name. Scope includes `WorldPanel.tsx`, the shared `PartOptionsMenu.tsx`, and `world.ts`.
+
+### 2026-11-06 — D248 — Publish the two refined Atlas rooms as protected views
+
+**Implemented in the public studio demo.** Estelle approved publishing the full Limestone Light Court and Water-light Pavilion. The Stage library shows lightweight snapshots of the actual splats. Each card opens its own Auden scene with a room overview and a detail shot inside the saved camera bounds. A selected room offers its full SPZ as a download. Authored studio returns to the original Auden campaign and its sampled film. The hosted scenes are view-only.
+
+Scope includes the static demo loader, Stage → Environment, and `scripts/add_demo_world_previews.py`. Each public scene uses the same existing Auden product revision. Publication copies only the two selected rooms and their referenced assets. The authored film samples and local world library are preserved.

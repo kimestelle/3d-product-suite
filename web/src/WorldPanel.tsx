@@ -13,6 +13,7 @@ import './world-objects.css';
 import {NumberControl, VectorControl} from './EditorControls';
 import {formatScalePercent} from './transforms';
 import {matchWorldRevision} from './comparison';
+import {assetUrl} from './runtime';
 import PolyHavenLibrary from './PolyHavenLibrary';
 import WorldCleanupPanel,{type WorldCleanupPreview,type WorldCleanupSelection} from './WorldCleanupPanel';
 import {addLight, addProp, addPropFromLibrary, applyDramaticSpot, applyDeskLamp, setHdriFromLibrary, colorFromHex, colorHex, defaultLighting, duplicateLight, ensureLighting, lightType, removeLight, setLightType, setWorldYaw, worldYaw, SPOT_DEFAULTS, type StudioLighting, type StudioLightType} from './world';
@@ -21,6 +22,7 @@ import {objectName, productSupportTargets, relationLabels, sceneFloorY, setProdu
 export type WorldLayer = 'Environment' | 'Props' | 'Lights';
 export interface WorldPanelProps extends CurrentWorldCapture {
   scene: any; layer: WorldLayer; worlds: WorldCoverItem[];
+  publishedWorldIds?: string[];
   onChange: (edit: (scene: any) => void) => void | boolean; onWorld: (id: string) => void; onImport: () => void;
   onFitProduct?: () => void;
   fitDisabled?: boolean;
@@ -141,7 +143,7 @@ export function WorldRepresentationSelect({worlds, current, onWorld}: {worlds: W
   </section>;
 }
 
-export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onImport, onFitProduct, fitDisabled, onFrameProp, selectedObjectId = null, onSelectObject, editorHost, children, captureCurrentWorld, worldPreviewReady, worldPreviewRevision, resolved, pickingSurface, onPickSurface, onCancelPick, onFrameObjects, ready, analyzePostProcessing,postProcessingReady,cleanupAvailable,cleanupBusy,cleanupScopeKey,cleanupPreview,onCleanupPreview,onCleanupApply,onCleanupSelection,onCleanupFrame}: WorldPanelProps) {
+export default function WorldPanel({scene, layer, worlds, publishedWorldIds, onChange, onWorld, onImport, onFitProduct, fitDisabled, onFrameProp, selectedObjectId = null, onSelectObject, editorHost, children, captureCurrentWorld, worldPreviewReady, worldPreviewRevision, resolved, pickingSurface, onPickSurface, onCancelPick, onFrameObjects, ready, analyzePostProcessing,postProcessingReady,cleanupAvailable,cleanupBusy,cleanupScopeKey,cleanupPreview,onCleanupPreview,onCleanupApply,onCleanupSelection,onCleanupFrame}: WorldPanelProps) {
   const root = useRef<HTMLDivElement>(null);
   const [selectedLight, setSelectedLight] = useState('key');
   const [addLightOpen, setAddLightOpen] = useState(false);
@@ -216,14 +218,18 @@ export default function WorldPanel({scene, layer, worlds, onChange, onWorld, onI
         <WorldRepresentationSelect worlds={worlds} current={currentWorld} onWorld={onWorld}/>
         <section className="gesso-section"><div className="gesso-section-heading"><span className="gesso-section-label">Surroundings</span></div>
           <div className="gesso-world-cover-library gesso-selection-surface" role="group" aria-label="World library">
-            {worldItems.filter(world=>world.id!=='current').map(world => <button key={world.id} ref={element => observe(world.id, element)} type="button"
-              className="gesso-world-cover-card" data-world-id={world.id} aria-label={`Use ${world.name}`}
+            {worldItems.filter(world=>world.id!=='current'&&(!publishedWorldIds||world.id==='authored'||publishedWorldIds.includes(world.id))).map(world => <button key={world.id} ref={element => observe(world.id, element)} type="button"
+              className="gesso-world-cover-card" data-world-id={world.id} aria-label={publishedWorldIds?`Open ${world.name} preview`:`Use ${world.name}`}
               aria-pressed={currentWorld.id === world.id} onClick={() => {if (world.id !== currentWorld.id || Object.hasOwn(world,'cameraProtection')&&!environment.gaussianProtection) onWorld(world.id);}}>
               <WorldCoverImage name={world.name} cover={covers[worldCoverKey(world.environment, world.productDimensionsM)]}/><span>{world.name}</span>
             </button>)}
           </div>
           <p className="gesso-meta">{environment.kind === 'authored' ? environment.plinth.visible === false ? 'Curved sweep' : 'Curved sweep + contact plinth' : environment.kind === 'splat' ? 'Gaussian world · camera-matched plate' : 'Imported mesh · native geometry'}</p>
-          <button type="button" onClick={onImport}>Import world ↗</button>
+          {publishedWorldIds ? <>
+            <p className="gesso-meta gesso-note">Each room opens at its reviewed camera. Authored studio returns to the Auden film.</p>
+            {publishedWorldIds.includes(currentWorld.id)&&environment.asset?.format==='spz'&&
+              <a className="text-link" href={assetUrl(environment.asset.path)} download>Download SPZ ↓</a>}
+          </> : <button type="button" onClick={onImport}>Import world ↗</button>}
         </section>
         {environment.asset && !environment.gaussianProtection && <details className="gesso-disclosure gesso-compact-details"><summary>Alignment <span>{Number(environment.asset.scaleToMeters.toPrecision(4))} m/u</span></summary><section className="gesso-section">
           <NumberField label="Scale" unit="m/u" ariaLabel="Meters per source unit" value={environment.asset.scaleToMeters} min={.00001} step={.01} onChange={value => onChange(next => {next.environment.asset.scaleToMeters = value;})}/>
