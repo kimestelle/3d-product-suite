@@ -146,12 +146,12 @@ describe('a packaged imported campaign', () => {
       expect(preview.bootstrap.project).toEqual(project);
       expect(preview.bootstrap.projects.map((item: any) => item.id)).toEqual(['court-preview']);
       expect(preview.bootstrap.capabilities.staticWorldPreviewIds).toEqual(['court']);
-      expect(fetcher.mock.calls.flat()).toEqual(['/repository/demo/bootstrap.json', '/repository/demo/previews/court.json']);
+      expect(fetcher.mock.calls.map(([url]) => url)).toEqual(['/repository/demo/bootstrap.json', '/repository/demo/previews/court.json']);
 
       fetcher.mockClear();
       const baseline = await loadDemoBundle('?world=constructor');
       expect(baseline.bootstrap.project).toEqual(bootstrap.project);
-      expect(fetcher.mock.calls.flat()).toEqual(['/repository/demo/bootstrap.json', '/repository/demo/samples.json']);
+      expect(fetcher.mock.calls.map(([url]) => url)).toEqual(['/repository/demo/bootstrap.json', '/repository/demo/samples.json']);
 
       samples.frames[0].camera.positionM = [2.01, 0, 0];
       await expect(loadDemoBundle('?world=court')).rejects.toThrow('reviewed camera');
