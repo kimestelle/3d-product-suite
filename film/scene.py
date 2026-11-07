@@ -65,6 +65,16 @@ def _validate_gaussian_protection(environment):
                  f"Gaussian camera {point} bounds must be ordered")
 
 
+def validate_gaussian_camera(environment, camera, frame):
+    protection = environment.get("gaussianProtection")
+    if protection is None:
+        return
+    for point in ("position", "target"):
+        _require(all(lo <= value <= hi for lo, value, hi in zip(
+            protection[f"{point}MinM"], camera[f"{point}M"], protection[f"{point}MaxM"])),
+            f"Camera {point} is outside the protected Gaussian world at frame {frame}")
+
+
 def _provenance(value, name):
     _require(isinstance(value, dict), f"{name} provenance is required")
     for key in ("source", "reuseBasis", "owner"):
@@ -839,13 +849,9 @@ def _evaluate_frame(scene, frame, *, include_placement=False, resolved_objects=N
     camera = {key: [x+(y-x)*u for x,y in zip(before[key],after[key])] for key in ("positionM","targetM")}
     camera["focalLengthMm"] = before["focalLengthMm"] + (after["focalLengthMm"]-before["focalLengthMm"])*u
     _film_camera(scene, shot, frame, camera)
-    protection = scene["environment"].get("gaussianProtection")
     # Black and image clips do not expose a Gaussian camera.
-    if protection is not None and selected is not None and selected.get("kind") != "image":
-        for point in ("position", "target"):
-            _require(all(lo <= value <= hi for lo, value, hi in zip(
-                protection[f"{point}MinM"], camera[f"{point}M"], protection[f"{point}MaxM"])),
-                f"Camera {point} is outside the protected Gaussian world at frame {frame}")
+    if selected is not None and selected.get("kind") != "image":
+        validate_gaussian_camera(scene["environment"], camera, frame)
     optics = shot["camera"].get("depthOfField", {})
     camera["depthOfField"] = {
         "enabled": optics.get("enabled", False),

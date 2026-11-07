@@ -25,7 +25,7 @@ from . import jobs
 from .post_processing import apply_post_processing, has_post_processing
 from .proof_inputs import digest
 from .render_arbitration import arbiter, foreground_render_slot
-from .scene import evaluate, film_duration, sample_scene, scene_digest, validate_scene
+from .scene import evaluate, film_duration, sample_scene, scene_digest, validate_gaussian_camera, validate_scene
 from .store import ConflictError, identifier
 from .worlds import safe_asset_path, verify_scene_assets
 
@@ -255,6 +255,8 @@ class NativeProofService:
         sample = evaluate(scene, frame)
         _require(sample.get('clip', {}).get('kind', 'scene') == 'scene', 'Choose a 3D film frame for a native proof.')
         profile, camera = proof_profile(scene, data), _camera(data.get('cameraOverride'))
+        if camera is not None:
+            validate_gaussian_camera(scene['environment'], camera, frame)
         verify_scene_assets(scene, self.root)
         with self.condition:
             _require(not self.closed, 'The proof service is stopping.')
